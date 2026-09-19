@@ -1,0 +1,8 @@
+vendor/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.env
+*.log
+public/uploads/
+app/backups/

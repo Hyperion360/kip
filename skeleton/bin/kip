@@ -1,0 +1,98 @@
+#!/usr/bin/env php
+<?php // bin/kip
+require __DIR__ . '/../vendor/autoload.php';
+$config = require __DIR__ . '/../config.php';
+
+match ($argv[1] ?? 'help') {
+    'migrate' => (function () use ($config) {
+        $db = new Kip\Database($config['db']['dsn']);
+        $log = new Kip\RequestLog(new Kip\Database($config['log_db']['dsn']), $config['log_db']['retention_days'] ?? 30);
+        $log->pruneToRetention();
+        $ran = (new Kip\Migrations\Migrator($db, $config['app_dir'] . '/migrations'))->migrate();
+        echo $ran ? 'Ran: ' . implode(', ', $ran) . "\n" : "Nothing to migrate.\n";
+    })(),
+    'rollback' => (function () use ($config) { // review 4A
+        $db = new Kip\Database($config['db']['dsn']);
+        $undone = (new Kip\Migrations\Migrator($db, $config['app_dir'] . '/migrations'))->rollback();
+        echo $undone ? 'Rolled back: ' . implode(', ', $undone) . "\n" : "Nothing to roll back.\n";
+    })(),
+    'serve' => (function () use ($config) {
+        $ran = (new Kip\Migrations\Migrator(new Kip\Database($config['db']['dsn']), $config['app_dir'] . '/migrations'))->migrate();
+        if ($ran) echo 'Auto-migrated: ' . implode(', ', $ran) . "\n";
+        passthru('KIP_ENV=dev php -S localhost:8080 -t ' . escapeshellarg(__DIR__ . '/../public'));
+    })(),
+    'user:create' => (function () use ($config, $argv) {
+        $rest    = array_slice($argv, 2);
+        $isAdmin = in_array('--admin', $rest, true);
+        $rest    = array_values(array_filter($rest, static fn(string $a): bool => $a !== '--admin'));
+        $email    = $rest[0] ?? '';
+        $password = $rest[1] ?? null;
+        if ($email === '') {
+            fwrite(STDERR, "Usage: kip user:create <email> [password] [--admin]\n");
+            exit(1);
+        }
+        if ($password === null) {                       // QA T8: keep secrets out of shell history / ps
+            fwrite(STDOUT, "Password (input hidden): ");
+            if (function_exists('shell_exec') && stripos(PHP_OS_FAMILY, 'Windows') === false) {
+                shell_exec('stty -echo 2>/dev/null');
+                $password = rtrim((string) fgets(STDIN), "\n");
+                shell_exec('stty echo 2>/dev/null');
+                fwrite(STDOUT, "\n");
+            } else {
+                $password = rtrim((string) fgets(STDIN), "\n"); // visible fallback (Windows / no stty)
+            }
+        }
+        if (strlen($password) < 8) {
+            fwrite(STDERR, "Password must be at least 8 characters (matches the reset flow).\n");
+            exit(1);
+        }
+        $db = new Kip\Database($config['db']['dsn']);
+        $store = [];
+        $auth = new Kip\Auth($db, new Kip\Session($store));
+        try {
+            $auth->register($email, $password);
+        } catch (\PDOException $e) {
+            if (str_contains($e->getMessage(), 'UNIQUE')) {
+                fwrite(STDERR, "A user with email {$email} already exists.\n");
+                exit(1);
+            }
+            throw $e;
+        }
+        if ($isAdmin) {
+            try {
+                $db->query('UPDATE users SET is_admin = 1 WHERE email = ?', [$email]);
+            } catch (\PDOException) {
+                fwrite(STDERR, "User created, but users.is_admin is missing, run the add_users_is_admin migration first.\n");
+                exit(1);
+            }
+        }
+        echo "User {$email} created" . ($isAdmin ? ' (admin)' : '') . ".\n";
+    })(),
+    'logs' => (function () use ($config) {
+        $log = new Kip\RequestLog(new Kip\Database($config['log_db']['dsn']), $config['log_db']['retention_days'] ?? 30);
+        $log->pruneToRetention();
+        foreach (array_reverse($log->recent(50)) as $r) {
+            $user = $r['user_id'] !== null ? "user:{$r['user_id']}" : 'guest';
+            printf("%s %3d %-6s %-40s %6.1fms %-15s %s\n", $r['created_at'], $r['status'], $r['method'], $r['path'], $r['duration_ms'], $r['ip'], $user);
+        }
+    })(),
+    'logs:prune' => (function () use ($config, $argv) {
+        $arg = $argv[2] ?? '--days=30';
+        if (!preg_match('/^--days=(\d+)$/', $arg, $m) || (int) $m[1] < 1) {
+            fwrite(STDERR, "Usage: kip logs:prune --days=<positive integer>\n");
+            exit(1);
+        }
+        $days = (int) $m[1];
+        $log = new Kip\RequestLog(new Kip\Database($config['log_db']['dsn']));
+        printf("Pruned %d rows older than %d days.\n", $log->prune($days), $days);
+    })(),
+    'backup' => (function () use ($config) {
+        $result = (new Kip\Backup(array_filter([
+            'data'  => $config['db']['dsn'] ?? null,
+            'logs'  => $config['log_db']['dsn'] ?? null,
+            'cache' => $config['cache_db']['dsn'] ?? null,
+        ]), $config['app_dir'] . '/backups'))->run(date('Ymd-His'));
+        echo "Backup written: {$result}\n";
+    })(),
+    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]]\n"),
+};

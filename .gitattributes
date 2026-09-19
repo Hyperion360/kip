@@ -1,0 +1,10 @@
+# Keep the framework dist lean: consumers installing kip/framework get src/ + LICENSE + README,
+# not the monorepo's apps, docs, or test suite.
+/skeleton        export-ignore
+/examples        export-ignore
+/docs            export-ignore
+/tests           export-ignore
+/CHANGELOG.md    export-ignore
+/phpunit.xml     export-ignore
+/.gitattributes  export-ignore
+/.gitignore      export-ignore

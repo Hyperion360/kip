@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<phpunit bootstrap="vendor/autoload.php" colors="true">
+  <testsuites><testsuite name="kip"><directory>tests</directory></testsuite></testsuites>
+  <php><ini name="error_log" value="/dev/null"/></php>
+  <source><include><directory>src</directory></include></source>
+</phpunit>

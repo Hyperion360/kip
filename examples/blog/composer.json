@@ -1,0 +1,12 @@
+{
+  "name": "kip/example-blog",
+  "description": "Kip tutorial end-state: a complete, runnable blog app",
+  "license": "MIT",
+  "require": { "php": ">=8.3", "kip/framework": "^0.2@dev" },
+  "repositories": [
+    { "type": "path", "url": "../../", "options": { "symlink": true } }
+  ],
+  "autoload": { "psr-4": { "App\\": "app/src/" } },
+  "minimum-stability": "dev",
+  "prefer-stable": true
+}

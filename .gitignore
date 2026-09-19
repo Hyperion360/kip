@@ -1,0 +1,10 @@
+vendor/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.phpunit.cache/
+.DS_Store
+.phpunit.result.cache
+.env
+*.log
+public/uploads/
