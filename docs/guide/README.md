@@ -34,6 +34,9 @@ first time; after that, treat this as a reference you dip into.
     the upload threat model.
 14. [Email](14-email.md), the mail battery's three transports and the
     password-reset flow.
+15. [Performance contract](15-performance-contract.md): the
+    one-query-per-page budget, the SQL patterns that satisfy it, and test
+    enforcement.
 
 ## Companion pages
 

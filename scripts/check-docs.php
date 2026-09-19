@@ -45,6 +45,7 @@ function markdownSet(string $repoRoot): array
             new RecursiveDirectoryIterator($repoRoot . '/docs', FilesystemIterator::SKIP_DOTS)
         );
         foreach ($it as $f) {
+            if (str_starts_with($f->getPathname(), $repoRoot . '/docs/superpowers/')) { continue; } // workspace-private, never part of the repo
             if ($f->isFile() && $f->getExtension() === 'md') {
                 $files[] = $f->getPathname();
             }
