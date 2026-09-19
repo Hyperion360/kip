@@ -8,3 +8,18 @@ vendor/
 .env
 *.log
 public/uploads/
+
+# local AI-assistant configuration; workspace-private, never committed
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+.claude/
+.zcode/
+.cursor/
+.cursorrules
+.windsurf/
+.continue/
+.augment/
+.agents/
+.aider*
+.codex/
