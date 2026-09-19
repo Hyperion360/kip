@@ -37,6 +37,9 @@ first time; after that, treat this as a reference you dip into.
 15. [Performance contract](15-performance-contract.md): the
     one-query-per-page budget, the SQL patterns that satisfy it, and test
     enforcement.
+16. [Building with AI agents](16-building-with-ai.md): a tool-agnostic
+    workflow for building Kip apps with AI coding agents: plan, review,
+    execute, gate.
 
 ## Companion pages
 

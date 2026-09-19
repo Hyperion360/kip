@@ -114,10 +114,9 @@ key. Absence means off.
 - **[Tutorial](docs/tutorial.md)**: build a blog with Kip in about an hour,
   starting from `skeleton/` and ending at the complete `examples/blog/` app.
   Start here.
-- **[User guide](docs/guide/README.md)**: fourteen chapters, one per
-  battery: routing, controllers, views, database and migrations, security,
-  performance, the CLI, the audit log, deployment, testing, the admin
-  panel, uploads, email.
+- **[User guide](docs/guide/README.md)**: sixteen chapters: one per
+  battery, plus the performance contract and a workflow for building with
+  AI agents.
 - **[Architecture](docs/architecture.md)**: how the pieces fit together;
   request lifecycle, cache invalidation, security lanes.
 - **[Versioning](docs/versioning.md)**: the versioning and stability
