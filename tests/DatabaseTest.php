@@ -43,4 +43,14 @@ final class DatabaseTest extends TestCase
         $this->assertCount(2, $seen);
         $this->assertStringStartsWith('INSERT', $seen[0]);
     }
+
+    public function test_separate_credentials_are_accepted(): void // mysql-style DSNs cannot embed user/pass
+    {
+        // The sqlite driver ignores username/password, so this proves the
+        // constructor plumbs them to PDO without needing a mysql server.
+        $db = new Database('sqlite::memory:', 'someuser', 'somepass');
+        $db->query('CREATE TABLE t (id INTEGER PRIMARY KEY)');
+        $db->query('INSERT INTO t (id) VALUES (1)');
+        $this->assertSame(1, (int) $db->one('SELECT COUNT(*) c FROM t')['c']);
+    }
 }

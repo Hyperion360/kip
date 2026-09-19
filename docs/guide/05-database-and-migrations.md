@@ -45,17 +45,27 @@ for small-to-medium apps) and `PRAGMA
 foreign_keys = ON` (SQLite doesn't enforce foreign keys unless told to.
 `ON DELETE CASCADE` in a migration is inert without this).
 
-**Be aware of one gap if you switch to MySQL:** `Database`'s constructor
-also accepts `?string $user = null, ?string $pass = null`, but
-`Kip\App` only ever constructs `Database` from `$config['db']['dsn']`, it
-never reads or passes separate username/password config keys. Postgres and
-SQLite DSNs can embed credentials inline; a MySQL/PDO DSN generally cannot.
-If you need MySQL with separate credentials, you'll need to either embed
-them in the DSN where the driver supports it, or construct `Database`
-yourself (e.g. in a small bootstrap wrapper) and bind that instance into
-the container instead of relying on `config.php`'s `db.dsn` key alone.
-This is an honest gap, not a hidden feature. SQLite is the batteries-
-included default Kip is built and tested against.
+**Separate credentials.** A MySQL DSN cannot embed the username and password
+the way SQLite and Postgres DSNs can, so `config.php` accepts `user` and
+`pass` keys next to `dsn`, for every database slot (`db`, `log_db`,
+`cache_db`). `Kip\App` forwards them to the PDO constructor:
+
+```php
+'db' => [
+    'dsn'  => 'mysql:host=localhost;dbname=myapp',
+    'user' => 'myapp_user',
+    'pass' => '...',
+],
+```
+
+Connecting is the easy part. SQLite remains the default Kip is built and
+tested against, and several batteries assume it: the auth throttle and log
+pruning compare instants with SQLite's `julianday()`, backups use
+`VACUUM INTO`, the admin panel introspects schema through `PRAGMA
+table_info` and `sqlite_master`, and the atomic-migration guarantee leans on
+SQLite's transactional DDL (MySQL DDL commits implicitly, so a failed
+migration there can leave partial state). If you switch the app database to
+MySQL, plan for those four; the logs and cache databases can stay SQLite.
 
 ## Migrations
 

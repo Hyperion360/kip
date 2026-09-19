@@ -14,6 +14,10 @@ verbatim; adapt the specifics to your host.
    - **nginx + PHP-FPM**, the conventional production pairing; point
      nginx's `try_files`/`fastcgi_pass` at `public/index.php` the same way
      you would for any front-controller PHP app.
+   - **Apache**, including shared hosting; `skeleton/public/` ships an
+     `.htaccess` that routes every non-file path through `index.php`.
+     See [Apache and shared hosting](#apache-and-shared-hosting-cpanel-etc)
+     below.
    - **`php -S` behind a reverse proxy** (Caddy, nginx as a plain
      reverse proxy), viable for a low-traffic app; PHP's built-in server
      is single-threaded per request but that's often fine at $5-VPS scale.
@@ -44,8 +48,47 @@ verbatim; adapt the specifics to your host.
    ```
    0 3 * * * php /path/to/app/bin/kip logs:prune --days=30
    ```
-   (`bin/kip migrate` and `bin/kip logs` also prune automatically on every
-   run. The cron entry is the backstop for an app that runs quietly.)
+(`bin/kip migrate` and `bin/kip logs` also prune automatically on every
+run. The cron entry is the backstop for an app that runs quietly.)
+
+## Apache and shared hosting (cPanel etc.)
+
+Kip runs on ordinary shared hosting: PHP 8.3 plus `pdo_sqlite`, both
+standard on cPanel hosts (Bluehost and peers offer 8.1 through 8.3 under
+MultiPHP Manager or PHP Config). SQLite is a bundled PHP extension, so
+there is no database to create, no credentials to manage, and no
+connection-limit quota to share with neighbors. The walkthrough:
+
+1. **Upload the app** so that only `public/` is served. On cPanel, assign
+   the domain as an *addon domain or subdomain* and set its document root
+   to the app's `public/` directory; that puts `app/`, `config.php`,
+   `bin/`, and `vendor/` outside the docroot, which is the shape Kip
+   wants. For a primary domain pinned to `public_html`, upload the app
+   one level up and make `public_html` contain only the contents of
+   `public/` (or symlinks to them), so the SQLite files never sit in the
+   web root.
+2. **Select PHP 8.3** in MultiPHP Manager (or the PHP Config tile on
+   newer accounts).
+3. **The `.htaccess` shipped in `public/`** takes care of routing: real
+   files are served directly, every other path goes through
+   `index.php`, dotfiles are blocked (ACME's `.well-known/` still works),
+   and directory listings are off. It needs `mod_rewrite`, which
+   effectively every shared host enables. If your app predates the file,
+   copy it from `skeleton/public/.htaccess`.
+4. **First run needs a shell**, once: `php bin/kip migrate` then
+   `php bin/kip user:create you@example.com`. Use SSH if the plan has
+   it, or cPanel's Terminal (most modern cPanel includes one; Bluehost
+   does). There is deliberately no web-based signup or installer to
+   attack, so a shell is the front door.
+5. **Writable paths.** The `app/` directory holds the SQLite files and
+   must be writable by the PHP user (mode 755 with the right owner on
+   most hosts; 775 where the PHP user differs from the upload user).
+   Uploads need `public/uploads/` writable the same way.
+
+Two honest limits. Without any shell access at all you cannot create the
+first user, so pick a host that offers Terminal or SSH. And a primary
+domain locked to `public_html` needs the indirection in step 1; addon
+domains avoid it entirely.
 
 ## What to back up
 

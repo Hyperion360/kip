@@ -20,17 +20,29 @@ final class App
         $this->container->instance(self::class, $this);
         $this->container->instance(View::class, new View($config['views'] ?? ($config['app_dir'] ?? '.') . '/views'));
         if (isset($config['db']['dsn'])) {
-            $this->container->instance(Database::class, new Database($config['db']['dsn']));
+            $this->container->instance(Database::class, new Database(
+                $config['db']['dsn'],
+                $config['db']['user'] ?? null,
+                $config['db']['pass'] ?? null
+            ));
         }
         if (isset($config['log_db']['dsn'])) {
-            $this->requestLog = new RequestLog(new Database($config['log_db']['dsn']), $config['log_db']['retention_days'] ?? 30);
+            $this->requestLog = new RequestLog(new Database(
+                $config['log_db']['dsn'],
+                $config['log_db']['user'] ?? null,
+                $config['log_db']['pass'] ?? null
+            ), $config['log_db']['retention_days'] ?? 30);
             $this->container->instance(RequestLog::class, $this->requestLog); // tests read it from here
         }
         if (isset($config['cache_db']['dsn'])) {
             // OWN Database instance, NEVER container-resolved, or self-tagging re-materializes
             // (the cache's own writes would tag themselves as invalidation targets).
             $this->pageCache = new \Kip\Cache\PageCache(
-                new Database($config['cache_db']['dsn']),
+                new Database(
+                    $config['cache_db']['dsn'],
+                    $config['cache_db']['user'] ?? null,
+                    $config['cache_db']['pass'] ?? null
+                ),
                 $config['cache_db']['ttl_seconds'] ?? 3600
             );
         }

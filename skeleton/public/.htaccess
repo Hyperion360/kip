@@ -1,0 +1,16 @@
+# Apache rules for Kip's front controller (shared hosting, cPanel, etc.).
+# Real files are served directly; every other path goes through index.php.
+# Requires mod_rewrite, which effectively all shared hosts enable.
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Block dotfiles (.env, .git, ...), but let ACME's .well-known through
+    RewriteRule (^|/)\.(?!well-known/) - [F]
+
+    # Front controller: /controller/action/args is not a real file
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [L]
+</IfModule>

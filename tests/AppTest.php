@@ -36,6 +36,18 @@ final class AppTest extends TestCase
         $this->assertSame('welcome', $res->body);
     }
 
+    public function test_db_user_and_pass_keys_reach_the_database(): void // mysql DSNs cannot embed credentials
+    {
+        $app = new App([
+            'env' => 'dev',
+            'controller_namespace' => 'Kip\\Tests\\',
+            'views' => sys_get_temp_dir(),
+            'db' => ['dsn' => 'sqlite::memory:', 'user' => 'someuser', 'pass' => 'somepass'],
+        ]);
+        $res = $app->handle(new Request('GET', '/home/index', [], [], []));
+        $this->assertSame(200, $res->status); // booted and served with credentials forwarded (sqlite ignores them)
+    }
+
     public function test_unknown_route_is_404(): void
     {
         $res = $this->app('prod')->handle(new Request('GET', '/nope', [], [], []));
