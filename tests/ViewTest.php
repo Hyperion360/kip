@@ -91,4 +91,30 @@ final class ViewTest extends TestCase
         }
         $this->assertSame($level, ob_get_level()); // the finally block closed the buffer View opened
     }
+
+    /**
+     * render() declares string while ob_get_clean() is string|false. A template
+     * that manipulates the output buffer it was handed must still yield a
+     * string.
+     *
+     * Verified under a caller-owned output buffer, which is what PHPUnit
+     * supplies: a template that closes the buffer and re-opens one yields
+     * 'recovered'. This is a regression guard; the analyzer in Step 4 is the
+     * authority on the declared-type defect.
+     */
+    public function test_render_returns_a_string_when_a_template_manipulates_the_buffer(): void
+    {
+        $dir = sys_get_temp_dir() . '/kip-view-' . bin2hex(random_bytes(6));
+        mkdir($dir, 0777, true);
+        file_put_contents($dir . '/reopens.php', "<?php ob_end_clean(); ob_start(); echo 'recovered';");
+
+        $view = new \Kip\View($dir);
+
+        $reopened = $view->render('reopens');
+        $this->assertIsString($reopened);
+        $this->assertSame('recovered', $reopened);
+
+        unlink($dir . '/reopens.php');
+        rmdir($dir);
+    }
 }

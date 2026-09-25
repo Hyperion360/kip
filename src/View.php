@@ -57,7 +57,7 @@ final class View
                 require $this->dir . "/{$__kip_wrap}.php";
                 $__kip_content = ob_get_clean();
             }
-            return $__kip_content;
+            return (string) $__kip_content; // ob_get_clean() is string|false
         } finally {
             $this->layout = $__kip_outer;
             while (ob_get_level() > $__kip_ob) {
