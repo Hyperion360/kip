@@ -49,20 +49,61 @@ final class MigratorTest extends TestCase
     }
 
     /**
-     * The enumeration-failure branch, reached with no filesystem setup at all.
-     *
-     * glob() returns false when its pattern exceeds the platform path limit. The
-     * pattern here is 40,000 characters, beyond any MAXPATHLEN in use (1024 on
-     * macOS, 4096 on glibc Linux), so this reaches the throw on every platform and
-     * for every user, root included. The next test covers the realistic trigger.
+     * DELIBERATE: no migrations directory means nothing to run, so migrate() is a
+     * clean no-op. Throwing here would break an app that simply has no migrations.
+     * Pinned so a future change to that is a decision, not an accident.
      */
-    public function test_overlong_migrations_path_throws_rather_than_reporting_none(): void
+    public function test_missing_migrations_directory_is_a_no_op(): void
     {
-        $migrator = new \Kip\Migrations\Migrator(new \Kip\Database('sqlite::memory:'), '/' . str_repeat('b/', 20000));
+        $dir = sys_get_temp_dir() . '/kip-mig-absent-' . bin2hex(random_bytes(6));
+        $migrator = new \Kip\Migrations\Migrator(new \Kip\Database('sqlite::memory:'), $dir);
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Cannot list migrations in');
-        $migrator->migrate();
+        $this->assertSame([], $migrator->migrate());
+    }
+
+    /**
+     * A path that exists but is not a directory cannot be listed, so migrate() must
+     * refuse rather than report nothing to do. Unlike the unreadable-directory case
+     * below, this reaches the throw for every user, root included.
+     */
+    public function test_path_that_is_a_file_throws_rather_than_reporting_none(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'kip-mig-file-');
+        try {
+            $migrator = new \Kip\Migrations\Migrator(new \Kip\Database('sqlite::memory:'), $file);
+
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('Cannot list migrations in');
+            $migrator->migrate();
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * glob() read the directory path itself as a pattern, so a real migrations
+     * directory under a path containing [ ] silently listed as empty and its
+     * migrations never ran. Hidden files are skipped, as glob('*.sql') skipped them.
+     */
+    public function test_directory_path_with_glob_metacharacters_still_lists_migrations(): void
+    {
+        $base = sys_get_temp_dir() . '/kip-mig-br[x]-' . bin2hex(random_bytes(6));
+        $dir = $base . '/m';
+        mkdir($dir, 0777, true);
+        file_put_contents($dir . '/001_meta.sql', "-- up\nCREATE TABLE meta_t (id INTEGER PRIMARY KEY);\n-- down\nDROP TABLE meta_t;\n");
+        file_put_contents($dir . '/.hidden.sql', "-- up\nCREATE TABLE hidden_t (id INTEGER);\n-- down\nDROP TABLE hidden_t;\n");
+        $db = new \Kip\Database('sqlite::memory:');
+
+        try {
+            $this->assertSame(['001_meta'], (new \Kip\Migrations\Migrator($db, $dir))->migrate());
+            $this->assertNotNull($db->one("SELECT name FROM sqlite_master WHERE name = 'meta_t'"));
+            $this->assertNull($db->one("SELECT name FROM sqlite_master WHERE name = 'hidden_t'"), 'a dotfile is not a migration');
+        } finally {
+            unlink($dir . '/001_meta.sql');
+            unlink($dir . '/.hidden.sql');
+            rmdir($dir);
+            rmdir($base);
+        }
     }
 
     /**
@@ -71,7 +112,7 @@ final class MigratorTest extends TestCase
      * to migrate" and exit cleanly against a schema it never touched.
      *
      * Skipped when this user can read a 0000 directory anyway (root, common in
-     * containers); the over-long-path test above still reaches the throw there.
+     * containers); the path-is-a-file test above still reaches the throw there.
      */
     public function test_unreadable_migrations_directory_throws_rather_than_reporting_none(): void
     {
@@ -97,8 +138,8 @@ final class MigratorTest extends TestCase
 
     /**
      * Regression guard for the glob() hardening: an empty but READABLE migrations
-     * directory must stay a normal no-op. GLOB_ERR must turn genuine read failures
-     * into errors, never an empty listing.
+     * directory must stay a normal no-op: only a genuine read failure is an error,
+     * never an empty listing.
      */
     public function test_empty_readable_migrations_directory_is_a_no_op(): void
     {
