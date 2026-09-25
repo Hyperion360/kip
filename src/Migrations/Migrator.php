@@ -66,22 +66,24 @@ final class Migrator
     {
         $map = [];
         // glob() is array|false, and array_merge(false, ...) is a fatal TypeError.
-        // Refuse rather than coerce: treating a failed listing as an empty one
-        // would let migrate() report success against a schema it never touched,
-        // and a single failed listing would apply a partial inventory as a
-        // complete batch (outside review 2).
-        // @ silences glob()'s own warning because the branch below reports the
-        // same failure with more context; error_get_last() recovers the reason.
-        $php = @glob($this->dir . '/*.php');
-        $sql = @glob($this->dir . '/*.sql');
+        // Refuse rather than coerce: treating a failed listing as an empty one would
+        // let migrate() report success against a schema it never touched, and one
+        // failed listing would apply a partial inventory as a complete batch.
+        // GLOB_ERR makes an unreadable directory fail instead of listing as empty
+        // (without it glob() returns [] there). @ silences glob()'s own warning since
+        // the branch below reports the same failure with more context, and
+        // error_clear_last() comes first so error_get_last() cannot surface an
+        // unrelated earlier warning when glob() fails silently.
+        error_clear_last();
+        $php = @glob($this->dir . '/*.php', GLOB_ERR);
+        $sql = @glob($this->dir . '/*.sql', GLOB_ERR);
         if ($php === false || $sql === false) {
             $why = error_get_last()['message'] ?? 'directory enumeration failed';
             throw new \RuntimeException(
                 "Cannot list migrations in {$this->dir}: {$why}. "
                 . 'Refusing to report an empty migration set, because that would '
-                . 'record a partial batch as complete. The path above is exactly '
-                . "what Migrator received: check that config.php's app_dir key "
-                . 'resolves to a real directory (is_dir() must be true on it).'
+                . 'record a partial batch as complete. Check that this directory is '
+                . 'readable by the PHP process.'
             );
         }
         foreach (array_merge($php, $sql) as $file) {

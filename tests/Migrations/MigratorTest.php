@@ -49,33 +49,57 @@ final class MigratorTest extends TestCase
     }
 
     /**
-     * Regression guard for the glob() hardening: an empty but READABLE migrations
-     * directory must stay a normal no-op, not a thrown error.
+     * The enumeration-failure branch, reached with no filesystem setup at all.
      *
-     * The failure case (glob() returning false) is deliberately not tested here.
-     * Verified: glob() on a 0000 directory returns [] on macOS, not false, so the
-     * error branch is not reachable through permissions. PHPStan is the check for
-     * that branch, exactly as in Tasks 3 and 4.
+     * glob() returns false when its pattern exceeds the platform path limit. The
+     * pattern here is 40,000 characters, beyond any MAXPATHLEN in use (1024 on
+     * macOS, 4096 on glibc Linux), so this reaches the throw on every platform and
+     * for every user, root included. The next test covers the realistic trigger.
      */
-    /**
-     * The enumeration-failure branch, exercised directly.
-     *
-     * glob() returns false when its pattern exceeds the platform length limit
-     * (1024 characters here), which is a reachable way to hit the throw. An
-     * earlier version of this plan concluded the branch was unreachable because
-     * a 0000-permission directory makes glob() return [] rather than false. That
-     * was true of that probe, not of glob(): it was the wrong trigger to try.
-     */
-    public function test_unlistable_migrations_directory_throws_rather_than_reporting_none(): void
+    public function test_overlong_migrations_path_throws_rather_than_reporting_none(): void
     {
-        $db = new \Kip\Database('sqlite::memory:');
-        $migrator = new \Kip\Migrations\Migrator($db, '/' . str_repeat('b/', 2000));
+        $migrator = new \Kip\Migrations\Migrator(new \Kip\Database('sqlite::memory:'), '/' . str_repeat('b/', 20000));
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Cannot list migrations in');
         $migrator->migrate();
     }
 
+    /**
+     * The realistic failure: a migrations directory that exists but cannot be read.
+     * Without GLOB_ERR, glob() returns [] here, so migrate() would report "nothing
+     * to migrate" and exit cleanly against a schema it never touched.
+     *
+     * Skipped when this user can read a 0000 directory anyway (root, common in
+     * containers); the over-long-path test above still reaches the throw there.
+     */
+    public function test_unreadable_migrations_directory_throws_rather_than_reporting_none(): void
+    {
+        $dir = sys_get_temp_dir() . '/kip-mig-' . bin2hex(random_bytes(6));
+        mkdir($dir, 0777, true);
+        chmod($dir, 0000);
+
+        try {
+            clearstatcache();
+            if (is_readable($dir)) {
+                $this->markTestSkipped('this user can read a 0000 directory (root), so the failure cannot be staged');
+            }
+            $migrator = new \Kip\Migrations\Migrator(new \Kip\Database('sqlite::memory:'), $dir);
+
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('Cannot list migrations in');
+            $migrator->migrate();
+        } finally {
+            chmod($dir, 0777);
+            rmdir($dir);
+        }
+    }
+
+    /**
+     * Regression guard for the glob() hardening: an empty but READABLE migrations
+     * directory must stay a normal no-op. GLOB_ERR must turn genuine read failures
+     * into errors, never an empty listing.
+     */
     public function test_empty_readable_migrations_directory_is_a_no_op(): void
     {
         $dir = sys_get_temp_dir() . '/kip-mig-' . bin2hex(random_bytes(6));
