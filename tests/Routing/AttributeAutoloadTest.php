@@ -113,6 +113,18 @@ final class AttributeAutoloadTest extends TestCase
         $router->match(new Request('GET', '/secret/lowverb', [], [], [])); // POST-only, not the GET default
     }
 
+    /** A class-level #[Auth] on a base controller gates every subclass action. */
+    public function test_class_level_auth_on_a_parent_gates_the_subclass(): void
+    {
+        $router = new Router(namespace: 'Kip\\Tests\\Routing\\Unimported\\');
+
+        foreach (['index' => 'the subclass\'s own action', 'shared' => 'an inherited action'] as $action => $label) {
+            $m = $router->match(new Request('GET', '/vault-child/' . $action, [], [], []));
+            $this->assertNotNull($m);
+            $this->assertTrue($m->requiresAuth, "{$label} must inherit the parent's #[Auth]");
+        }
+    }
+
     /** #[Auth] on the controller class gates every action in it. */
     public function test_class_level_auth_attribute_gates_every_action(): void
     {

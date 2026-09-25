@@ -16,7 +16,8 @@
   controller's own namespace), a global `#[\Auth]`, or a different letter
   case such as `#[auth]` was silently ignored and the route served guests.
   The router now matches the short name case-insensitively, and `#[Auth]`
-  on a controller class requires login for every action in it. A route that
+  on a controller class, or on any base class it extends, requires login
+  for every action in it. A route that
   was public only because of one of those spellings now redirects guests to
   `/auth/login`. If you wrote `#[Auth]` in any of those forms, those routes
   were reachable without login before this release; check your request logs

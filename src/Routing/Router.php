@@ -42,9 +42,9 @@ final class Router
         // names, so they work whether or not their class was imported and in any letter case.
         // That matters most for #[Auth]: an unimported #[Auth] resolves to the controller's
         // own namespace, and an exact match on Kip\Routing\Auth would leave the route
-        // silently public. #[Auth] on the controller class gates every action in it.
-        // Authorization fails closed.
-        $requiresAuth = self::hasAuth((new \ReflectionClass($class))->getAttributes())
+        // silently public. #[Auth] on the controller class, or on any class it extends,
+        // gates every action in it. Authorization fails closed.
+        $requiresAuth = self::classHasAuth(new \ReflectionClass($class))
             || self::hasAuth($method->getAttributes());
         $verbs = [];
         foreach ($method->getAttributes() as $attr) {
@@ -58,6 +58,19 @@ final class Router
         }
 
         return new RouteMatch($class, $action, $args, $requiresAuth);
+    }
+
+    /**
+     * PHP does not inherit attributes, so a #[Auth] base controller is found by walking up.
+     *
+     * @param \ReflectionClass<object> $class
+     */
+    private static function classHasAuth(\ReflectionClass $class): bool
+    {
+        for ($c = $class; $c !== false; $c = $c->getParentClass()) {
+            if (self::hasAuth($c->getAttributes())) return true;
+        }
+        return false;
     }
 
     /** @param array<\ReflectionAttribute<object>> $attributes */
