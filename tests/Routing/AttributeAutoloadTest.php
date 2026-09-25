@@ -61,4 +61,33 @@ final class AttributeAutoloadTest extends TestCase
         $this->assertNotNull($open);
         $this->assertFalse($open->requiresAuth, 'a method without #[Auth] must stay public');
     }
+
+    /**
+     * TRUST BOUNDARY, fail closed. An #[Auth] whose class was never imported
+     * resolves to the controller's own namespace (or the global one, for
+     * #[\Auth]), not to Kip\Routing\Auth. Matching the attribute by its fully
+     * qualified name left such a route silently public, while the verb
+     * attributes kept working because they matched by short name. Authorization
+     * must fail closed (docs/design-decisions.md), so #[Auth] matches the same
+     * way the verbs do.
+     */
+    public function test_unimported_auth_attribute_still_gates_the_route(): void
+    {
+        $router = new Router(namespace: 'Kip\\Tests\\Routing\\Unimported\\');
+
+        $wipe = $router->match(new Request('POST', '/secret/wipe', [], [], []));
+        $this->assertNotNull($wipe);
+        $this->assertTrue($wipe->requiresAuth, 'an unimported #[Auth] must still gate the route');
+
+        $peek = $router->match(new Request('GET', '/secret/peek', [], [], []));
+        $this->assertNotNull($peek);
+        $this->assertTrue($peek->requiresAuth, 'a global-namespace #[\\Auth] must still gate the route');
+
+        $open = $router->match(new Request('GET', '/secret/open', [], [], []));
+        $this->assertNotNull($open);
+        $this->assertFalse($open->requiresAuth, 'a method with no Auth attribute must stay public');
+
+        $this->expectException(\Kip\Routing\MethodNotAllowedException::class);
+        $router->match(new Request('GET', '/secret/wipe', [], [], []));  // unimported #[Post] still enforced
+    }
 }

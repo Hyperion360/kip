@@ -38,10 +38,18 @@ final class Router
         // HEAD is served by GET handlers (RFC 9110 §9.3.2); the kernel strips the body.
         $requestMethod = $request->method === 'HEAD' ? 'GET' : $request->method;
         // Verb attributes: no verb attribute → GET-only by convention; #[Post] etc. restrict explicitly.
+        // Every attribute matches by short name, so it works whether or not its class
+        // was imported. That matters most for #[Auth]: an unimported #[Auth] resolves to
+        // the controller's own namespace, and matching Kip\Routing\Auth by full name
+        // would leave the route silently public. Authorization fails closed.
         $verbs = [];
+        $requiresAuth = false;
         foreach ($method->getAttributes() as $attr) {
-            $short = substr($attr->getName(), strrpos($attr->getName(), '\\') + 1);
+            $name  = $attr->getName();
+            $slash = strrpos($name, '\\');                  // false for a global name such as #[\Auth]
+            $short = $slash === false ? $name : substr($name, $slash + 1);
             if (in_array($short, ['Get', 'Post', 'Put', 'Delete'], true)) $verbs[] = strtoupper($short);
+            if ($short === 'Auth') $requiresAuth = true;
         }
         $allowed = $verbs ?: ['GET'];
         if (!in_array($requestMethod, $allowed, true)) {
@@ -49,7 +57,6 @@ final class Router
             throw new MethodNotAllowedException(implode(', ', $allowed));
         }
 
-        $requiresAuth = $method->getAttributes(Auth::class) !== [];
         return new RouteMatch($class, $action, $args, $requiresAuth);
     }
 }
