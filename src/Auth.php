@@ -76,9 +76,21 @@ final class Auth
         return $byAccount >= self::RESET_MAX_PER_ACCOUNT || $byIp >= self::RESET_MAX_PER_IP;
     }
 
-    /** Timing-equalizer: a real bcrypt hash of an unguessable value, verified on the
-     *  unknown-email path so response time does not reveal account existence. */
-    private const DUMMY_HASH = '$2y$10$usesomesillystringfore7hnbXJ/9TDwTFvOXSVYlV3xqjPYvGQ9Oy';
+    /**
+     * Timing-equalizer: a real bcrypt hash of an unguessable value, verified on the
+     * unknown-email path so response time does not reveal account existence.
+     *
+     * INVARIANT: its cost MUST equal what password_hash(..., PASSWORD_DEFAULT)
+     * produces for real users (see register() above). If it is cheaper, the
+     * unknown-email path finishes measurably sooner and the equalizer leaks the
+     * very thing it exists to hide. This hash was cost 10 while PASSWORD_DEFAULT
+     * had moved to 12, which made unknown-email logins ~4x faster than real ones
+     * (53ms vs 210ms, measured). AuthTest asserts the parity, so PHP raising its
+     * default again fails the suite instead of silently reopening the oracle.
+     *
+     * Plaintext is 32 random bytes, so no real password can match it.
+     */
+    private const DUMMY_HASH = '$2y$12$jgEVQOxK3JGQp1XzYOGoHu1UX2K16qRBjuTfmiR4r3eEXOuE3n0YS';
 
     public function attempt(string $email, string $password, string $ip = ''): bool
     {

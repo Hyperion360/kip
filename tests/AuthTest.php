@@ -45,20 +45,68 @@ final class AuthTest extends TestCase
         $this->assertNull($this->auth->user());
     }
 
-    public function test_attempt_unknown_email_fails_records_attempt_and_stays_logged_out(): void // enumeration timing equalizer
+    public function test_attempt_unknown_email_fails_records_attempt_and_stays_logged_out(): void
     {
-        $before = microtime(true);
         $this->assertFalse($this->auth->attempt('ghost@b.c', 'whatever'));
-        $unknownAt = microtime(true) - $before;
         $this->assertNull($this->auth->user());
         // the throttle row must exist. Unknown emails count toward lockout like wrong passwords
         $this->assertSame(1, (int) $this->db->one("SELECT COUNT(*) AS c FROM login_attempts WHERE email = 'ghost@b.c'")['c']);
-        // the dummy-hash verify makes the unknown-email path cost a bcrypt round like the known one
-        $this->auth->register('a@b.c', 'secret123');
-        $before = microtime(true);
-        $this->assertFalse($this->auth->attempt('a@b.c', 'wrong'));
-        $knownAt = microtime(true) - $before;
-        $this->assertGreaterThan($unknownAt * 0.1, $knownAt); // both do real bcrypt work, not a trivial miss
+    }
+
+    /**
+     * The enumeration equalizer, tested by cost parity rather than by a stopwatch.
+     *
+     * The previous version of this test timed both paths and asserted
+     * assertGreaterThan($unknownAt * 0.1, $knownAt). That is pointed the wrong way:
+     * it only fails when the KNOWN path is fast, while the actual risk is the two
+     * paths differing. It passed with a 40x margin while DUMMY_HASH sat at cost 10
+     * and real hashes were cost 12, hiding a 53ms-vs-210ms oracle. It was also
+     * flaky, because a scheduling stall during the first sample inflates the ratio.
+     *
+     * Cost parity is the real invariant and it is deterministic.
+     */
+    public function test_dummy_hash_cost_matches_real_password_hashes(): void
+    {
+        $dummy = (new \ReflectionClass(\Kip\Auth::class))->getConstant('DUMMY_HASH');
+        $this->assertIsString($dummy, 'Auth::DUMMY_HASH must exist for the equalizer to work');
+
+        $real = password_hash('irrelevant-plaintext', PASSWORD_DEFAULT);
+        $dummyInfo = password_get_info($dummy);
+        $realInfo  = password_get_info($real);
+
+        $this->assertSame(
+            $realInfo['algoName'],
+            $dummyInfo['algoName'],
+            'DUMMY_HASH must use the same algorithm as password_hash(PASSWORD_DEFAULT)'
+        );
+        $this->assertSame(
+            $realInfo['options']['cost'] ?? null,
+            $dummyInfo['options']['cost'] ?? null,
+            'DUMMY_HASH cost must equal password_hash(PASSWORD_DEFAULT) cost, or the '
+            . 'unknown-email path is cheaper than a real one and leaks account existence. '
+            . 'If PHP raised its default cost, regenerate DUMMY_HASH at the new cost.'
+        );
+    }
+
+    /**
+     * A lower bound, not a ratio: the unknown-email path must actually perform a
+     * bcrypt verify rather than returning early. A stall can only make this longer,
+     * so unlike the ratio it replaced, load cannot produce a false failure. bcrypt
+     * at the default cost is ~200ms here, so a 10ms floor has a wide margin and
+     * still catches the verify being removed altogether.
+     */
+    public function test_unknown_email_path_performs_real_bcrypt_work(): void
+    {
+        $start = microtime(true);
+        $this->assertFalse($this->auth->attempt('ghost@b.c', 'whatever'));
+        $elapsedMs = (microtime(true) - $start) * 1000;
+
+        $this->assertGreaterThan(
+            10.0,
+            $elapsedMs,
+            'the unknown-email path returned too fast to have run a bcrypt verify, '
+            . 'so response time now reveals that the account does not exist'
+        );
     }
 
     public function test_logout_clears_user(): void
