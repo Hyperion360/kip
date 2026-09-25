@@ -92,6 +92,14 @@ final class Auth
      * PASSWORD_DEFAULT would not rehash, so a default this list does not cover
      * fails the suite instead of silently reopening the oracle.
      *
+     * LIMIT: this matches the cost of hashes CREATED on this runtime. A hash stored
+     * before a PHP upgrade keeps its old cost, so after moving from 8.3 to 8.4 every
+     * existing account still verifies at cost 10 (~52ms) while an unknown email pays
+     * cost 12 (~210ms), and those accounts stay distinguishable until their hash is
+     * rewritten. Closing that needs rehash-on-login, which rewrites the stored hash and
+     * so changes the session epoch derived from it (see sessionValid()), revoking that
+     * user's other sessions. Tracked as a decision, not solved here.
+     *
      * Plaintexts are 32 random bytes, so no real password can match them.
      */
     private const DUMMY_HASHES = [
