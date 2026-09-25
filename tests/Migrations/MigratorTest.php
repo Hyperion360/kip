@@ -57,6 +57,25 @@ final class MigratorTest extends TestCase
      * error branch is not reachable through permissions. PHPStan is the check for
      * that branch, exactly as in Tasks 3 and 4.
      */
+    /**
+     * The enumeration-failure branch, exercised directly.
+     *
+     * glob() returns false when its pattern exceeds the platform length limit
+     * (1024 characters here), which is a reachable way to hit the throw. An
+     * earlier version of this plan concluded the branch was unreachable because
+     * a 0000-permission directory makes glob() return [] rather than false. That
+     * was true of that probe, not of glob(): it was the wrong trigger to try.
+     */
+    public function test_unlistable_migrations_directory_throws_rather_than_reporting_none(): void
+    {
+        $db = new \Kip\Database('sqlite::memory:');
+        $migrator = new \Kip\Migrations\Migrator($db, '/' . str_repeat('b/', 2000));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Cannot list migrations in');
+        $migrator->migrate();
+    }
+
     public function test_empty_readable_migrations_directory_is_a_no_op(): void
     {
         $dir = sys_get_temp_dir() . '/kip-mig-' . bin2hex(random_bytes(6));

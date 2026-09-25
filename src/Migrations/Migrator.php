@@ -70,11 +70,14 @@ final class Migrator
         // would let migrate() report success against a schema it never touched,
         // and a single failed listing would apply a partial inventory as a
         // complete batch (outside review 2).
-        $php = glob($this->dir . '/*.php');
-        $sql = glob($this->dir . '/*.sql');
+        // @ silences glob()'s own warning because the branch below reports the
+        // same failure with more context; error_get_last() recovers the reason.
+        $php = @glob($this->dir . '/*.php');
+        $sql = @glob($this->dir . '/*.sql');
         if ($php === false || $sql === false) {
+            $why = error_get_last()['message'] ?? 'directory enumeration failed';
             throw new \RuntimeException(
-                "Cannot list migrations in {$this->dir}: directory enumeration failed. "
+                "Cannot list migrations in {$this->dir}: {$why}. "
                 . 'Refusing to report an empty migration set, because that would '
                 . 'record a partial batch as complete. The path above is exactly '
                 . "what Migrator received: check that config.php's app_dir key "
