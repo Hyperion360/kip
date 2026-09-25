@@ -1,0 +1,31 @@
+# Kip static analysis contract. Level 6 is the target; this file starts at 5 and
+# is raised in Task 10 once the annotation batches land.
+#
+# Run it with: composer lint
+parameters:
+    level: 5
+
+    paths:
+        - src
+
+    excludePaths:
+        # View::render() injects template locals with extract(), which the
+        # analyzer cannot follow, so every variable in a template reads as
+        # undefined. Measured: 71 unavoidable errors across these five files.
+        - src/Admin/views
+
+    ignoreErrors:
+        -
+            # View::render() nulls $this->layout, then require's a template that
+            # may call $this->layout('name'). The analyzer cannot see through the
+            # require, narrows the property to null, and calls the check dead.
+            # That check IS the layout mechanism; do not "fix" it.
+            identifier: notIdentical.alwaysFalse
+            path: src/View.php
+        -
+            # $eager is reference-bound to the caller's session store. The
+            # nullable type keeps a null assignment to the referenced variable
+            # from raising a TypeError through the reference. Tightening it to
+            # `array` is a behavior change, not a cleanup.
+            identifier: property.unusedType
+            path: src/Session.php

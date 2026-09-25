@@ -17,7 +17,8 @@
         "ext-pdo": "*"
     },
     "require-dev": {
-        "phpunit/phpunit": "^11"
+        "phpunit/phpunit": "^11",
+        "phpstan/phpstan": "^2.2"
     },
     "autoload": {
         "psr-4": {
@@ -30,7 +31,8 @@
         }
     },
     "scripts": {
-        "check-docs": "php scripts/check-docs.php"
+        "check-docs": "php scripts/check-docs.php",
+        "lint": "phpstan analyse --no-progress --memory-limit=256M"
     },
     "extra": {
         "branch-alias": {
