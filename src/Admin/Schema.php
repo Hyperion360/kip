@@ -11,8 +11,9 @@ use Kip\Migrations\Migrator;
  */
 final class Schema
 {
-    private ?array $tables = null;        // D6: one catalog query per request, not per call
-    /** @var array<string, array> per-table PRAGMA results (same memoization intent) */
+    /** @var list<string>|null D6: one catalog query per request, not per call */
+    private ?array $tables = null;
+    /** @var array<string, list<array<array-key, mixed>>> per-table PRAGMA results (same memoization intent) */
     private array $columnsCache = [];
 
     public function __construct(private Database $db) {}

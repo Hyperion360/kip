@@ -47,6 +47,7 @@ final class AdminController
      * Fetch one row by SQLite rowid (eng-review D2: admin URLs route by rowid,
      * never by PK value. An email or other non-slug PK would fail the router's
      * [a-z0-9_-] whitelist). WITHOUT ROWID tables are unsupported (documented).
+     * @return array<array-key, mixed>|null
      */
     private function row(string $table, string $rid): ?array
     {
@@ -158,8 +159,12 @@ final class AdminController
         return Response::redirect("/admin/browse/{$table}");
     }
 
-    /** Columns an admin may write: pk, *_at timestamps, and BLOBs excluded
-     *  (binary data cannot round-trip through trimmed text inputs). */
+    /**
+     * Columns an admin may write: pk, *_at timestamps, and BLOBs excluded
+     * (binary data cannot round-trip through trimmed text inputs).
+     *
+     * @return list<array<array-key, mixed>>
+     */
     private function editable(string $table): array
     {
         return array_values(array_filter($this->schema->columns($table), static function (array $c): bool {

@@ -13,6 +13,7 @@ use Kip\Session;
  */
 final class TestClient
 {
+    /** @var array<string, mixed> */
     private array $store = [];
     public readonly Session $session;
 
@@ -21,16 +22,30 @@ final class TestClient
         $this->session = new Session($this->store);
     }
 
+    /**
+     * @param array<array-key, mixed> $query
+     * @param array<string, string>   $headers
+     */
     public function get(string $path, array $query = [], array $headers = []): Response
     {
         return $this->request('GET', $path, $query, [], $headers);
     }
 
+    /**
+     * @param array<array-key, mixed> $data
+     * @param array<string, string>   $headers
+     */
     public function post(string $path, array $data = [], array $headers = []): Response
     {
         return $this->request('POST', $path, [], $data, $headers);
     }
 
+    /**
+     * @param array<array-key, mixed> $get
+     * @param array<array-key, mixed> $post
+     * @param array<string, string>   $headers
+     * @param array<array-key, mixed> $files
+     */
     public function request(string $method, string $path, array $get = [], array $post = [], array $headers = [], array $files = []): Response
     {
         // A client whose session holds state sends a cookie, like a real browser.
@@ -62,13 +77,22 @@ final class TestClient
         return $this->session->csrfToken();
     }
 
-    /** POST with the session CSRF token merged in, the common authed-form case. */
+    /**
+     * POST with the session CSRF token merged in, the common authed-form case.
+     *
+     * @param array<array-key, mixed> $data
+     */
     public function postWithToken(string $path, array $data = []): Response
     {
         return $this->post($path, $data + ['_token' => $this->csrfToken()]);
     }
 
-    /** POST a form with a file (plus the CSRF token), the upload case. */
+    /**
+     * POST a form with a file (plus the CSRF token), the upload case.
+     *
+     * @param array<array-key, mixed> $data
+     * @param array<array-key, mixed> $file
+     */
     public function postWithFile(string $path, array $data, string $field, array $file): Response
     {
         return $this->request('POST', $path, [], $data + ['_token' => $this->csrfToken()], [], [$field => $file]);
