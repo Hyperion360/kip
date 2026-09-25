@@ -38,18 +38,18 @@ final class Router
         // HEAD is served by GET handlers (RFC 9110 §9.3.2); the kernel strips the body.
         $requestMethod = $request->method === 'HEAD' ? 'GET' : $request->method;
         // Verb attributes: no verb attribute → GET-only by convention; #[Post] etc. restrict explicitly.
-        // Every attribute matches by short name, so it works whether or not its class
-        // was imported. That matters most for #[Auth]: an unimported #[Auth] resolves to
-        // the controller's own namespace, and matching Kip\Routing\Auth by full name
-        // would leave the route silently public. Authorization fails closed.
+        // Attributes match by short name and case-insensitively, the way PHP resolves class
+        // names, so they work whether or not their class was imported and in any letter case.
+        // That matters most for #[Auth]: an unimported #[Auth] resolves to the controller's
+        // own namespace, and an exact match on Kip\Routing\Auth would leave the route
+        // silently public. #[Auth] on the controller class gates every action in it.
+        // Authorization fails closed.
+        $requiresAuth = self::hasAuth((new \ReflectionClass($class))->getAttributes())
+            || self::hasAuth($method->getAttributes());
         $verbs = [];
-        $requiresAuth = false;
         foreach ($method->getAttributes() as $attr) {
-            $name  = $attr->getName();
-            $slash = strrpos($name, '\\');                  // false for a global name such as #[\Auth]
-            $short = $slash === false ? $name : substr($name, $slash + 1);
-            if (in_array($short, ['Get', 'Post', 'Put', 'Delete'], true)) $verbs[] = strtoupper($short);
-            if ($short === 'Auth') $requiresAuth = true;
+            $verb = strtoupper(self::shortName($attr->getName()));
+            if (in_array($verb, ['GET', 'POST', 'PUT', 'DELETE'], true)) $verbs[] = $verb;
         }
         $allowed = $verbs ?: ['GET'];
         if (!in_array($requestMethod, $allowed, true)) {
@@ -58,5 +58,21 @@ final class Router
         }
 
         return new RouteMatch($class, $action, $args, $requiresAuth);
+    }
+
+    /** @param array<\ReflectionAttribute<object>> $attributes */
+    private static function hasAuth(array $attributes): bool
+    {
+        foreach ($attributes as $attr) {
+            if (strcasecmp(self::shortName($attr->getName()), 'Auth') === 0) return true;
+        }
+        return false;
+    }
+
+    /** The name after the last backslash, or the whole name for a global one such as #[\Auth]. */
+    private static function shortName(string $name): string
+    {
+        $slash = strrpos($name, '\\');
+        return $slash === false ? $name : substr($name, $slash + 1);
     }
 }

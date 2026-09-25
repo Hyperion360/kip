@@ -14,4 +14,14 @@ final class SecretController
     public function peek(): string { return 'peeked'; }
 
     public function open(): string { return 'open'; }
+
+    // PHP resolves class names case-insensitively, so these must gate too.
+    #[auth]
+    public function lower(): string { return 'lower'; }
+
+    #[\Kip\Routing\AUTH]
+    public function upper(): string { return 'upper'; }
+
+    #[post]
+    public function lowverb(): string { return 'lowverb'; }
 }

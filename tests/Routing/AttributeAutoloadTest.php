@@ -90,4 +90,34 @@ final class AttributeAutoloadTest extends TestCase
         $this->expectException(\Kip\Routing\MethodNotAllowedException::class);
         $router->match(new Request('GET', '/secret/wipe', [], [], []));  // unimported #[Post] still enforced
     }
+
+    /**
+     * PHP resolves class names case-insensitively, and the router must match the
+     * same way. An earlier version of the short-name fix compared with ===, which
+     * regressed an IMPORTED #[\Kip\Routing\AUTH]: the old fully qualified filter
+     * gated it, the string compare left it public and on the lighter CSRF lane.
+     */
+    public function test_auth_attribute_matches_in_any_letter_case(): void
+    {
+        $router = new Router(namespace: 'Kip\\Tests\\Routing\\Unimported\\');
+
+        foreach (['lower' => 'unimported #[auth]', 'upper' => 'imported #[\\Kip\\Routing\\AUTH]'] as $action => $label) {
+            $m = $router->match(new Request('GET', '/secret/' . $action, [], [], []));
+            $this->assertNotNull($m);
+            $this->assertTrue($m->requiresAuth, "{$label} must gate the route");
+        }
+
+        $post = $router->match(new Request('POST', '/secret/lowverb', [], [], []));
+        $this->assertNotNull($post, 'a lowercase #[post] must still allow POST');
+    }
+
+    /** #[Auth] on the controller class gates every action in it. */
+    public function test_class_level_auth_attribute_gates_every_action(): void
+    {
+        $router = new Router(namespace: 'Kip\\Tests\\Routing\\Unimported\\');
+
+        $m = $router->match(new Request('GET', '/vault/index', [], [], []));
+        $this->assertNotNull($m);
+        $this->assertTrue($m->requiresAuth, 'a class-level #[Auth] must gate its actions');
+    }
 }
