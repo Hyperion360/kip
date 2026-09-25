@@ -8,18 +8,38 @@
   so `class_exists()` was false for all five. The router never noticed
   because it compares attribute names as strings, but apps and tooling
   analyzing their own controllers saw every `#[Auth]` as an unknown
-  attribute. No API or behavior change.
+  attribute. `Attributes.php` is gone; it was never public API, and code
+  that names `Kip\Routing\Auth` and friends keeps working unchanged.
+- **Security, behavior change: `#[Auth]` now gates every spelling of it.**
+  The router used to require the exact name `Kip\Routing\Auth`, so an
+  `#[Auth]` the controller never imported (which PHP resolves to the
+  controller's own namespace), a global `#[\Auth]`, or a different letter
+  case such as `#[auth]` was silently ignored and the route served guests.
+  The router now matches the short name case-insensitively, and `#[Auth]`
+  on a controller class requires login for every action in it. A route that
+  was public only because of one of those spellings now redirects guests to
+  `/auth/login`. If you wrote `#[Auth]` in any of those forms, those routes
+  were reachable without login before this release; check your request logs
+  for them.
+- Login timing: the dummy hash that equalizes an unknown-email login now
+  matches the bcrypt cost of `PASSWORD_DEFAULT` on the running PHP (10 up
+  to 8.3, 12 from 8.4). It was fixed at cost 12, so on PHP 8.3 an unknown
+  email took about four times longer than a real account, which revealed
+  which emails are registered. Limit: an account whose hash was stored
+  before a PHP 8.3 to 8.4 upgrade keeps cost 10 until its password changes,
+  so after that upgrade those accounts remain distinguishable by timing.
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a
   `false` into `""`.
-- `Migrator` refuses a failed directory listing instead of crashing on it.
-  `glob()` returns `false` when it cannot enumerate a directory, and
-  `array_merge(false, ...)` was a `TypeError` with no usable message. It
-  now throws a `RuntimeException` naming the path and what to check. This
-  is a refusal, not a recovery: a failed listing still stops the command,
-  because treating it as an empty directory would let `migrate()` report
-  success against a schema it never touched.
+- `Migrator` lists migrations with `scandir()` instead of `glob()`, and
+  refuses a directory it cannot read. `glob()` returned an empty list for an
+  unreadable directory, a path that is a file, and a path containing a glob
+  character such as `[`, so `migrate` reported success without applying
+  anything. A migrations path that exists but is not a readable directory now throws a
+  `RuntimeException` naming the path and what to check. A path that does
+  not exist at all is still a no-op, as before. Dotfiles in the directory
+  are skipped.
 - `Container::make()` is generic over the class it is given, so callers
   and downstream apps get the requested class back instead of `object`.
   The public signature is unchanged.
@@ -40,8 +60,12 @@
   Each is a one-line fix in your code or a local `ignoreErrors` entry; none
   of them is a runtime break.
 - Dev-only static analysis: `composer lint` runs PHPStan at level 6 over
-  `src/`. Nothing is added to the runtime `require`, which stays
-  `php >= 8.3` and `ext-pdo`.
+  `src/`, and `composer check` runs lint, the docs check, and the test
+  suite in order. The scripts call PHP through Composer's `@php`, so they
+  use the same PHP binary as Composer regardless of `PATH`. Nothing is
+  added to the runtime `require`, which stays `php >= 8.3` and `ext-pdo`.
+- The distributed package no longer ships `scripts/` or
+  `phpstan.neon.dist`; both are repository tooling.
 - Session revocation on password change: sessions carry a password epoch
   (hash prefix) checked by the kernel's `#[Auth]` gate, a password
   reset or admin password edit revokes every previously logged-in
