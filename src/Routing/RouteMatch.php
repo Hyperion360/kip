@@ -5,7 +5,7 @@ use Kip\Container;
 
 final class RouteMatch
 {
-    /** @param class-string $class */
+    /** @param class-string $class controller the router resolved */
     public function __construct(
         public readonly string $class,
         private string $action,
