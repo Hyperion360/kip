@@ -54,38 +54,50 @@ final class AuthTest extends TestCase
     }
 
     /**
-     * The enumeration equalizer, tested by cost parity rather than by a stopwatch.
+     * The enumeration equalizer, tested by parity rather than by a stopwatch.
+     *
+     * The dummy verified on the unknown-email path must be exactly what
+     * password_hash(PASSWORD_DEFAULT) would produce on THIS runtime. If it is
+     * cheaper, unknown emails answer sooner; if dearer, later. Both leak.
+     *
+     * This is not a fixed number. PASSWORD_DEFAULT's bcrypt cost is 10 up to PHP
+     * 8.3 and 12 from 8.4, and Kip supports both. An earlier fix hardcoded cost 12
+     * and so reversed the oracle on 8.3. password_needs_rehash() is the precise
+     * question to ask: "would PASSWORD_DEFAULT rehash this?" It checks algorithm
+     * and options together, and a future default the map lacks fails here.
      *
      * The previous version of this test timed both paths and asserted
-     * assertGreaterThan($unknownAt * 0.1, $knownAt). That is pointed the wrong way:
-     * it only fails when the KNOWN path is fast, while the actual risk is the two
-     * paths differing. It passed with a 40x margin while DUMMY_HASH sat at cost 10
-     * and real hashes were cost 12, hiding a 53ms-vs-210ms oracle. It was also
-     * flaky, because a scheduling stall during the first sample inflates the ratio.
-     *
-     * Cost parity is the real invariant and it is deterministic.
+     * assertGreaterThan($unknownAt * 0.1, $knownAt). That only failed when the
+     * KNOWN path was fast, passed with a 40x margin over a real 53ms-vs-210ms
+     * oracle, and flaked under load.
      */
-    public function test_dummy_hash_cost_matches_real_password_hashes(): void
+    public function test_selected_dummy_hash_is_what_password_default_produces(): void
     {
-        $dummy = (new \ReflectionClass(\Kip\Auth::class))->getConstant('DUMMY_HASH');
-        $this->assertIsString($dummy, 'Auth::DUMMY_HASH must exist for the equalizer to work');
+        $dummy = (new \ReflectionMethod(\Kip\Auth::class, 'dummyHash'))->invoke(null);
 
-        $real = password_hash('irrelevant-plaintext', PASSWORD_DEFAULT);
-        $dummyInfo = password_get_info($dummy);
-        $realInfo  = password_get_info($real);
+        $this->assertIsString($dummy);
+        $this->assertFalse(
+            password_needs_rehash($dummy, PASSWORD_DEFAULT),
+            'the unknown-email dummy must be a hash PASSWORD_DEFAULT would not rehash; '
+            . 'otherwise its verify costs differ from a real account and leak existence. '
+            . 'If PHP changed its default, add a dummy for it to Auth::DUMMY_HASHES.'
+        );
+    }
 
-        $this->assertSame(
-            $realInfo['algoName'],
-            $dummyInfo['algoName'],
-            'DUMMY_HASH must use the same algorithm as password_hash(PASSWORD_DEFAULT)'
-        );
-        $this->assertSame(
-            $realInfo['options']['cost'] ?? null,
-            $dummyInfo['options']['cost'] ?? null,
-            'DUMMY_HASH cost must equal password_hash(PASSWORD_DEFAULT) cost, or the '
-            . 'unknown-email path is cheaper than a real one and leaks account existence. '
-            . 'If PHP raised its default cost, regenerate DUMMY_HASH at the new cost.'
-        );
+    /** Every precomputed dummy is a well-formed bcrypt hash, one per cost, covering
+     *  the defaults of every supported PHP version (10 on 8.3, 12 on 8.4). */
+    public function test_dummy_hashes_cover_each_supported_default_cost(): void
+    {
+        $hashes = (new \ReflectionClass(\Kip\Auth::class))->getConstant('DUMMY_HASHES');
+        $this->assertIsArray($hashes);
+
+        $costs = [];
+        foreach ($hashes as $hash) {
+            $info = password_get_info($hash);
+            $this->assertSame('bcrypt', $info['algoName']);
+            $costs[] = $info['options']['cost'];
+        }
+        $this->assertSame([10, 12], $costs, 'one dummy per supported default cost, ascending');
     }
 
     /**

@@ -77,27 +77,48 @@ final class Auth
     }
 
     /**
-     * Timing-equalizer: a real bcrypt hash of an unguessable value, verified on the
-     * unknown-email path so response time does not reveal account existence.
+     * Timing-equalizer: real bcrypt hashes of unguessable values. One is verified
+     * on the unknown-email path so response time does not reveal account existence.
      *
-     * INVARIANT: its cost MUST equal what password_hash(..., PASSWORD_DEFAULT)
-     * produces for real users (see register() above). If it is cheaper, the
-     * unknown-email path finishes measurably sooner and the equalizer leaks the
-     * very thing it exists to hide. This hash was cost 10 while PASSWORD_DEFAULT
-     * had moved to 12, which made unknown-email logins ~4x faster than real ones
-     * (53ms vs 210ms, measured). AuthTest asserts the parity, so PHP raising its
-     * default again fails the suite instead of silently reopening the oracle.
+     * INVARIANT: the one used MUST match what password_hash(..., PASSWORD_DEFAULT)
+     * produces for real users (see register() above). Cheaper and the unknown-email
+     * path answers sooner; dearer and it answers later. Either way the equalizer
+     * leaks the very thing it exists to hide.
      *
-     * Plaintext is 32 random bytes, so no real password can match it.
+     * PASSWORD_DEFAULT's bcrypt cost is 10 up to PHP 8.3 and 12 from 8.4, and Kip
+     * supports both, so there is one dummy per cost and dummyHash() picks the match.
+     * Measured on 8.4: 52ms/52ms at cost 10 and 208ms/209ms at cost 12, dummy
+     * against a real hash. AuthTest asserts the selected dummy is one
+     * PASSWORD_DEFAULT would not rehash, so a default this list does not cover
+     * fails the suite instead of silently reopening the oracle.
+     *
+     * Plaintexts are 32 random bytes, so no real password can match them.
      */
-    private const DUMMY_HASH = '$2y$12$jgEVQOxK3JGQp1XzYOGoHu1UX2K16qRBjuTfmiR4r3eEXOuE3n0YS';
+    private const DUMMY_HASHES = [
+        '$2y$10$NEu7C8hv19dqSgMnHW9q0OYo6HXwhZOJUDzPf33A75M.5.rr/3dGK',
+        '$2y$12$jgEVQOxK3JGQp1XzYOGoHu1UX2K16qRBjuTfmiR4r3eEXOuE3n0YS',
+    ];
+
+    /**
+     * The dummy matching this runtime's PASSWORD_DEFAULT. password_needs_rehash()
+     * only parses the hash, so selecting costs no bcrypt work. For a default the
+     * list does not cover it falls back to the strongest entry; AuthTest fails
+     * loudly in that case rather than letting it ship.
+     */
+    private static function dummyHash(): string
+    {
+        foreach (self::DUMMY_HASHES as $hash) {
+            if (!password_needs_rehash($hash, PASSWORD_DEFAULT)) return $hash;
+        }
+        return self::DUMMY_HASHES[array_key_last(self::DUMMY_HASHES)];
+    }
 
     public function attempt(string $email, string $password, string $ip = ''): bool
     {
         if ($this->throttled($email, $ip)) return false; // refuse before verifying. Correct password included
         $user = $this->db->one('SELECT * FROM users WHERE email = ?', [$email]);
         if ($user === null) {
-            password_verify($password, self::DUMMY_HASH); // identical work either way (as createReset does)
+            password_verify($password, self::dummyHash()); // identical work either way
             $this->recordAttempt($email, $ip, 'login');
             return false;
         }
