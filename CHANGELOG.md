@@ -17,9 +17,8 @@
   case such as `#[auth]` was silently ignored and the route served guests.
   The router now matches the short name case-insensitively, and `#[Auth]`
   on a controller class, or on any base class it extends, requires login
-  for every action in it. A route that
-  was public only because of one of those spellings now redirects guests to
-  `/auth/login`. If you wrote `#[Auth]` in any of those forms, those routes
+  for every action in it. A route that was public only because of one of
+  those spellings now redirects guests to `/auth/login`. If you wrote `#[Auth]` in any of those forms, those routes
   were reachable without login before this release; check your request logs
   for them. Verb attributes get the same case-insensitive match: a method
   marked `#[post]` used to be treated as unmarked and served GET, and now
