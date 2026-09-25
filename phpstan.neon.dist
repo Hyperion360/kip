@@ -34,6 +34,7 @@ parameters:
             # require, narrows the property to null, and calls the check dead.
             # That check IS the layout mechanism; do not "fix" it.
             identifier: notIdentical.alwaysFalse
+            count: 1
             path: src/View.php
         -
             # $eager is reference-bound to the caller's session store. The
@@ -41,4 +42,5 @@ parameters:
             # from raising a TypeError through the reference. Tightening it to
             # `array` is a behavior change, not a cleanup.
             identifier: property.unusedType
+            count: 1
             path: src/Session.php

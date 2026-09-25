@@ -31,8 +31,8 @@
         }
     },
     "scripts": {
-        "check-docs": "php scripts/check-docs.php",
-        "lint": "phpstan analyse --no-progress --memory-limit=256M",
+        "check-docs": "@php scripts/check-docs.php",
+        "lint": "@php vendor/bin/phpstan analyse --no-progress --memory-limit=256M",
         "test": "@php vendor/bin/phpunit",
         "check": [
             "@lint",
