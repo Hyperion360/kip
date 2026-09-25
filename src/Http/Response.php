@@ -9,8 +9,10 @@ final class Response
         'X-Frame-Options'        => 'SAMEORIGIN',
     ];
 
+    /** @var array<string, string> */
     public readonly array $headers;
 
+    /** @param array<string, string> $headers */
     public function __construct(
         public readonly string $body = '',
         public readonly int $status = 200,

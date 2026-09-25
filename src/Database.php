@@ -22,6 +22,7 @@ final class Database
 
     public function onQuery(callable $listener): void { $this->onQuery = $listener; }
 
+    /** @param array<array-key, mixed> $params positional or named PDO bindings */
     public function query(string $sql, array $params = []): \PDOStatement
     {
         if ($this->onQuery !== null) { ($this->onQuery)($sql); }
@@ -30,11 +31,19 @@ final class Database
         return $stmt;
     }
 
+    /**
+     * @param  array<array-key, mixed>     $params
+     * @return list<array<array-key, mixed>>  every matching row, FETCH_ASSOC
+     */
     public function all(string $sql, array $params = []): array
     {
         return $this->query($sql, $params)->fetchAll();
     }
 
+    /**
+     * @param  array<array-key, mixed>    $params
+     * @return array<array-key, mixed>|null  the first row, or null when none matched
+     */
     public function one(string $sql, array $params = []): ?array
     {
         $row = $this->query($sql, $params)->fetch();
