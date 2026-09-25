@@ -43,7 +43,9 @@ final class Database
 
     public function lastInsertId(): string
     {
-        return $this->pdo->lastInsertId();
+        // PDO::lastInsertId() is string|false: a driver that cannot report an
+        // id returns false. Coerce so the declared return type is the truth.
+        return (string) $this->pdo->lastInsertId();
     }
 
     public function begin(): void { $this->pdo->beginTransaction(); }
