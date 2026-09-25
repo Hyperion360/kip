@@ -109,6 +109,8 @@ final class AttributeAutoloadTest extends TestCase
 
         $post = $router->match(new Request('POST', '/secret/lowverb', [], [], []));
         $this->assertNotNull($post, 'a lowercase #[post] must still allow POST');
+        $this->expectException(\Kip\Routing\MethodNotAllowedException::class);
+        $router->match(new Request('GET', '/secret/lowverb', [], [], [])); // POST-only, not the GET default
     }
 
     /** #[Auth] on the controller class gates every action in it. */
