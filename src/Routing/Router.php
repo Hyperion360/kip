@@ -5,6 +5,7 @@ use Kip\Http\Request;
 
 final class Router
 {
+    /** @param string|list<string> $namespace one prefix, or several tried in order */
     public function __construct(
         private string|array $namespace = 'App\\Controllers\\',
         private string $suffix = 'Controller',

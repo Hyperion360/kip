@@ -10,10 +10,12 @@ final class App
     public readonly Container $container;
     public readonly Session $session;
     private Router $router;
+    /** @var array<string, mixed> backing store for an eager session */
     private array $sessionStore = [];
     private ?RequestLog $requestLog = null;
     private ?\Kip\Cache\PageCache $pageCache = null;
 
+    /** @param array<string, mixed> $config */
     public function __construct(private array $config, ?Session $session = null)
     {
         $this->container = new Container();

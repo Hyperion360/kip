@@ -6,6 +6,7 @@ final class SessionStarter
 {
     public function __construct(private bool $secureCookie = false) {}
 
+    /** @return array<string, mixed> the live session store */
     public function &start(): array
     {
         if (session_status() !== PHP_SESSION_ACTIVE) {

@@ -35,7 +35,11 @@ final class PageCache
         return new Response($row['body'], 200, [...$headers, 'X-Kip-Cache' => 'HIT', 'ETag' => $row['etag']]);
     }
 
-    /** Store a 200 HTML response with the tables its render read as purge tags. */
+    /**
+     * Store a 200 HTML response with the tables its render read as purge tags.
+     *
+     * @param list<string> $tables
+     */
     public function put(string $path, string $query, Response $response, array $tables): void
     {
         if ($response->status !== 200) return;

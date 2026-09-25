@@ -35,6 +35,7 @@ final class RequestLog
         }
     }
 
+    /** @return list<array<array-key, mixed>> */
     public function recent(int $limit): array
     {
         return $this->db->all('SELECT * FROM requests ORDER BY id DESC LIMIT ?', [$limit]);

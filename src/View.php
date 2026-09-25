@@ -20,6 +20,8 @@ final class View
     /**
      * Render a template, optionally wrapped by a layout chosen via $this->layout().
      * Data keys beginning with "__kip_" are reserved and will be ignored by extract().
+     *
+     * @param array<string, mixed> $__kip_data
      */
     public function render(string $__kip_template, array $__kip_data = []): string
     {

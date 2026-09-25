@@ -132,6 +132,7 @@ final class Auth
         return $user !== null && hash_equals(substr((string) $user['password_hash'], 0, self::EPOCH_LEN), $epoch);
     }
 
+    /** @return array<array-key, mixed>|null the id and email columns */
     public function user(): ?array
     {
         $id = $this->session->get('user_id');

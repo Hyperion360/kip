@@ -5,7 +5,10 @@ use Kip\Container;
 
 final class RouteMatch
 {
-    /** @param class-string $class controller the router resolved */
+    /**
+     * @param class-string $class controller the router resolved
+     * @param list<string> $args  path segments passed to the action
+     */
     public function __construct(
         public readonly string $class,
         private string $action,
