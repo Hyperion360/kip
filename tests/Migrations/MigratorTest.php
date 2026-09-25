@@ -108,8 +108,8 @@ final class MigratorTest extends TestCase
 
     /**
      * The realistic failure: a migrations directory that exists but cannot be read.
-     * Without GLOB_ERR, glob() returns [] here, so migrate() would report "nothing
-     * to migrate" and exit cleanly against a schema it never touched.
+     * The old glob() listing returned [] here, so migrate() reported "nothing to
+     * migrate" and exited cleanly against a schema it never touched.
      *
      * Skipped when this user can read a 0000 directory anyway (root, common in
      * containers); the path-is-a-file test above still reaches the throw there.
