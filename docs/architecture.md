@@ -2,8 +2,8 @@
 
 Kip is a batteries-included, server-rendered framework for PHP 8.3+ with
 zero JavaScript and zero runtime dependencies. `composer.json` requires
-exactly `php >= 8.3` and `ext-pdo`. The whole core is 19 PHP files under
-`src/`, roughly 970 lines, and every class in it is `final` except
+exactly `php >= 8.3` and `ext-pdo`. The whole core is 35 PHP files under
+`src/`, roughly 2,050 lines, and every class in it is `final` except
 `Kip\Migrations\Migration`, the abstract base your own migrations extend.
 The bet: a kernel this small can be read end-to-end in an afternoon.
 This page is the map. What happens to a request, where security is

@@ -154,3 +154,56 @@ constructor autowiring, error handling, the same path
   ```php
   $app->container->instance(Storage::class, new Storage('/tmp/test-uploads', mover: fn ($t, $d) => rename($t, $d)));
   ```
+
+## Static analysis
+
+Kip's own source is analyzed with PHPStan at level 6. The framework repository
+ships that configuration and the commands that run it:
+
+```bash
+composer lint     # static analysis of src/ only
+composer test     # the test suite only
+composer check    # lint, then docs fidelity, then tests; stops at the first failure
+```
+
+Those scripts live in the framework's `composer.json` and apply when you are
+working on Kip itself, not in your own app: dev dependencies do not travel with
+a package, and `composer check` runs `scripts/check-docs.php`, which only exists
+in the framework repository.
+
+Two exemptions are worth knowing, because they mark the analyzer's limits rather
+than Kip's. Templates under `src/Admin/views` are excluded: `View::render()`
+injects their variables with `extract()`, which no analyzer can follow. Two
+findings are ignored by identifier, each with its reason recorded in
+`phpstan.neon.dist`: a layout check the analyzer cannot see through a `require`,
+and a reference-bound session property whose nullable type is load-bearing.
+
+### Analyzing your own app
+
+Kip's array surfaces carry value types, and `Container::make()` is generic over
+the class you hand it, so an analyzer can follow types out of the framework and
+into your controllers. Setting that up in your app is three lines:
+
+```bash
+composer require --dev phpstan/phpstan:^2.2
+printf 'parameters:\n    level: 5\n    paths:\n        - app/src\n' > phpstan.neon.dist
+vendor/bin/phpstan analyse --memory-limit=256M
+```
+
+Commit `phpstan.neon.dist`; PHPStan also reads an uncommitted `phpstan.neon`
+first, which is the conventional place for local overrides.
+
+Expect a small number of findings on the first run, not zero. Measured on the
+blog example in this repository (4 files, 145 lines): one `return.unusedType`,
+which is a nullable return type that never returns null. A first run that
+reports nothing usually means the `paths` entry is wrong.
+
+Start at level 5, not 6. Level 6 demands a value type on every array in your own
+code, so adopting it means writing `array<string, mixed>` docblocks through your
+controllers and repositories. That is a trade the framework makes deliberately
+for a small core that many apps depend on. It is a different trade inside one
+application, and Kip does not ask you to make it. Raise the level when the
+annotations start paying for themselves.
+
+PHPStan never enters your application's runtime dependencies. Kip's own runtime
+requirements stay `php >= 8.3` plus `ext-pdo`.

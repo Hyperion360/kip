@@ -32,7 +32,13 @@
     },
     "scripts": {
         "check-docs": "php scripts/check-docs.php",
-        "lint": "phpstan analyse --no-progress --memory-limit=256M"
+        "lint": "phpstan analyse --no-progress --memory-limit=256M",
+        "test": "@php vendor/bin/phpunit",
+        "check": [
+            "@lint",
+            "@check-docs",
+            "@test"
+        ]
     },
     "extra": {
         "branch-alias": {

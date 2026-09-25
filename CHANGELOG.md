@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+- Route attributes are autoloadable: `Get`, `Post`, `Put`, `Delete` and
+  `Auth` each live in their own file under `src/Routing/`. They were
+  declared together in `Attributes.php`, which PSR-4 could not resolve,
+  so `class_exists()` was false for all five. The router never noticed
+  because it compares attribute names as strings, but apps and tooling
+  analyzing their own controllers saw every `#[Auth]` as an unknown
+  attribute. No API or behavior change.
+- Two declared return types made true: `Database::lastInsertId()` casts
+  PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
+  `string|false`. Both previously relied on coercive mode to turn a
+  `false` into `""`.
+- `Migrator` refuses a failed directory listing instead of crashing on it.
+  `glob()` returns `false` when it cannot enumerate a directory, and
+  `array_merge(false, ...)` was a `TypeError` with no usable message. It
+  now throws a `RuntimeException` naming the path and what to check. This
+  is a refusal, not a recovery: a failed listing still stops the command,
+  because treating it as an empty directory would let `migrate()` report
+  success against a schema it never touched.
+- `Container::make()` is generic over the class it is given, so callers
+  and downstream apps get the requested class back instead of `object`.
+  The public signature is unchanged.
+- Array value types on every framework array surface, so apps running a
+  static analyzer see real shapes rather than bare `array`. Key types follow
+  what PHP and PDO actually produce: `array<array-key, mixed>` for
+  superglobal-shaped maps and database rows, because `?0=x` yields an
+  integer key and `SELECT 1 AS "0"` yields one in an associative row.
+  Your app's runtime behavior does not change: these are docblocks, and PHP
+  does not enforce them. If you run a static analyzer against your own app,
+  expect new findings where you were passing something looser than the
+  documented shape, because the shape is now written down. The three most
+  likely: a non-string value in the `$headers` array you hand
+  `new Response(...)` (now `array<string, string>`), a non-sequential array
+  of table names passed to `PageCache::put()` (now `list<string>`), and a
+  widened check such as `instanceof` on the result of
+  `$container->make(Foo::class)`, which the analyzer now knows is a `Foo`.
+  Each is a one-line fix in your code or a local `ignoreErrors` entry; none
+  of them is a runtime break.
+- Dev-only static analysis: `composer lint` runs PHPStan at level 6 over
+  `src/`. Nothing is added to the runtime `require`, which stays
+  `php >= 8.3` and `ext-pdo`.
 - Session revocation on password change: sessions carry a password epoch
   (hash prefix) checked by the kernel's `#[Auth]` gate, a password
   reset or admin password edit revokes every previously logged-in
