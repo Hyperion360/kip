@@ -65,7 +65,23 @@ final class Migrator
     private function files(): array
     {
         $map = [];
-        foreach (array_merge(glob($this->dir . '/*.php'), glob($this->dir . '/*.sql')) as $file) {
+        // glob() is array|false, and array_merge(false, ...) is a fatal TypeError.
+        // Refuse rather than coerce: treating a failed listing as an empty one
+        // would let migrate() report success against a schema it never touched,
+        // and a single failed listing would apply a partial inventory as a
+        // complete batch (outside review 2).
+        $php = glob($this->dir . '/*.php');
+        $sql = glob($this->dir . '/*.sql');
+        if ($php === false || $sql === false) {
+            throw new \RuntimeException(
+                "Cannot list migrations in {$this->dir}: directory enumeration failed. "
+                . 'Refusing to report an empty migration set, because that would '
+                . 'record a partial batch as complete. The path above is exactly '
+                . "what Migrator received: check that config.php's app_dir key "
+                . 'resolves to a real directory (is_dir() must be true on it).'
+            );
+        }
+        foreach (array_merge($php, $sql) as $file) {
             $name = pathinfo($file, PATHINFO_FILENAME);
             if (isset($map[$name])) {
                 throw new \RuntimeException("Migration name collision: {$name} exists as both .php and .sql");

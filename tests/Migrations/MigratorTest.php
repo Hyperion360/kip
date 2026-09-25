@@ -47,4 +47,31 @@ final class MigratorTest extends TestCase
         $this->assertNull($this->db->one("SELECT name FROM sqlite_master WHERE name = 'gadgets'"));
         $this->assertNotNull($this->db->one("SELECT name FROM sqlite_master WHERE name = 'widgets'")); // batch 1 untouched
     }
+
+    /**
+     * Regression guard for the glob() hardening: an empty but READABLE migrations
+     * directory must stay a normal no-op, not a thrown error.
+     *
+     * The failure case (glob() returning false) is deliberately not tested here.
+     * Verified: glob() on a 0000 directory returns [] on macOS, not false, so the
+     * error branch is not reachable through permissions. PHPStan is the check for
+     * that branch, exactly as in Tasks 3 and 4.
+     */
+    public function test_empty_readable_migrations_directory_is_a_no_op(): void
+    {
+        $dir = sys_get_temp_dir() . '/kip-mig-' . bin2hex(random_bytes(6));
+        mkdir($dir, 0777, true);
+
+        $db = new \Kip\Database('sqlite::memory:');
+        $migrator = new \Kip\Migrations\Migrator($db, $dir);
+
+        try {
+            // migrate() is one of Migrator's two public methods (the other is
+            // rollback()); it calls the private files() that array_merge's the
+            // two glob() results.
+            $this->assertSame([], $migrator->migrate(), 'an empty directory applies nothing');
+        } finally {
+            rmdir($dir);
+        }
+    }
 }
