@@ -21,10 +21,11 @@ microseconds. The budget exists because every extra query is a place where
 N+1 patterns, missing indexes, and accidental work hide, and because the
 cache-miss path deserves the same discipline as the cached hit.
 
-The bundled `examples/blog` predates this chapter and does not yet meet the
-budget: its `PostsController::show()` runs two queries, one for the post and
-one for its comments, because the tutorial adds comments as a separate step.
-The first pattern below is how to fold them into one.
+The bundled `examples/blog` predates this chapter and does not yet meet it in
+two places. Its `PostsController::show()` runs two queries, one for the post
+and one for its comments, because the tutorial adds comments as a separate
+step; the first pattern below folds them into one. Its post listing sorts
+without an index; the index section below shows the plan and the fix.
 
 ## Patterns that keep you at one query
 
@@ -39,6 +40,7 @@ $sql = "SELECT p.*,
         FROM posts p
         WHERE p.id = ?";
 $post = $db->one($sql, [$id]);
+if ($post === null) return new Kip\Http\Response('Post not found', 404);
 $comments = json_decode($post['comments_json'], true);
 usort($comments, fn ($a, $b) => [$a['created_at'], $a['id']] <=> [$b['created_at'], $b['id']]);
 ```
@@ -49,17 +51,20 @@ separator: any separator you choose can appear in text a user typed, and one
 comment containing it splits into extra fields and corrupts the rows after
 it. JSON encoding has no such character.
 
-LEFT JOIN for optional relations. A listing that shows each post's comment
-count, including posts that have none, uses LEFT JOIN with COUNT rather than
-a follow-up count per post:
+LEFT JOIN for optional relations. A post header that shows the comment
+count, including zero, uses LEFT JOIN with COUNT rather than a second
+count query:
 
 ```php
 $sql = "SELECT p.id, p.title, COUNT(c.id) AS comment_count
         FROM posts p
         LEFT JOIN comments c ON c.post_id = p.id
-        GROUP BY p.id
-        ORDER BY p.created_at DESC";
+        WHERE p.id = ?
+        GROUP BY p.id";
 ```
+
+The plan is two SEARCH steps: the post by primary key, then its comments
+through the `comments(post_id, created_at, id)` index.
 
 Count `c.id`, not `*`: `COUNT(*)` counts the NULL row a LEFT JOIN produces
 for a post with no comments, and reports 1 instead of 0.
@@ -70,16 +75,20 @@ its newest comment in one query:
 ```php
 $sql = "SELECT p.*,
         MAX(c.created_at) AS newest_comment_at,
-        MAX(CASE WHEN c.created_at = (SELECT MAX(c2.created_at) FROM comments c2
-                                      WHERE c2.post_id = p.id) THEN c.body END) AS newest_comment_body
+        MAX(CASE WHEN c.id = (SELECT c2.id FROM comments c2
+                              WHERE c2.post_id = p.id
+                              ORDER BY c2.created_at DESC, c2.id DESC
+                              LIMIT 1) THEN c.body END) AS newest_comment_body
         FROM posts p
         LEFT JOIN comments c ON c.post_id = p.id
         WHERE p.id = ?
         GROUP BY p.id";
 ```
 
-A NULL pivot column means the child does not exist; that is your empty
-state.
+Match on `id`, not on the timestamp. Two comments with the same
+`created_at` would both match a timestamp test, and `MAX(...)` would then
+return whichever body sorts last as text rather than the newest comment. A
+NULL pivot column means the child does not exist; that is your empty state.
 
 UNION ALL when shapes differ. Two result shapes in one round trip become
 one query with a discriminator column and NULLs where the shapes disagree.
@@ -102,12 +111,28 @@ EXPLAIN QUERY PLAN
 SELECT * FROM comments WHERE post_id = ? ORDER BY created_at, id
 ```
 
-Two words fail the contract: SCAN (a full table scan on a page-serving
-query) and TEMP B-TREE (an in-memory sort because no index matches the
-ordering). The blog's `comments(post_id, created_at, id)` index covers both
-the filter and the ordering, so the plan is a single SEARCH with no sort.
-Drop the trailing columns from that index and the same query gains a
+Two plan lines fail the contract: a bare `SCAN table` (a full table scan)
+and `USE TEMP B-TREE` (a sort because no index matches the ordering). A
+`SCAN table USING INDEX` bounded by `LIMIT` passes: it walks the index in
+order and stops after one page, which is how pagination is supposed to
+read. The blog's `comments(post_id, created_at, id)` index covers both the
+filter and the ordering, so the plan is a single SEARCH with no sort. Drop
+the trailing columns from that index and the same query gains a
 TEMP B-TREE.
+
+The blog's post listing is the counterexample:
+
+```sql
+EXPLAIN QUERY PLAN
+SELECT * FROM posts ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+```
+
+Today that plans as `SCAN posts` plus `USE TEMP B-TREE FOR ORDER BY`: every
+post is read and sorted to return ten. A migration adding
+`CREATE INDEX idx_posts_created_at ON posts (created_at)` changes the plan
+to `SCAN posts USING INDEX idx_posts_created_at`. The `id` tie-break needs
+no index column of its own, because SQLite appends the rowid to every
+index entry.
 
 ## Enforce it in tests
 
