@@ -352,7 +352,8 @@ switching its action based on whether `$post['id']` is set:
 ```
 
 **How it works, the convention router and its attributes**
-(`src/Routing/Router.php`, `src/Routing/Attributes.php`):
+(`src/Routing/Router.php`, and one file per attribute such as
+`src/Routing/Auth.php`):
 
 - A method with **no verb attribute** is GET-only by convention. `#[Post]`
   (and `#[Put]`/`#[Delete]`, unused here) restrict it to that verb, hit
