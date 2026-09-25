@@ -20,12 +20,14 @@
   was public only because of one of those spellings now redirects guests to
   `/auth/login`. If you wrote `#[Auth]` in any of those forms, those routes
   were reachable without login before this release; check your request logs
-  for them.
+  for them. Verb attributes get the same case-insensitive match: a method
+  marked `#[post]` used to be treated as unmarked and served GET, and now
+  answers POST only, so a GET to it returns 405.
 - Login timing: the dummy hash that equalizes an unknown-email login now
   matches the bcrypt cost of `PASSWORD_DEFAULT` on the running PHP (10 up
-  to 8.3, 12 from 8.4). It was fixed at cost 12, so on PHP 8.3 an unknown
-  email took about four times longer than a real account, which revealed
-  which emails are registered. Limit: an account whose hash was stored
+  to 8.3, 12 from 8.4). It was fixed at cost 10, so on PHP 8.4 an unknown
+  email answered about four times faster than a real account (52ms against
+  208ms), which revealed which emails are registered. Limit: an account whose hash was stored
   before a PHP 8.3 to 8.4 upgrade keeps cost 10 until its password changes,
   so after that upgrade those accounts remain distinguishable by timing.
 - Two declared return types made true: `Database::lastInsertId()` casts

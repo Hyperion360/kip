@@ -128,7 +128,7 @@ SELECT * FROM posts ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 ```
 
 Today that plans as `SCAN posts` plus `USE TEMP B-TREE FOR ORDER BY`: every
-post is read and sorted to return ten. A migration adding
+post is read and sorted to return one page of 20. A migration adding
 `CREATE INDEX idx_posts_created_at ON posts (created_at)` changes the plan
 to `SCAN posts USING INDEX idx_posts_created_at`. The `id` tie-break needs
 no index column of its own, because SQLite appends the rowid to every
