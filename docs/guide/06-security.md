@@ -129,6 +129,12 @@ epoch all count as not logged in. (After upgrading an existing app,
 logged-in users re-authenticate once. Their pre-upgrade sessions have
 no epoch.)
 
+A successful login also rewrites a hash stored at an outdated cost or
+algorithm (after a PHP upgrade raises the default bcrypt cost, or for
+rows imported from another system), so response timing cannot tell
+those accounts apart from unknown emails. That rewrite changes the
+epoch too: the user's other sessions end once, at that login.
+
 **Reverse-proxy caveat.** Throttling keys on `Request::ip`, which is
 `REMOTE_ADDR` unless `trusted_proxy` is on. Behind a reverse proxy without
 `KIP_TRUSTED_PROXY=1`, every request's `ip` is the *proxy's* address,

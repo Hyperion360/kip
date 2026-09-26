@@ -148,6 +148,62 @@ final class AuthTest extends TestCase
         $this->assertTrue($this->auth->attempt('argon@b.c', 'right-pass'));
     }
 
+    /**
+     * A hash stored at another cost or algorithm is rewritten at PASSWORD_DEFAULT on the
+     * next successful login, so its verify time stops differing from the unknown-email
+     * path. The new hash changes the session epoch: this session is issued the new one,
+     * and sessions logged in before the rewrite end.
+     */
+    public function test_successful_login_rehashes_an_outdated_hash(): void
+    {
+        $old = password_hash('right-pass', PASSWORD_BCRYPT, ['cost' => 4]);
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ['old@b.c', $old]);
+        // A session this user opened before the rewrite, e.g. on another device.
+        $otherStore = ['user_id' => 1, 'pwd_epoch' => substr($old, 0, Auth::EPOCH_LEN)];
+        $other = new Auth($this->db, new Session($otherStore), static function (): void {});
+        $this->assertTrue($other->sessionValid());
+
+        $this->assertTrue($this->auth->attempt('old@b.c', 'right-pass'));
+
+        $stored = (string) $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['old@b.c'])['password_hash'];
+        $this->assertFalse(password_needs_rehash($stored, PASSWORD_DEFAULT), 'rewritten at PASSWORD_DEFAULT');
+        $this->assertTrue(password_verify('right-pass', $stored));
+        $this->assertTrue($this->auth->sessionValid(), 'this login carries the new epoch');
+        $this->assertFalse($other->sessionValid(), 'a session from before the rewrite ends');
+    }
+
+    public function test_other_bcrypt_prefixes_are_rewritten_as_2y(): void
+    {
+        $y = password_hash('right-pass', PASSWORD_BCRYPT, ['cost' => 4]);
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ['b@b.c', '$2b' . substr($y, 3)]);
+        $this->assertTrue($this->auth->attempt('b@b.c', 'right-pass'));
+        $stored = (string) $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['b@b.c'])['password_hash'];
+        $this->assertStringStartsWith('$2y$', $stored);
+    }
+
+    public function test_a_current_hash_is_not_rewritten(): void
+    {
+        $this->auth->register('fresh@b.c', 'right-pass');
+        $before = $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['fresh@b.c'])['password_hash'];
+        $this->assertTrue($this->auth->attempt('fresh@b.c', 'right-pass'));
+        $this->assertSame($before, $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['fresh@b.c'])['password_hash']);
+    }
+
+    /**
+     * argon2 verifies a password containing a NUL byte, but password_hash() at bcrypt
+     * throws on one. That login must still succeed, keeping the argon2 hash.
+     */
+    public function test_nul_byte_password_on_an_argon2_hash_logs_in_without_a_rehash(): void
+    {
+        if (!defined('PASSWORD_ARGON2ID')) {
+            $this->markTestSkipped('this PHP build has no argon2 support');
+        }
+        $argon = password_hash("right\0pass", PASSWORD_ARGON2ID);
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ['nul@b.c', $argon]);
+        $this->assertTrue($this->auth->attempt('nul@b.c', "right\0pass"));
+        $this->assertSame($argon, $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['nul@b.c'])['password_hash']);
+    }
+
     public function test_logout_clears_user(): void
     {
         $this->auth->register('a@b.c', 'secret123');

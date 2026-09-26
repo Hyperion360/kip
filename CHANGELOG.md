@@ -38,10 +38,13 @@
   take 211 to 214ms. A bcrypt hash with a malformed salt or cost counts as
   unrecognized too, while valid `$2a$`, `$2b$` and `$2x$` hashes still log
   in. A password containing a NUL byte fails the same way, and just as
-  slowly, for known and unknown emails. Limit: a valid hash stored at another cost or algorithm (every account
+  slowly, for known and unknown emails. A valid hash stored at another cost or algorithm (every account
   after a PHP 8.3 to 8.4 upgrade, or rows imported from another system)
-  verifies at its own speed and stays distinguishable by timing until its
-  password changes.
+  verifies at its own speed, so a successful login now rewrites any hash
+  `password_needs_rehash()` flags at `PASSWORD_DEFAULT`. Limit: such an
+  account stays distinguishable by timing until its owner next logs in.
+  The rewrite changes the session epoch, so that login ends the user's
+  other sessions, once.
 - **Security, behavior change: verb attributes follow the class hierarchy.**
   The router read `#[Get]`, `#[Post]`, `#[Put]` and `#[Delete]` only from
   the method it resolved, so a subclass overriding a parent's

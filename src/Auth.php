@@ -101,15 +101,14 @@ final class Auth
      * register() uses, on every PHP version, with nothing to keep in sync. Measured on
      * 8.4 at cost 12: 212ms for the discarded hash against 214ms verifying a real one.
      *
-     * LIMIT: this matches hashes CREATED at PASSWORD_DEFAULT on this runtime. A valid
-     * hash stored at another cost or algorithm verifies at its own speed: after moving
-     * from PHP 8.3 to 8.4 every existing account still verifies at cost 10 (~52ms)
+     * A valid hash stored at another cost or algorithm verifies at its own speed:
+     * after moving from PHP 8.3 to 8.4 an existing account verifies at cost 10 (~52ms)
      * while an unknown email pays cost 12 (~210ms), and rows imported from another
-     * system (argon2, or a low test cost) differ the same way. Those accounts stay
-     * distinguishable until their hash is rewritten. Closing that needs
-     * rehash-on-login, which rewrites the stored hash and so changes the session epoch
-     * derived from it (see sessionValid()), revoking that user's other sessions.
-     * Tracked as a decision, not solved here.
+     * system (argon2, a $2b$ prefix, or a low cost) differ the same way. So a
+     * successful login rewrites any hash password_needs_rehash() flags at
+     * PASSWORD_DEFAULT. LIMIT: an account stays distinguishable until its owner next
+     * logs in. The rewrite changes the session epoch (see sessionValid()), so this
+     * login gets the new epoch and that user's older sessions end, once.
      */
     public function attempt(string $email, string $password, string $ip = ''): bool
     {
@@ -127,6 +126,11 @@ final class Auth
         if (!password_verify($password, $hash)) {
             $this->recordAttempt($email, $ip, 'login');
             return false;
+        }
+        // A NUL-byte password can verify against argon2 but would make password_hash() throw.
+        if (password_needs_rehash($hash, PASSWORD_DEFAULT) && !str_contains($password, "\0")) {
+            $hash = password_hash($password, PASSWORD_DEFAULT);
+            $this->db->query('UPDATE users SET password_hash = ? WHERE id = ?', [$hash, $user['id']]);
         }
         $this->db->query('DELETE FROM login_attempts WHERE email = ?', [$email]);
         ($this->regenerator)();
