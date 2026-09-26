@@ -125,6 +125,38 @@ final class AttributeAutoloadTest extends TestCase
         }
     }
 
+    /** A class-level #[Auth] on an implemented interface gates the controller. */
+    public function test_class_level_auth_on_an_interface_gates_the_implementer(): void
+    {
+        $router = new Router(namespace: 'Kip\\Tests\\Routing\\Unimported\\');
+
+        $m = $router->match(new Request('GET', '/vault-contract/index', [], [], []));
+        $this->assertNotNull($m);
+        $this->assertTrue($m->requiresAuth, "an interface's #[Auth] must gate the implementing controller");
+    }
+
+    /**
+     * A method-level #[Auth] anywhere the action is declared, on a parent class or on
+     * an interface, gates it. An override that drops the attribute must not silently
+     * make a gated action public; other actions stay public.
+     */
+    public function test_method_level_auth_on_a_parent_or_interface_declaration_gates_the_action(): void
+    {
+        $router = new Router(namespace: 'Kip\\Tests\\Routing\\Unimported\\');
+
+        $cases = [
+            '/contract-actions/secret' => [true, 'an interface signature carrying #[Auth]'],
+            '/contract-actions/open' => [false, 'an action gated nowhere'],
+            '/overriding-child/edit' => [true, 'an override of a parent method carrying #[Auth]'],
+            '/overriding-child/view' => [false, 'an inherited action gated nowhere'],
+        ];
+        foreach ($cases as $path => [$gated, $label]) {
+            $m = $router->match(new Request('GET', $path, [], [], []));
+            $this->assertNotNull($m, $path);
+            $this->assertSame($gated, $m->requiresAuth, "{$label} ({$path})");
+        }
+    }
+
     /** #[Auth] on the controller class gates every action in it. */
     public function test_class_level_auth_attribute_gates_every_action(): void
     {

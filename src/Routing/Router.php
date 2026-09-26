@@ -42,12 +42,15 @@ final class Router
         // names, so they work whether or not their class was imported and in any letter case.
         // That matters most for #[Auth]: an unimported #[Auth] resolves to the controller's
         // own namespace, and an exact match on Kip\Routing\Auth would leave the route
-        // silently public. #[Auth] on the controller class, or on any class it extends,
-        // gates every action in it. Authorization fails closed.
-        $requiresAuth = self::classHasAuth(new \ReflectionClass($class))
-            || self::hasAuth($method->getAttributes());
+        // silently public. PHP copies attributes across neither `extends` nor
+        // `implements`, so #[Auth] counts wherever it is declared: on the controller
+        // class, a parent class or an interface (gating every action), or on any
+        // declaration of this action in that hierarchy, so an override that drops the
+        // attribute cannot make a gated action public. Authorization fails closed.
+        $attributes = $method->getAttributes();
+        $requiresAuth = self::hierarchyHasAuth(new \ReflectionClass($class), $action);
         $verbs = [];
-        foreach ($method->getAttributes() as $attr) {
+        foreach ($attributes as $attr) {
             $verb = strtoupper(self::shortName($attr->getName()));
             if (in_array($verb, ['GET', 'POST', 'PUT', 'DELETE'], true)) $verbs[] = $verb;
         }
@@ -61,14 +64,21 @@ final class Router
     }
 
     /**
-     * PHP does not inherit attributes, so a #[Auth] base controller is found by walking up.
+     * True when #[Auth] sits on the class, any parent or interface, or on any of
+     * their declarations of $action. getInterfaces() already includes interfaces
+     * inherited from parents and from other interfaces.
      *
      * @param \ReflectionClass<object> $class
      */
-    private static function classHasAuth(\ReflectionClass $class): bool
+    private static function hierarchyHasAuth(\ReflectionClass $class, string $action): bool
     {
+        $declarers = array_values($class->getInterfaces());
         for ($c = $class; $c !== false; $c = $c->getParentClass()) {
-            if (self::hasAuth($c->getAttributes())) return true;
+            $declarers[] = $c;
+        }
+        foreach ($declarers as $d) {
+            if (self::hasAuth($d->getAttributes())) return true;
+            if ($d->hasMethod($action) && self::hasAuth($d->getMethod($action)->getAttributes())) return true;
         }
         return false;
     }

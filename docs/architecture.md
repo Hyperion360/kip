@@ -120,7 +120,9 @@ if ($match->requiresAuth && $active->get('user_id') === null) {
   an `#[Auth]` route gets the 403, not the redirect.
 
 `#[Auth]` is detected by `Router::match()` and carried on
-`RouteMatch::$requiresAuth`.
+`RouteMatch::$requiresAuth`. It counts on the controller class, any parent
+class or interface, or any declaration of the action in that hierarchy,
+matched by short name in any letter case.
 
 ## Page-cache orchestration
 

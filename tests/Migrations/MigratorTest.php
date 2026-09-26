@@ -107,6 +107,36 @@ final class MigratorTest extends TestCase
     }
 
     /**
+     * An entry named like a migration that is not a regular file (a directory, or a
+     * symlink whose target is gone) must stop migrate(), not vanish from the batch.
+     * glob() used to list these and apply() then failed loudly; skipping them would
+     * record a partial batch as complete.
+     */
+    public function test_migration_named_entry_that_is_not_a_regular_file_throws(): void
+    {
+        foreach (['directory' => static fn (string $p) => mkdir($p),
+                  'broken symlink' => static fn (string $p) => symlink($p . '-missing-target', $p)] as $kind => $make) {
+            $dir = sys_get_temp_dir() . '/kip-mig-odd-' . bin2hex(random_bytes(6));
+            mkdir($dir, 0777, true);
+            file_put_contents($dir . '/001_real.sql', "-- up\nCREATE TABLE real_t (id INTEGER);\n-- down\nDROP TABLE real_t;\n");
+            $odd = $dir . '/002_odd.sql';
+            $make($odd);
+            $error = null;
+            try {
+                (new \Kip\Migrations\Migrator(new \Kip\Database('sqlite::memory:'), $dir))->migrate();
+            } catch (\RuntimeException $e) {
+                $error = $e->getMessage();
+            } finally {
+                is_link($odd) ? unlink($odd) : @rmdir($odd);
+                unlink($dir . '/001_real.sql');
+                rmdir($dir);
+            }
+            $this->assertNotNull($error, "a {$kind} named like a migration must throw");
+            $this->assertStringContainsString('002_odd.sql', $error, $kind);
+        }
+    }
+
+    /**
      * The realistic failure: a migrations directory that exists but cannot be read.
      * The old glob() listing returned [] here, so migrate() reported "nothing to
      * migrate" and exited cleanly against a schema it never touched.
@@ -151,8 +181,8 @@ final class MigratorTest extends TestCase
 
         try {
             // migrate() is one of Migrator's two public methods (the other is
-            // rollback()); it calls the private files() that array_merge's the
-            // two glob() results.
+            // rollback()); it calls the private files() that scandir()s the
+            // directory and keeps the .php and .sql entries.
             $this->assertSame([], $migrator->migrate(), 'an empty directory applies nothing');
         } finally {
             rmdir($dir);

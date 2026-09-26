@@ -93,7 +93,14 @@ final class Migrator
             $ext = pathinfo($entry, PATHINFO_EXTENSION);
             if ($ext !== 'php' && $ext !== 'sql') continue;
             $file = $this->dir . '/' . $entry;
-            if (!is_file($file)) continue;
+            if (!is_file($file)) {
+                // A directory or a dangling symlink named like a migration: skipping it
+                // would apply an incomplete batch and report success.
+                throw new \RuntimeException(
+                    "{$entry} in {$this->dir} is named like a migration but is not a regular "
+                    . 'file (a directory, or a symlink whose target is missing). Rename or remove it.'
+                );
+            }
             $name = pathinfo($entry, PATHINFO_FILENAME);
             if (isset($map[$name])) {
                 throw new \RuntimeException("Migration name collision: {$name} exists as both .php and .sql");

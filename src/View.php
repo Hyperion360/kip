@@ -51,7 +51,7 @@ final class View
                     );
                 }
                 extract($__kip_data, EXTR_SKIP);
-                $content = $__kip_content; // UNCONDITIONAL assignment (T3 fix-round): a caller data key named
+                $content = (string) $__kip_content; // UNCONDITIONAL assignment (T3 fix-round): a caller data key named
                 // 'content' leaks through the FIRST extract into a plain $content local, and the old
                 // ??= guard was dead code in both directions. Only a hard overwrite here guarantees
                 // the layout renders the actual body, never caller data.

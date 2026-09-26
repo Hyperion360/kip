@@ -81,6 +81,36 @@ at all. `#[Auth]` also changes CSRF enforcement for that route, see
 Attributes stack. `#[Auth] #[Post]` on one method is common for
 create/update actions that must be both logged-in and POST-only.
 
+To require login for every action in a controller, put `#[Auth]` on the
+class instead. It also counts on a parent class or an interface, so a base
+controller or a marker interface carrying `#[Auth]` gates every controller
+that extends or implements it:
+
+```php
+use Kip\Routing\Auth;
+
+#[Auth]
+abstract class AdminBase {}
+
+final class ReportsController extends AdminBase
+{
+    public function index(): string { /* login required */ }
+}
+```
+
+A method-level `#[Auth]` counts on any declaration of that action in the
+hierarchy: an override in a subclass stays gated even if it leaves the
+attribute off, and so does a method whose interface signature carries it.
+The one exception is a trait: an `#[Auth]` on a trait does not apply to the
+class using it, because PHP does not expose trait attributes to that class;
+put it on the method or the class.
+
+The router matches attribute names by their short name, without regard to
+letter case or imports, so an `#[Auth]` you forgot to import still gates the
+route rather than leaving it public. The flip side: an attribute of your own
+named `Auth`, `Get`, `Post`, `Put` or `Delete`, in any namespace, is read as
+Kip's. Give app attributes other names.
+
 ## HEAD requests
 
 `HEAD /posts` is served by `PostsController::index()`, the same method

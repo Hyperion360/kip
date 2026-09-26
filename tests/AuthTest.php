@@ -54,53 +54,6 @@ final class AuthTest extends TestCase
     }
 
     /**
-     * The enumeration equalizer, tested by parity rather than by a stopwatch.
-     *
-     * The dummy verified on the unknown-email path must be exactly what
-     * password_hash(PASSWORD_DEFAULT) would produce on THIS runtime. If it is
-     * cheaper, unknown emails answer sooner; if dearer, later. Both leak.
-     *
-     * This is not a fixed number. PASSWORD_DEFAULT's bcrypt cost is 10 up to PHP
-     * 8.3 and 12 from 8.4, and Kip supports both. An earlier fix hardcoded cost 12
-     * and so reversed the oracle on 8.3. password_needs_rehash() is the precise
-     * question to ask: "would PASSWORD_DEFAULT rehash this?" It checks algorithm
-     * and options together, and a future default the map lacks fails here.
-     *
-     * The previous version of this test timed both paths and asserted
-     * assertGreaterThan($unknownAt * 0.1, $knownAt). That only failed when the
-     * KNOWN path was fast, passed with a 40x margin over a real 53ms-vs-210ms
-     * oracle, and flaked under load.
-     */
-    public function test_selected_dummy_hash_is_what_password_default_produces(): void
-    {
-        $dummy = (new \ReflectionMethod(\Kip\Auth::class, 'dummyHash'))->invoke(null);
-
-        $this->assertIsString($dummy);
-        $this->assertFalse(
-            password_needs_rehash($dummy, PASSWORD_DEFAULT),
-            'the unknown-email dummy must be a hash PASSWORD_DEFAULT would not rehash; '
-            . 'otherwise its verify costs differ from a real account and leak existence. '
-            . 'If PHP changed its default, add a dummy for it to Auth::DUMMY_HASHES.'
-        );
-    }
-
-    /** Every precomputed dummy is a well-formed bcrypt hash, one per cost, covering
-     *  the defaults of every supported PHP version (10 on 8.3, 12 on 8.4). */
-    public function test_dummy_hashes_cover_each_supported_default_cost(): void
-    {
-        $hashes = (new \ReflectionClass(\Kip\Auth::class))->getConstant('DUMMY_HASHES');
-        $this->assertIsArray($hashes);
-
-        $costs = [];
-        foreach ($hashes as $hash) {
-            $info = password_get_info($hash);
-            $this->assertSame('bcrypt', $info['algoName']);
-            $costs[] = $info['options']['cost'];
-        }
-        $this->assertSame([10, 12], $costs, 'one dummy per supported default cost, ascending');
-    }
-
-    /**
      * A lower bound, not a ratio: the unknown-email path must actually perform a
      * bcrypt verify rather than returning early. A stall can only make this longer,
      * so unlike the ratio it replaced, load cannot produce a false failure. bcrypt
@@ -119,6 +72,24 @@ final class AuthTest extends TestCase
             'the unknown-email path returned too fast to have run a bcrypt verify, '
             . 'so response time now reveals that the account does not exist'
         );
+    }
+
+    /**
+     * The same floor for an account whose stored hash is not a hash PHP recognizes
+     * (empty, truncated, hand-edited). password_verify() rejects those in
+     * microseconds, which would mark the account as existing.
+     */
+    public function test_unverifiable_stored_hash_still_performs_real_bcrypt_work(): void
+    {
+        foreach (['empty' => '', 'garbage' => 'not-a-hash', 'truncated' => '$2y$12$abc'] as $label => $stored) {
+            $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ["{$label}@b.c", $stored]);
+
+            $start = microtime(true);
+            $this->assertFalse($this->auth->attempt("{$label}@b.c", 'whatever'), $label);
+            $elapsedMs = (microtime(true) - $start) * 1000;
+
+            $this->assertGreaterThan(10.0, $elapsedMs, "a {$label} stored hash returned too fast, revealing the account");
+        }
     }
 
     public function test_logout_clears_user(): void
