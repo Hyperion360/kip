@@ -6,6 +6,9 @@ final class Container
     /** @var array<class-string, object> */
     private array $instances = [];
 
+    /** @var list<class-string> classes mid-construction, outermost first */
+    private array $resolving = [];
+
     /**
      * @template T of object
      * @param class-string<T> $class
@@ -39,6 +42,25 @@ final class Container
     private function resolve(string $class): object
     {
         if (isset($this->instances[$class])) return $this->instances[$class];
+        if (in_array($class, $this->resolving, true)) {
+            $chain = [...array_slice($this->resolving, (int) array_search($class, $this->resolving, true)), $class];
+            throw new \RuntimeException(
+                'Circular dependency: ' . implode(' -> ', $chain) . '. Each constructor in '
+                . 'the loop needs the next one built first, so none can be. Remove one of '
+                . 'these constructor parameters to break the loop.'
+            );
+        }
+        $this->resolving[] = $class;
+        try {
+            return $this->build($class);
+        } finally {
+            array_pop($this->resolving);
+        }
+    }
+
+    /** @param class-string $class */
+    private function build(string $class): object
+    {
         $ctor = (new \ReflectionClass($class))->getConstructor();
         $args = [];
         foreach ($ctor?->getParameters() ?? [] as $p) {

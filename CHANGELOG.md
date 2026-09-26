@@ -57,6 +57,10 @@
   panel's user editor answer 422 with a form error, and `kip user:create`
   exits 1 with a message. `password_hash()` throws on a NUL byte, and none
   of the three checked for one first.
+- `Container::make()` detects a circular constructor dependency and throws
+  a `RuntimeException` naming the loop (`A -> B -> A`). It used to recurse
+  until PHP ran out of stack or memory, a fatal error with no hint of which
+  classes were involved.
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a
