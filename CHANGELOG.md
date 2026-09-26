@@ -52,6 +52,11 @@
   then each parent and its traits, then interfaces). An override that
   declares its own verb still wins. If an override of yours relied on
   dropping the parent's verb to answer GET, add `#[Get]` to it.
+- A new password containing a NUL byte is refused as bad input instead of
+  failing with a 500: the skeleton's password-reset form and the admin
+  panel's user editor answer 422 with a form error, and `kip user:create`
+  exits 1 with a message. `password_hash()` throws on a NUL byte, and none
+  of the three checked for one first.
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a

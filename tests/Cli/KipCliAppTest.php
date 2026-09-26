@@ -73,6 +73,18 @@ final class KipCliAppTest extends TestCase
         $this->assertSame(0, (int) $row['is_admin']); // default-deny: no admin without the flag
     }
 
+    public function test_user_create_refuses_a_nul_byte_password(): void
+    {
+        $this->cli(['migrate']);
+        // A shell argument cannot carry a NUL, so printf writes it from an octal escape.
+        exec('cd ' . escapeshellarg($this->cliApp) . " && printf 'secret\\000pw1\\n' | " . PHP_BINARY
+            . ' ./bin/kip user:create nul@example.com 2>&1', $lines, $code);
+        $out = implode("\n", $lines);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringContainsString('Password cannot contain a NUL byte.', $out);
+        $this->assertSame(0, (int) $this->pdo()->query("SELECT COUNT(*) FROM users WHERE email = 'nul@example.com'")->fetchColumn());
+    }
+
     public function test_user_create_admin_flag_sets_is_admin(): void
     {
         $this->cli(['migrate']);

@@ -193,6 +193,9 @@ final class AdminController
             }
             if ($name === 'password_hash') {
                 $plain = $this->request->postStr($name);
+                if (str_contains($plain, "\0")) {
+                    return [[], 'password cannot contain a NUL byte']; // password_hash() would throw
+                }
                 if ($plain !== '') {
                     $data[$name] = password_hash($plain, PASSWORD_DEFAULT);
                 } elseif ($creating) {

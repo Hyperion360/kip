@@ -82,6 +82,9 @@ final class AuthController
         if (strlen($password) < 8) {
             return new Response($this->resetView($token, 'Password must be at least 8 characters.'), 422);
         }
+        if (str_contains($password, "\0")) { // password_hash() throws on it: a 500, not a form error
+            return new Response($this->resetView($token, 'Password cannot contain a NUL byte.'), 422);
+        }
         if (!$this->auth->resetPassword($token, $password)) {
             return new Response($this->resetView($token, 'That reset link is invalid or has expired, request a new one.'), 422);
         }
