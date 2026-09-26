@@ -47,10 +47,9 @@ final class Router
         // controller class, a parent, an interface or a trait (gating every action),
         // or on any declaration of this action in that hierarchy, so an override that
         // drops the attribute cannot make a gated action public. Fails closed.
-        $attributes = $method->getAttributes();
         $requiresAuth = self::hierarchyHasAuth(new \ReflectionClass($class), $action);
         $verbs = [];
-        foreach ($attributes as $attr) {
+        foreach ($method->getAttributes() as $attr) {
             $verb = strtoupper(self::shortName($attr->getName()));
             if (in_array($verb, ['GET', 'POST', 'PUT', 'DELETE'], true)) $verbs[] = $verb;
         }
