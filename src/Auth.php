@@ -77,25 +77,6 @@ final class Auth
     }
 
     /**
-     * Timing equalizer: every failed attempt does one full hash at PASSWORD_DEFAULT,
-     * so response time does not reveal whether the account exists. An unknown email,
-     * or a stored hash password_verify() cannot really check (empty, truncated, or a
-     * bcrypt hash with a bad salt or cost, all rejected in microseconds; see
-     * verifiable()), runs a discarded
-     * password_hash($password, PASSWORD_DEFAULT): the same algorithm and cost
-     * register() uses, on every PHP version, with nothing to keep in sync. Measured on
-     * 8.4 at cost 12: 212ms for the discarded hash against 214ms verifying a real one.
-     *
-     * LIMIT: this matches hashes CREATED at PASSWORD_DEFAULT on this runtime. A valid
-     * hash stored at another cost or algorithm verifies at its own speed: after moving
-     * from PHP 8.3 to 8.4 every existing account still verifies at cost 10 (~52ms)
-     * while an unknown email pays cost 12 (~210ms), and rows imported from another
-     * system (argon2, or a low test cost) differ the same way. Those accounts stay
-     * distinguishable until their hash is rewritten. Closing that needs rehash-on-login, which rewrites the stored hash and
-     * so changes the session epoch derived from it (see sessionValid()), revoking that
-     * user's other sessions. Tracked as a decision, not solved here.
-     */
-    /**
      * Whether password_verify() will do real work on $hash. Any bcrypt variant
      * ($2a$, $2b$, $2x$, $2y$) must have its full shape: crypt() rejects a bad salt
      * alphabet or an out-of-range cost in microseconds, and password_get_info() only
@@ -110,6 +91,26 @@ final class Auth
         return password_get_info($hash)['algo'] !== null;
     }
 
+    /**
+     * Timing equalizer: every failed attempt does one full hash at PASSWORD_DEFAULT,
+     * so response time does not reveal whether the account exists. An unknown email,
+     * or a stored hash password_verify() cannot really check (empty, truncated, or a
+     * bcrypt hash with a bad salt or cost, all rejected in microseconds; see
+     * verifiable()), runs a discarded
+     * password_hash($password, PASSWORD_DEFAULT): the same algorithm and cost
+     * register() uses, on every PHP version, with nothing to keep in sync. Measured on
+     * 8.4 at cost 12: 212ms for the discarded hash against 214ms verifying a real one.
+     *
+     * LIMIT: this matches hashes CREATED at PASSWORD_DEFAULT on this runtime. A valid
+     * hash stored at another cost or algorithm verifies at its own speed: after moving
+     * from PHP 8.3 to 8.4 every existing account still verifies at cost 10 (~52ms)
+     * while an unknown email pays cost 12 (~210ms), and rows imported from another
+     * system (argon2, or a low test cost) differ the same way. Those accounts stay
+     * distinguishable until their hash is rewritten. Closing that needs
+     * rehash-on-login, which rewrites the stored hash and so changes the session epoch
+     * derived from it (see sessionValid()), revoking that user's other sessions.
+     * Tracked as a decision, not solved here.
+     */
     public function attempt(string $email, string $password, string $ip = ''): bool
     {
         if ($this->throttled($email, $ip)) return false; // refuse before verifying. Correct password included
