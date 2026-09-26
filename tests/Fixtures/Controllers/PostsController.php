@@ -26,9 +26,16 @@ final class PostsController
 
     public function show(string $id): Response|string
     {
-        $post = $this->db->one('SELECT * FROM posts WHERE id = ?', [$id]);
+        // One query per page: the comments arrive as a JSON array in the post's own row.
+        $post = $this->db->one("SELECT p.*,
+                (SELECT json_group_array(json_object('id', c.id, 'author', c.author,
+                                                     'body', c.body, 'created_at', c.created_at))
+                   FROM comments c WHERE c.post_id = p.id) AS comments_json
+                FROM posts p
+                WHERE p.id = ?", [$id]);
         if ($post === null) return new Response('Post not found', 404);
-        $comments = $this->db->all('SELECT * FROM comments WHERE post_id = ? ORDER BY created_at, id', [$id]);
+        $comments = json_decode($post['comments_json'], true);
+        usort($comments, fn ($a, $b) => [$a['created_at'], $a['id']] <=> [$b['created_at'], $b['id']]);
         return $this->view->render('posts/show', [
             'title' => $post['title'],
             'post' => $post,

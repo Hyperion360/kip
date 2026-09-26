@@ -21,11 +21,11 @@ microseconds. The budget exists because every extra query is a place where
 N+1 patterns, missing indexes, and accidental work hide, and because the
 cache-miss path deserves the same discipline as the cached hit.
 
-The bundled `examples/blog` predates this chapter and does not yet meet it in
-two places. Its `PostsController::show()` runs two queries, one for the post
-and one for its comments, because the tutorial adds comments as a separate
-step; the first pattern below folds them into one. Its post listing sorts
-without an index; the index section below shows the plan and the fix.
+The bundled `examples/blog` meets it: `PostsController::show()` uses the
+first pattern below to fetch a post and its comments in one query, and its
+post listing reads through an index (see the index section below). A test
+in the framework suite renders both pages against the blog's real
+migrations and fails if either runs a second query.
 
 ## Patterns that keep you at one query
 
@@ -120,19 +120,20 @@ filter and the ordering, so the plan is a single SEARCH with no sort. Drop
 the trailing columns from that index and the same query gains a
 TEMP B-TREE.
 
-The blog's post listing is the counterexample:
+The blog's post listing shows what an index changes:
 
 ```sql
 EXPLAIN QUERY PLAN
 SELECT * FROM posts ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 ```
 
-Today that plans as `SCAN posts` plus `USE TEMP B-TREE FOR ORDER BY`: every
-post is read and sorted to return one page of 20. A migration adding
-`CREATE INDEX idx_posts_created_at ON posts (created_at)` changes the plan
-to `SCAN posts USING INDEX idx_posts_created_at`. The `id` tie-break needs
-no index column of its own, because SQLite appends the rowid to every
-index entry.
+Without an index that plans as `SCAN posts` plus `USE TEMP B-TREE FOR
+ORDER BY`: every post is read and sorted to return one page of 20. The
+blog's migration `007_add_posts_created_at_index` adds
+`CREATE INDEX idx_posts_created_at ON posts (created_at)`, which changes
+the plan to `SCAN posts USING INDEX idx_posts_created_at`. The `id`
+tie-break needs no index column of its own, because SQLite appends the
+rowid to every index entry.
 
 ## Enforce it in tests
 

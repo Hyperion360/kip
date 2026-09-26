@@ -82,6 +82,14 @@
   `julianday(attempted_at)`, and every throttle query now plans as an index
   SEARCH. Apps derived from the skeleton should copy it; no framework code
   changed. Needs SQLite 3.20 or later.
+- The tutorial blog meets the one-query page budget of guide chapter 15.
+  `PostsController::show()` ran two queries, the post and then its
+  comments; it now folds the comments into the post's row with
+  `json_group_array()`. The post listing sorted every post to return one
+  page; blog migration `007_add_posts_created_at_index` lets it read
+  through an index instead. The tutorial's Step 6 and Step 7 teach both,
+  and a test renders each page against the blog's migrations and fails on
+  a second query.
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a
