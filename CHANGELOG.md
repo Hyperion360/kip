@@ -72,6 +72,16 @@
   `/secret-form`. Whether the case-insensitive form worked before depended
   on the filesystem (it did on macOS, and on Linux only when the class was
   already loaded), so production links were unlikely to rely on it.
+- New migrations, skeleton `007_index_login_attempts_by_time` and blog
+  `006_index_login_attempts_by_time`: the login throttle's checks and prunes
+  read the whole `login_attempts` table on every login, because the
+  existing index could not serve `(email = ? OR ip = ?)` or a comparison on
+  `julianday(attempted_at)`. The migration replaces
+  `idx_login_attempts_lookup` with expression indexes on
+  `(email, julianday(attempted_at))`, `(ip, julianday(attempted_at))` and
+  `julianday(attempted_at)`, and every throttle query now plans as an index
+  SEARCH. Apps derived from the skeleton should copy it; no framework code
+  changed. Needs SQLite 3.20 or later.
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a

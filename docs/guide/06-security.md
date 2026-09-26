@@ -105,7 +105,11 @@ deliberate in both directions: reset spam can no longer lock a victim
 out of *login*, and a login-failure flood can no longer block the
 *forgot-password* recovery path. Apps without the column keep the older,
 stricter shared-counter behavior (the framework detects the column at
-runtime). Tightening reset limits further when login attempts look
+runtime). Skeleton migration `007_index_login_attempts_by_time` indexes
+the table by email, by IP and by attempt time, so every throttle check
+and prune is an index lookup rather than a read of the whole table;
+without it a credential-stuffing burst makes each login slower.
+Tightening reset limits further when login attempts look
 abusive (step-up verification) is deliberately not built, see
 [`../design-decisions.md`](../design-decisions.md).
 
