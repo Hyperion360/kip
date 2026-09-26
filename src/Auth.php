@@ -131,7 +131,7 @@ final class Auth
         $this->db->query('DELETE FROM login_attempts WHERE email = ?', [$email]);
         ($this->regenerator)();
         $this->session->set('user_id', $user['id']);
-        $this->session->set('pwd_epoch', substr((string) $user['password_hash'], 0, self::EPOCH_LEN));
+        $this->session->set('pwd_epoch', substr($hash, 0, self::EPOCH_LEN));
         return true;
     }
 
