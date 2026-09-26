@@ -42,18 +42,17 @@ final class Router
         // names, so they work whether or not their class was imported and in any letter case.
         // That matters most for #[Auth]: an unimported #[Auth] resolves to the controller's
         // own namespace, and an exact match on Kip\Routing\Auth would leave the route
-        // silently public. PHP carries class attributes across none of `extends`,
-        // `implements` or `use`, so #[Auth] counts wherever it is declared: on the
-        // controller class, a parent, an interface or a trait (gating every action),
-        // or on any declaration of this action in that hierarchy, so an override that
-        // drops the attribute cannot make a gated action public. Fails closed.
-        $requiresAuth = self::hierarchyHasAuth(new \ReflectionClass($class), $action);
-        $verbs = [];
-        foreach ($method->getAttributes() as $attr) {
-            $verb = strtoupper(self::shortName($attr->getName()));
-            if (in_array($verb, ['GET', 'POST', 'PUT', 'DELETE'], true)) $verbs[] = $verb;
-        }
-        $allowed = $verbs ?: ['GET'];
+        // silently public. PHP carries attributes across none of `extends`,
+        // `implements` or `use`, so both are read from the whole hierarchy. #[Auth]
+        // counts wherever it is declared: on the controller class, a parent, an
+        // interface or a trait (gating every action), or on any declaration of this
+        // action, so an override that drops it cannot make a gated action public.
+        // Verbs come from the nearest declaration of this action that names any, so
+        // an override that drops a parent's #[Post] stays POST-only instead of
+        // becoming a GET that skips the CSRF check. Fails closed.
+        $declarers = self::declarers(new \ReflectionClass($class));
+        $requiresAuth = self::hasAuthIn($declarers, $action);
+        $allowed = self::verbsIn($declarers, $action) ?: ['GET'];
         if (!in_array($requestMethod, $allowed, true)) {
             // The route exists but the verb is wrong. That's a 405, not a 404 (review 9A)
             throw new MethodNotAllowedException(implode(', ', $allowed));
@@ -63,25 +62,55 @@ final class Router
     }
 
     /**
-     * True when #[Auth] sits on the class, any parent, interface or trait, or on any
-     * of their declarations of $action. getInterfaces() already includes interfaces
-     * inherited from parents and from other interfaces; traits are walked per class,
-     * including traits used by traits.
+     * The class and every parent, each followed by its traits (nearest first), then
+     * every interface. getInterfaces() already includes interfaces inherited from
+     * parents and from other interfaces.
      *
      * @param \ReflectionClass<object> $class
+     * @return list<\ReflectionClass<object>>
      */
-    private static function hierarchyHasAuth(\ReflectionClass $class, string $action): bool
+    private static function declarers(\ReflectionClass $class): array
     {
-        $declarers = array_values($class->getInterfaces());
+        $declarers = [];
         for ($c = $class; $c !== false; $c = $c->getParentClass()) {
             $declarers[] = $c;
             array_push($declarers, ...self::traitsOf($c));
         }
+        return [...$declarers, ...array_values($class->getInterfaces())];
+    }
+
+    /**
+     * True when #[Auth] sits on any declarer, or on any declarer's $action.
+     *
+     * @param list<\ReflectionClass<object>> $declarers
+     */
+    private static function hasAuthIn(array $declarers, string $action): bool
+    {
         foreach ($declarers as $d) {
             if (self::hasAuth($d->getAttributes())) return true;
             if ($d->hasMethod($action) && self::hasAuth($d->getMethod($action)->getAttributes())) return true;
         }
         return false;
+    }
+
+    /**
+     * The verbs on the nearest declaration of $action that names any; empty when none does.
+     *
+     * @param list<\ReflectionClass<object>> $declarers
+     * @return list<string>
+     */
+    private static function verbsIn(array $declarers, string $action): array
+    {
+        foreach ($declarers as $d) {
+            if (!$d->hasMethod($action)) continue;
+            $verbs = [];
+            foreach ($d->getMethod($action)->getAttributes() as $attr) {
+                $verb = strtoupper(self::shortName($attr->getName()));
+                if (in_array($verb, ['GET', 'POST', 'PUT', 'DELETE'], true)) $verbs[] = $verb;
+            }
+            if ($verbs !== []) return $verbs;
+        }
+        return [];
     }
 
     /**

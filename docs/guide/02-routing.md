@@ -63,6 +63,13 @@ Allowed** with an `Allow` header listing the verbs that would work, not a
 404. A route that doesn't exist at all (no such controller, no such
 method, or wrong argument count) is a 404.
 
+Verbs follow the class hierarchy. An override in a subclass, or a method
+implementing an interface signature or replacing a trait method, keeps the
+verbs of the nearest declaration of that action that names any. A parent's
+`#[Post] store()` stays POST-only in a subclass that overrides `store()`
+without repeating the attribute, rather than falling back to GET. An
+override that names its own verb uses that verb instead.
+
 ## `#[Auth]`
 
 ```php

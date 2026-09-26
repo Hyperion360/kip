@@ -179,6 +179,32 @@ final class AttributeAutoloadTest extends TestCase
         }
     }
 
+    /**
+     * Verb attributes follow the same hierarchy as #[Auth]: an override that repeats
+     * no verb keeps the nearest declaration's verbs, so a parent's #[Post] cannot
+     * quietly become a CSRF-free GET. An override that declares its own verb wins.
+     */
+    public function test_an_override_without_a_verb_keeps_the_declared_verb(): void
+    {
+        $router = new Router(namespace: 'Kip\\Tests\\Routing\\Unimported\\');
+
+        $cases = [
+            '/verb-override/store' => ['POST', 'a parent #[Post] on an override that repeats nothing'],
+            '/verb-override/publish' => ['PUT', 'an override that declares its own verb'],
+            '/verb-contract/purge' => ['DELETE', 'an interface signature carrying #[Delete]'],
+            '/verb-trait/save' => ['POST', 'a trait #[Post] on a class-body override'],
+        ];
+        foreach ($cases as $path => [$verb, $label]) {
+            $this->assertNotNull($router->match(new Request($verb, $path, [], [], [])), "{$label} ({$path})");
+            try {
+                $router->match(new Request('GET', $path, [], [], []));
+                $this->fail("GET must be refused: {$label} ({$path})");
+            } catch (\Kip\Routing\MethodNotAllowedException $e) {
+                $this->assertSame($verb, $e->getMessage(), $label);
+            }
+        }
+    }
+
     /** #[Auth] on the controller class gates every action in it. */
     public function test_class_level_auth_attribute_gates_every_action(): void
     {

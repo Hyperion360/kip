@@ -42,6 +42,16 @@
   after a PHP 8.3 to 8.4 upgrade, or rows imported from another system)
   verifies at its own speed and stays distinguishable by timing until its
   password changes.
+- **Security, behavior change: verb attributes follow the class hierarchy.**
+  The router read `#[Get]`, `#[Post]`, `#[Put]` and `#[Delete]` only from
+  the method it resolved, so a subclass overriding a parent's
+  `#[Post] store()` without repeating the attribute made `store()` GET-only.
+  CSRF is enforced only on non-GET requests, so that action became reachable
+  by a cross-site GET. An action now takes its verbs from the nearest
+  declaration that names any (the method itself, then its class's traits,
+  then each parent and its traits, then interfaces). An override that
+  declares its own verb still wins. If an override of yours relied on
+  dropping the parent's verb to answer GET, add `#[Get]` to it.
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a
