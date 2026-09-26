@@ -61,6 +61,17 @@
   a `RuntimeException` naming the loop (`A -> B -> A`). It used to recurse
   until PHP ran out of stack or memory, a fatal error with no hint of which
   classes were involved.
+- **Behavior change: one URL per controller.** The router studly-cased the
+  controller segment and then looked the class up with `class_exists()`,
+  which ignores case, and treated every `-` or `_` as a word break even at
+  the edges. `/posts-`, `/_posts`, `/po--sts`, `/po-sts` and `/post-s` all
+  reached `PostsController`, and so did
+  `/secretform` for `SecretFormController`. A controller segment that
+  starts, ends or doubles a separator now 404s, and the studly name must
+  equal the declared class name exactly. Link to `SecretFormController` as
+  `/secret-form`. Whether the case-insensitive form worked before depended
+  on the filesystem (it did on macOS, and on Linux only when the class was
+  already loaded), so production links were unlikely to rely on it.
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a

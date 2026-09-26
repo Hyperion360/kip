@@ -16,7 +16,11 @@ the entire implementation, about 40 lines.
   `Controller`: `posts` → `PostsController`, `blog-posts` →
   `BlogPostsController` (both `-` and `_` split words), resolved against
   `{controller_namespace}{Studly}Controller` (default namespace
-  `App\Controllers\`).
+  `App\Controllers\`). A separator must sit between two words: a
+  controller segment that starts or ends with `-` or `_`, or doubles one,
+  is a 404. The StudlyCase name must also match the declared class name
+  exactly, so `/blogposts` does not reach `BlogPostsController`: PHP
+  ignores case in class names, but the URL does not.
 - Anything after the second segment becomes positional string arguments to
   the method: `/posts/show/42` calls `PostsController::show('42')`.
 

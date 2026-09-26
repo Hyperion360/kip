@@ -132,7 +132,7 @@ final class AppTest extends TestCase
     public function test_guest_post_with_valid_token_still_redirects_to_login(): void // review 4A: CSRF-then-auth ordering
     {
         $app = $this->app('prod');
-        $res = $app->handle(new Request('POST', '/secretform/save', [], ['_token' => $app->session->csrfToken()], []));
+        $res = $app->handle(new Request('POST', '/secret-form/save', [], ['_token' => $app->session->csrfToken()], []));
         $this->assertSame(302, $res->status); // valid token passes CSRF, auth still gates
         $this->assertSame('/auth/login', $res->headers['Location']);
     }
@@ -184,7 +184,7 @@ final class AppTest extends TestCase
     {
         $app = $this->app('prod');
         $app->session->set('user_id', 1); // simulate logged-in
-        $res = $app->handle(new Request('POST', '/secretform/save', [], [], [], '',
+        $res = $app->handle(new Request('POST', '/secret-form/save', [], [], [], '',
             ['origin' => 'http://blog.test', 'sec-fetch-site' => 'same-origin']));
         $this->assertSame(403, $res->status); // same-origin alone is not enough where ambient authority exists
     }

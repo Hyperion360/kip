@@ -21,11 +21,17 @@ final class Router
         $name   = $parts[0] ?? 'home';
         $action = $parts[1] ?? 'index';
         $args   = array_slice($parts, 2);
+        // A separator only joins words: /posts-, /_posts and /po--sts would otherwise all
+        // studly-case to PostsController, giving one page several URLs.
+        if (!preg_match('/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/', $name)) return null;
 
         $studly = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
         $class = null;
         foreach ((array) $this->namespace as $ns) {   // first listed namespace shadows later ones
-            if (class_exists($ns . $studly . $this->suffix)) { $class = $ns . $studly . $this->suffix; break; }
+            $candidate = $ns . $studly . $this->suffix;
+            // class_exists() ignores case, so /po-sts (PoStsController) would find
+            // PostsController: require the declared name to match exactly.
+            if (class_exists($candidate) && (new \ReflectionClass($candidate))->getName() === $candidate) { $class = $candidate; break; }
         }
         if ($class === null) return null;
         if (!method_exists($class, $action)) return null;
