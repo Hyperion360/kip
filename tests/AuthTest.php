@@ -132,6 +132,22 @@ final class AuthTest extends TestCase
         }
     }
 
+    /**
+     * A valid hash from a non-bcrypt algorithm (argon2id, e.g. rows imported from
+     * another system) must still verify, not be mistaken for a corrupt hash.
+     */
+    public function test_argon2id_hash_still_logs_in_and_rejects_a_wrong_password(): void
+    {
+        if (!defined('PASSWORD_ARGON2ID')) {
+            $this->markTestSkipped('this PHP build has no argon2 support');
+        }
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)',
+            ['argon@b.c', password_hash('right-pass', PASSWORD_ARGON2ID)]);
+
+        $this->assertFalse($this->auth->attempt('argon@b.c', 'wrong-pass'));
+        $this->assertTrue($this->auth->attempt('argon@b.c', 'right-pass'));
+    }
+
     public function test_logout_clears_user(): void
     {
         $this->auth->register('a@b.c', 'secret123');
