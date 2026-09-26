@@ -16,10 +16,10 @@
   controller's own namespace), a global `#[\Auth]`, or a different letter
   case such as `#[auth]` was silently ignored and the route served guests.
   The router now matches the short name case-insensitively. `#[Auth]` on a
-  controller class, a base class it extends, or an interface it implements
-  requires login for every action in it, and a method-level `#[Auth]` on a
-  parent's or interface's declaration of an action still gates an override
-  that leaves it off. An app attribute of its own named `Auth`, `Get`,
+  controller class, a base class it extends, an interface it implements, or
+  a trait it uses requires login for every action in it, and a method-level
+  `#[Auth]` on a parent's, interface's or trait's declaration of an action
+  still gates an override that leaves it off. An app attribute of its own named `Auth`, `Get`,
   `Post`, `Put` or `Delete` is now read as Kip's. A route that was public only because of one of
   those spellings now redirects guests to `/auth/login`. If you wrote `#[Auth]` in any of those forms, those routes
   were reachable without login before this release; check your request logs
@@ -35,9 +35,13 @@
   208ms). An account whose stored hash PHP does not recognize (empty or
   corrupt) now takes the same path; `password_verify()` used to reject it
   in microseconds, exposing it. Measured on 8.4, all three failure paths
-  take 211 to 214ms. Limit: an account whose hash was stored before a
-  PHP 8.3 to 8.4 upgrade keeps cost 10 until its password changes, so
-  after that upgrade those accounts remain distinguishable by timing.
+  take 211 to 214ms. A bcrypt hash with a malformed salt or cost counts as
+  unrecognized too, while valid `$2a$`, `$2b$` and `$2x$` hashes still log
+  in. A password containing a NUL byte fails the same way, and just as
+  slowly, for known and unknown emails. Limit: a valid hash stored at another cost or algorithm (every account
+  after a PHP 8.3 to 8.4 upgrade, or rows imported from another system)
+  verifies at its own speed and stays distinguishable by timing until its
+  password changes.
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a
@@ -48,7 +52,8 @@
   character such as `[`, so `migrate` reported success without applying
   anything. A migrations path that exists but is not a readable directory now throws a
   `RuntimeException` naming the path and what to check. A path that does
-  not exist at all is still a no-op, as before. Dotfiles in the directory
+  not exist at all is still a no-op, as before; a dangling symlink in its
+  place throws. Dotfiles in the directory
   are skipped. An entry named like a migration that is not a regular file
   (a directory, or a symlink whose target is gone) also throws, naming the
   entry, instead of dropping out of the batch.

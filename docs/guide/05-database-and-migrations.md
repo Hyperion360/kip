@@ -93,11 +93,18 @@ everywhere else in the app.
 
 ### Numbering
 
-Files are matched with `glob('{app_dir}/migrations/*.php')` and **run in
-`sort()` order**. That's why every migration is named `NNN_description.php`
+Every `.php` and `.sql` file in `{app_dir}/migrations/` is a migration
+(dotfiles are skipped), and they **run sorted by filename**. That's why
+every migration is named `NNN_description.php`
 with a zero-padded, monotonically increasing number: lexical sort and
 chronological order agree. There's no separate timestamp or dependency
 graph; the filename *is* the ordering.
+
+`migrate` refuses to run, rather than applying a partial batch, when the
+directory exists but cannot be read, when two migrations share a name
+(`002_x.php` and `002_x.sql`), or when an entry named like a migration is
+not a regular file (a directory, or a symlink whose target is gone). A
+missing migrations directory is not an error: there is nothing to run.
 
 ### Running them
 

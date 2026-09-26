@@ -82,9 +82,9 @@ Attributes stack. `#[Auth] #[Post]` on one method is common for
 create/update actions that must be both logged-in and POST-only.
 
 To require login for every action in a controller, put `#[Auth]` on the
-class instead. It also counts on a parent class or an interface, so a base
-controller or a marker interface carrying `#[Auth]` gates every controller
-that extends or implements it:
+class instead. It also counts on a parent class, an interface or a trait,
+so a base controller, a marker interface or a shared trait carrying
+`#[Auth]` gates every controller that extends, implements or uses it:
 
 ```php
 use Kip\Routing\Auth;
@@ -100,10 +100,8 @@ final class ReportsController extends AdminBase
 
 A method-level `#[Auth]` counts on any declaration of that action in the
 hierarchy: an override in a subclass stays gated even if it leaves the
-attribute off, and so does a method whose interface signature carries it.
-The one exception is a trait: an `#[Auth]` on a trait does not apply to the
-class using it, because PHP does not expose trait attributes to that class;
-put it on the method or the class.
+attribute off, and so does a method whose interface signature or trait
+declaration carries it.
 
 The router matches attribute names by their short name, without regard to
 letter case or imports, so an `#[Auth]` you forgot to import still gates the

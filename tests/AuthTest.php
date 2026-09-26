@@ -81,7 +81,15 @@ final class AuthTest extends TestCase
      */
     public function test_unverifiable_stored_hash_still_performs_real_bcrypt_work(): void
     {
-        foreach (['empty' => '', 'garbage' => 'not-a-hash', 'truncated' => '$2y$12$abc'] as $label => $stored) {
+        $cases = [
+            'empty' => '',
+            'garbage' => 'not-a-hash',
+            'truncated' => '$2y$12$abc',
+            'bad salt alphabet' => '$2y$12$' . str_repeat('!', 53),
+            'out-of-range cost' => '$2y$99$' . str_repeat('a', 53),
+        ];
+        foreach ($cases as $label => $stored) {
+            $label = str_replace(' ', '-', $label);
             $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ["{$label}@b.c", $stored]);
 
             $start = microtime(true);
@@ -89,6 +97,38 @@ final class AuthTest extends TestCase
             $elapsedMs = (microtime(true) - $start) * 1000;
 
             $this->assertGreaterThan(10.0, $elapsedMs, "a {$label} stored hash returned too fast, revealing the account");
+        }
+    }
+
+    /**
+     * Bcrypt hashes from other systems use the $2a$/$2b$/$2x$ prefixes.
+     * password_verify() accepts them though password_get_info() does not name them,
+     * so the equalizer must not mistake them for corrupt hashes and lock users out.
+     */
+    public function test_other_bcrypt_prefixes_still_log_in(): void
+    {
+        $y = password_hash('right-pass', PASSWORD_BCRYPT, ['cost' => 4]);
+        foreach (['2a', '2b', '2x'] as $variant) {
+            $email = "{$variant}@b.c";
+            $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', [$email, '$' . $variant . substr($y, 3)]);
+            $this->assertTrue($this->auth->attempt($email, 'right-pass'), "a \${$variant}\$ bcrypt hash must still verify");
+        }
+    }
+
+    /**
+     * password_hash() throws on a NUL byte where password_verify() just returns false.
+     * If only the unknown-email path threw, the response (500 vs a normal failure) and
+     * the missing throttle row would reveal which emails exist.
+     */
+    public function test_nul_byte_password_fails_the_same_way_for_known_and_unknown_emails(): void
+    {
+        $this->auth->register('real@b.c', 'right-pass');
+        foreach (['real@b.c', 'ghost@b.c'] as $email) {
+            $start = microtime(true);
+            $this->assertFalse($this->auth->attempt($email, "right\0pass"), $email);
+            $this->assertGreaterThan(10.0, (microtime(true) - $start) * 1000, "{$email} returned too fast");
+            $row = $this->db->one('SELECT COUNT(*) c FROM login_attempts WHERE email = ?', [$email]);
+            $this->assertSame(1, (int) $row['c'], "{$email}: the failure must count toward the throttle");
         }
     }
 

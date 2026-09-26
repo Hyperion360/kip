@@ -51,9 +51,10 @@ final class Container
                 $args[] = $p->getDefaultValue();
             } else {
                 throw new \RuntimeException(
-                    "Cannot autowire {$class}::\${$p->getName()}: it is not a class "
-                    . 'type and has no default value, so the container has nothing to '
-                    . "pass. Give the parameter a default, or bind the instance first "
+                    "Cannot autowire {$class}::\${$p->getName()}: its type is not a single "
+                    . 'class (a builtin, union or intersection type, or none) and it has no '
+                    . 'default value, so the container cannot choose what to pass. Give the '
+                    . "parameter a default, or bind the instance first "
                     . "with \$container->instance({$class}::class, \$obj)."
                 );
             }

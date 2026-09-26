@@ -157,6 +157,28 @@ final class AttributeAutoloadTest extends TestCase
         }
     }
 
+    /**
+     * Traits: a method-level #[Auth] from a trait gates that action, and a class-level
+     * #[Auth] on a trait, used directly or through another trait, gates every action.
+     */
+    public function test_auth_on_a_used_trait_gates_the_controller(): void
+    {
+        $router = new Router(namespace: 'Kip\\Tests\\Routing\\Unimported\\');
+
+        $cases = [
+            '/trait-gate/index' => [true, 'a class-level #[Auth] on a used trait'],
+            '/trait-gate/shared' => [true, 'an action the guarded trait itself provides'],
+            '/nested-trait/index' => [true, 'a guarded trait pulled in by another trait'],
+            '/trait-method/secret' => [true, 'a method-level #[Auth] on a trait method'],
+            '/trait-method/open' => [false, 'an action gated nowhere'],
+        ];
+        foreach ($cases as $path => [$gated, $label]) {
+            $m = $router->match(new Request('GET', $path, [], [], []));
+            $this->assertNotNull($m, $path);
+            $this->assertSame($gated, $m->requiresAuth, "{$label} ({$path})");
+        }
+    }
+
     /** #[Auth] on the controller class gates every action in it. */
     public function test_class_level_auth_attribute_gates_every_action(): void
     {

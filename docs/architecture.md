@@ -121,7 +121,7 @@ if ($match->requiresAuth && $active->get('user_id') === null) {
 
 `#[Auth]` is detected by `Router::match()` and carried on
 `RouteMatch::$requiresAuth`. It counts on the controller class, any parent
-class or interface, or any declaration of the action in that hierarchy,
+class, interface or trait, or any declaration of the action in that hierarchy,
 matched by short name in any letter case.
 
 ## Page-cache orchestration

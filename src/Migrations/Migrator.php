@@ -74,7 +74,7 @@ final class Migrator
         // pattern, so a real path containing [ ] * ? silently listed nothing, and it
         // reported an unreadable directory as empty unless given GLOB_ERR, whose handling
         // of a missing directory differs between C libraries.
-        if (!file_exists($this->dir)) return [];
+        if (!file_exists($this->dir) && !is_link($this->dir)) return []; // a dangling link is broken config, not absence
         error_clear_last();
         $entries = is_dir($this->dir) ? @scandir($this->dir) : false;
         if ($entries === false) {

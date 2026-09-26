@@ -79,27 +79,47 @@ final class Auth
     /**
      * Timing equalizer: every failed attempt does one full hash at PASSWORD_DEFAULT,
      * so response time does not reveal whether the account exists. An unknown email,
-     * or a stored hash PHP does not recognize (empty, truncated, hand-edited, which
-     * password_verify() rejects in microseconds), runs a discarded
+     * or a stored hash password_verify() cannot really check (empty, truncated, or a
+     * bcrypt hash with a bad salt or cost, all rejected in microseconds; see
+     * verifiable()), runs a discarded
      * password_hash($password, PASSWORD_DEFAULT): the same algorithm and cost
      * register() uses, on every PHP version, with nothing to keep in sync. Measured on
      * 8.4 at cost 12: 212ms for the discarded hash against 214ms verifying a real one.
      *
-     * LIMIT: this matches hashes CREATED on this runtime. A hash stored before a PHP
-     * upgrade keeps its old cost, so after moving from 8.3 to 8.4 every existing
-     * account still verifies at cost 10 (~52ms) while an unknown email pays cost 12
-     * (~210ms), and those accounts stay distinguishable until their hash is
-     * rewritten. Closing that needs rehash-on-login, which rewrites the stored hash and
+     * LIMIT: this matches hashes CREATED at PASSWORD_DEFAULT on this runtime. A valid
+     * hash stored at another cost or algorithm verifies at its own speed: after moving
+     * from PHP 8.3 to 8.4 every existing account still verifies at cost 10 (~52ms)
+     * while an unknown email pays cost 12 (~210ms), and rows imported from another
+     * system (argon2, or a low test cost) differ the same way. Those accounts stay
+     * distinguishable until their hash is rewritten. Closing that needs rehash-on-login, which rewrites the stored hash and
      * so changes the session epoch derived from it (see sessionValid()), revoking that
      * user's other sessions. Tracked as a decision, not solved here.
      */
+    /**
+     * Whether password_verify() will do real work on $hash. Any bcrypt variant
+     * ($2a$, $2b$, $2x$, $2y$) must have its full shape: crypt() rejects a bad salt
+     * alphabet or an out-of-range cost in microseconds, and password_get_info() only
+     * names $2y$ while password_verify() accepts all four. Anything else counts when
+     * password_get_info() recognizes its algorithm.
+     */
+    private static function verifiable(string $hash): bool
+    {
+        if (str_starts_with($hash, '$2')) {
+            return preg_match('~^\$2[abxy]\$(0[4-9]|[12][0-9]|3[01])\$[./A-Za-z0-9]{53}$~', $hash) === 1;
+        }
+        return password_get_info($hash)['algo'] !== null;
+    }
+
     public function attempt(string $email, string $password, string $ip = ''): bool
     {
         if ($this->throttled($email, $ip)) return false; // refuse before verifying. Correct password included
         $user = $this->db->one('SELECT * FROM users WHERE email = ?', [$email]);
         $hash = $user === null ? '' : (string) $user['password_hash'];
-        if ($user === null || password_get_info($hash)['algo'] === null) {
-            password_hash($password, PASSWORD_DEFAULT); // discarded: the work a real verify costs
+        if ($user === null || !self::verifiable($hash)) {
+            // Discarded: the work a real verify costs. NULs are stripped because
+            // password_hash() throws on them where password_verify() just returns false,
+            // and a 500 on this path alone would reveal that the email is unknown.
+            password_hash(str_replace("\0", '', $password), PASSWORD_DEFAULT);
             $this->recordAttempt($email, $ip, 'login');
             return false;
         }

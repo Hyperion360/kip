@@ -42,11 +42,11 @@ final class Router
         // names, so they work whether or not their class was imported and in any letter case.
         // That matters most for #[Auth]: an unimported #[Auth] resolves to the controller's
         // own namespace, and an exact match on Kip\Routing\Auth would leave the route
-        // silently public. PHP copies attributes across neither `extends` nor
-        // `implements`, so #[Auth] counts wherever it is declared: on the controller
-        // class, a parent class or an interface (gating every action), or on any
-        // declaration of this action in that hierarchy, so an override that drops the
-        // attribute cannot make a gated action public. Authorization fails closed.
+        // silently public. PHP carries class attributes across none of `extends`,
+        // `implements` or `use`, so #[Auth] counts wherever it is declared: on the
+        // controller class, a parent, an interface or a trait (gating every action),
+        // or on any declaration of this action in that hierarchy, so an override that
+        // drops the attribute cannot make a gated action public. Fails closed.
         $attributes = $method->getAttributes();
         $requiresAuth = self::hierarchyHasAuth(new \ReflectionClass($class), $action);
         $verbs = [];
@@ -64,9 +64,10 @@ final class Router
     }
 
     /**
-     * True when #[Auth] sits on the class, any parent or interface, or on any of
-     * their declarations of $action. getInterfaces() already includes interfaces
-     * inherited from parents and from other interfaces.
+     * True when #[Auth] sits on the class, any parent, interface or trait, or on any
+     * of their declarations of $action. getInterfaces() already includes interfaces
+     * inherited from parents and from other interfaces; traits are walked per class,
+     * including traits used by traits.
      *
      * @param \ReflectionClass<object> $class
      */
@@ -75,12 +76,29 @@ final class Router
         $declarers = array_values($class->getInterfaces());
         for ($c = $class; $c !== false; $c = $c->getParentClass()) {
             $declarers[] = $c;
+            array_push($declarers, ...self::traitsOf($c));
         }
         foreach ($declarers as $d) {
             if (self::hasAuth($d->getAttributes())) return true;
             if ($d->hasMethod($action) && self::hasAuth($d->getMethod($action)->getAttributes())) return true;
         }
         return false;
+    }
+
+    /**
+     * Every trait $class uses, directly or through other traits.
+     *
+     * @param \ReflectionClass<object> $class
+     * @return list<\ReflectionClass<object>>
+     */
+    private static function traitsOf(\ReflectionClass $class): array
+    {
+        $traits = [];
+        foreach ($class->getTraits() as $trait) {
+            $traits[] = $trait;
+            array_push($traits, ...self::traitsOf($trait));
+        }
+        return $traits;
     }
 
     /** @param array<\ReflectionAttribute<object>> $attributes */

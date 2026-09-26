@@ -106,6 +106,21 @@ final class MigratorTest extends TestCase
         }
     }
 
+    /** A migrations path that is a dangling symlink is broken config, not "no migrations". */
+    public function test_dangling_symlink_as_migrations_directory_throws(): void
+    {
+        $link = sys_get_temp_dir() . '/kip-mig-link-' . bin2hex(random_bytes(6));
+        symlink($link . '-missing-target', $link);
+        try {
+            $migrator = new \Kip\Migrations\Migrator(new \Kip\Database('sqlite::memory:'), $link);
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('Cannot list migrations in');
+            $migrator->migrate();
+        } finally {
+            unlink($link);
+        }
+    }
+
     /**
      * An entry named like a migration that is not a regular file (a directory, or a
      * symlink whose target is gone) must stop migrate(), not vanish from the batch.
