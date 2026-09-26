@@ -110,11 +110,13 @@ final class ViewTest extends TestCase
 
         $view = new \Kip\View($dir);
 
-        $reopened = $view->render('reopens');
-        $this->assertIsString($reopened);
-        $this->assertSame('recovered', $reopened);
-
-        unlink($dir . '/reopens.php');
-        rmdir($dir);
+        try {
+            $reopened = $view->render('reopens');
+            $this->assertIsString($reopened);
+            $this->assertSame('recovered', $reopened);
+        } finally {
+            unlink($dir . '/reopens.php');
+            rmdir($dir);
+        }
     }
 }
