@@ -34,6 +34,18 @@ final class SessionStarterTest extends TestCase
 
     #[RunInSeparateProcess]
     #[PreserveGlobalState(false)]
+    public function test_an_unknown_session_id_is_replaced_not_adopted(): void // pentest: fixation hygiene
+    {
+        ini_set('session.use_strict_mode', '0');           // PHP's own default
+        $planted = 'planted' . bin2hex(random_bytes(8));   // an id no server ever issued
+        $_COOKIE[session_name()] = $planted;
+        (new SessionStarter())->start();
+        $this->assertNotSame($planted, session_id());
+        session_destroy();
+    }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function test_secure_cookie_when_configured(): void
     {
         (new SessionStarter(secureCookie: true))->start();

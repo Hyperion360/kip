@@ -120,6 +120,17 @@
   that the route existed and which verb it takes. Logged-in users still
   get the 405. `MethodNotAllowedException` gains a `requiresAuth` property
   (constructor default `false`, so existing code keeps working).
+- Two more default response headers: `Referrer-Policy:
+  strict-origin-when-cross-origin` (pinned, so a token-carrying URL such as
+  `/auth/reset/...` never reaches another site in a `Referer`) and a
+  minimal `Content-Security-Policy: base-uri 'self'; object-src 'none'`.
+  The CSP sets no `script-src` and no `frame-ancestors`, so it blocks
+  nothing Kip pages do; pass your own header to replace it.
+  `Strict-Transport-Security` stays a deployment choice (guide chapter 10).
+- `SessionStarter` enables `session.use_strict_mode`, so PHP replaces a
+  session id it never issued instead of adopting one planted in the
+  cookie. PHP's default is off. Login already regenerated the id, so this
+  closes the guest-side half.
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a

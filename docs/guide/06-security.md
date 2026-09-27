@@ -69,7 +69,10 @@ your own CSRF check for it.
 - **Fixation defense.** `Kip\Auth::attempt()` calls a session-id
   regenerator on successful login (`session_regenerate_id(true)` by
   default) *before* setting `user_id`. A session that existed pre-login
-  is never the one that carries post-login authority.
+  is never the one that carries post-login authority. Before that,
+  `SessionStarter` turns on `session.use_strict_mode`, so PHP replaces a
+  session id the server never issued instead of adopting one planted in
+  the visitor's cookie.
 - **Logout rotation.** `Kip\Auth::logout()` does the same thing in
   reverse: it forgets `user_id`, rotates the CSRF token
   (`rotateCsrf()`), and regenerates the session id, the same fixation
@@ -168,10 +171,25 @@ sensitive in your own controllers.
 
 ## Security headers
 
-Every `Response` carries `X-Content-Type-Options: nosniff` and
-`X-Frame-Options: SAMEORIGIN` by default (see [chapter 3](03-controllers.md))
-. Including redirects and 304s, which is harmless per RFC but worth knowing
-when inspecting headers.
+Every `Response` carries these by default (see [chapter 3](03-controllers.md)),
+including redirects and 304s, which is harmless per RFC but worth knowing
+when inspecting headers:
+
+| Header | Value | Why |
+|---|---|---|
+| `X-Content-Type-Options` | `nosniff` | no MIME sniffing of uploads or text |
+| `X-Frame-Options` | `SAMEORIGIN` | no framing by other sites (clickjacking) |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | a URL carrying a token, such as `/auth/reset/...`, never reaches another site |
+| `Content-Security-Policy` | `base-uri 'self'; object-src 'none'` | no `<base>` hijack, no plugins |
+
+The CSP is deliberately minimal: it sets no `script-src`, so it blocks
+nothing a Kip page does, and no `frame-ancestors`, which would override an
+app's own `X-Frame-Options: DENY`. Pass your own
+`Content-Security-Policy` header to replace it with a stricter one.
+`Strict-Transport-Security` is not set by the framework: once a browser
+sees it, it refuses plain HTTP for that host until it expires, so enable it
+at the proxy or in your app once HTTPS works end to end (see
+[chapter 10](10-deployment.md)).
 
 ## Error modes
 
