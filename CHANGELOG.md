@@ -47,8 +47,9 @@
   other sessions, once. The write only applies if the stored hash is still
   the one just verified, so a password reset that lands in between wins,
   while two simultaneous logins with the same password both stay logged
-  in. A hash of a password over 72 bytes is not rewritten to bcrypt, which
-  reads only the first 72.
+  in. Two kinds of hash keep their outdated form: an argon2 (or other
+  non-bcrypt) hash of a password over 72 bytes, which bcrypt would
+  truncate, and any hash of a password containing a NUL byte.
 - **Security, behavior change: verb attributes follow the class hierarchy.**
   The router read `#[Get]`, `#[Post]`, `#[Put]` and `#[Delete]` only from
   the method it resolved, so a subclass overriding a parent's

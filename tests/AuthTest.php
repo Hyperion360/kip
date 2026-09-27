@@ -214,6 +214,18 @@ final class AuthTest extends TestCase
         $this->assertTrue($this->auth->sessionValid(), 'the losing login takes the winning hash epoch');
     }
 
+    /** An old bcrypt hash already stopped at 72 bytes, so a long password loses nothing by the rewrite. */
+    public function test_an_outdated_bcrypt_hash_of_a_password_over_72_bytes_is_still_rewritten(): void
+    {
+        $long = str_repeat('b', 80);
+        $old = password_hash($long, PASSWORD_BCRYPT, ['cost' => 4]);
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ['longb@b.c', $old]);
+        $this->assertTrue($this->auth->attempt('longb@b.c', $long));
+        $stored = (string) $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['longb@b.c'])['password_hash'];
+        $this->assertNotSame($old, $stored);
+        $this->assertFalse(password_needs_rehash($stored, PASSWORD_DEFAULT));
+    }
+
     /** bcrypt reads only 72 bytes: an argon2 hash of a longer password is kept, not weakened. */
     public function test_an_argon2_hash_of_a_password_over_72_bytes_is_not_rewritten_to_bcrypt(): void
     {

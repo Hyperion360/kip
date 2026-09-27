@@ -107,7 +107,8 @@ final class Auth
      * system (argon2, a $2b$ prefix, or a low cost) differ the same way. So a
      * successful login rewrites any hash password_needs_rehash() flags at
      * PASSWORD_DEFAULT. LIMIT: an account stays distinguishable until its owner next
-     * logs in. The rewrite changes the session epoch (see sessionValid()), so this
+     * logs in, and for good when the rewrite is skipped (a NUL byte in the password, or
+     * a non-bcrypt hash of a password over 72 bytes; see below). The rewrite changes the session epoch (see sessionValid()), so this
      * login gets the new epoch and that user's older sessions end, once.
      */
     public function attempt(string $email, string $password, string $ip = ''): bool
@@ -127,11 +128,13 @@ final class Auth
             $this->recordAttempt($email, $ip, 'login');
             return false;
         }
-        // Not rehashed: a NUL byte (argon2 verifies it, bcrypt's password_hash() throws) or
-        // more than 72 bytes (bcrypt reads only the first 72, so an argon2 hash of a longer
-        // password would quietly get weaker). No transaction here: the compare-and-swap
-        // below is atomic on its own, and a caller may already have one open.
-        $rehash = password_needs_rehash($hash, PASSWORD_DEFAULT) && !str_contains($password, "\0") && strlen($password) <= 72
+        // Not rehashed: a NUL byte (argon2 verifies it, bcrypt's password_hash() throws), or a
+        // non-bcrypt hash of a password over 72 bytes (bcrypt reads only the first 72, so it
+        // would quietly get weaker; an old bcrypt hash already stopped at 72, so it loses
+        // nothing). No transaction here: the compare-and-swap below is atomic on its own,
+        // and a caller may already have one open.
+        $weakens = strlen($password) > 72 && !str_starts_with($hash, '$2');
+        $rehash = password_needs_rehash($hash, PASSWORD_DEFAULT) && !str_contains($password, "\0") && !$weakens
             ? password_hash($password, PASSWORD_DEFAULT) : null;
         // Compare-and-swap on the hash just verified: a reset or admin edit that landed
         // since then wins, rather than being overwritten with the old password.
