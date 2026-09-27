@@ -253,7 +253,7 @@ final class App
             if ($e->requiresAuth && !$this->authSessionValid($active)) return Response::redirect('/auth/login');
             return (new Response('Method not allowed', 405))->withHeader('Allow', $e->getMessage()); // review 9A
         } catch (\Throwable $e) {
-            return $this->errorResponse($e);
+            return $this->errorResponse($e, $request);
         }
     }
 
@@ -297,13 +297,10 @@ final class App
         return true;
     }
 
-    private function errorResponse(\Throwable $e): Response
+    private function errorResponse(\Throwable $e, Request $request): Response
     {
         if (($this->config['env'] ?? 'prod') === 'dev') {
-            $body = '<h1>' . htmlspecialchars(get_class($e)) . ': ' . htmlspecialchars($e->getMessage()) . '</h1>'
-                  . '<p>' . htmlspecialchars($e->getFile()) . ':' . $e->getLine() . '</p>'
-                  . '<pre>' . htmlspecialchars($e->getTraceAsString()) . '</pre>';
-            return new Response($body, 500);
+            return new Response((new DevErrorPage())->render($e, $request->method, $request->path), 500);
         }
         error_log((string) $e); // full detail to the log, never the browser
         return new Response('Something went wrong', 500);

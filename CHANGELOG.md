@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The dev-mode error page is a real page: a self-contained HTML document
+  with the exception, where it was thrown, the request that triggered it, and
+  the stack trace, styled by one inline stylesheet (no external requests, no
+  scripting, every dynamic value escaped). It used to be a bare heading and
+  an unstyled pre block. Production responses are unchanged: the generic
+  message, full detail to the log.
 - Every autoloaded file under `src/` now declares `strict_types=1`, so a
   scalar type mismatch inside the framework is a `TypeError` instead of a
   silent conversion; until now the runtime relaxed exactly what the level 6
