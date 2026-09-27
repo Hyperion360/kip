@@ -93,6 +93,11 @@
   through an index instead. The tutorial's Step 6 and Step 7 teach both,
   and a test renders each page against the blog's migrations and fails on
   a second query.
+- **Security: the admin panel no longer exposes password hashes.** The
+  browse table masked the `password_hash` cell as `••••` but still wrote the
+  full hash into that cell's `title` attribute, so it was in the page source
+  and in the hover tooltip. The title is now masked the same way. Present
+  since v0.3.0.
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a
