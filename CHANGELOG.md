@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added `SECURITY.md` (private disclosure via GitHub's vulnerability
+  reporting, scope, and what a good report includes) and `CONTRIBUTING.md`
+  (the quality gate as the first line: `composer check`, what it enforces,
+  and the docs-change-with-code rule). README and the getting-started
+  chapter now state plainly that Windows is untested and WSL is the
+  supported path there.
 - The docs fidelity check validates every digit file-count claim in the doc
   set ("<N> files", "N-file"), not only the one in `docs/guide/README.md`;
   the versioning page's core-size claim was wrong once (it said 19 when
