@@ -25,6 +25,9 @@ final class PageCache
         )');
         // Serves the TTL prune and the oldest-first eviction below.
         $this->db->query('CREATE INDEX IF NOT EXISTS idx_pages_created_at ON pages (created_at)');
+        // page_tags' key leads with tag, so every delete by page key (prune, eviction,
+        // purge) scanned the whole table without this one.
+        $this->db->query('CREATE INDEX IF NOT EXISTS idx_page_tags_key ON page_tags (key)');
     }
 
     private function key(string $path, string $query): string

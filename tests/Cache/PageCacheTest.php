@@ -84,6 +84,23 @@ final class PageCacheTest extends TestCase
         new PageCache(new Database('sqlite::memory:'), ttlSeconds: 3600, maxPages: 0);
     }
 
+    /** Every delete the cache issues finds its rows through an index, not a table scan. */
+    public function test_cache_deletes_never_scan_a_table(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db, ttlSeconds: 3600, maxPages: 1);
+        $sql = [];
+        $db->onQuery(function (string $q) use (&$sql): void { $sql[] = $q; });
+        $cache->put('/a', '', new Response('a'), ['posts']);
+        $cache->put('/b', '', new Response('b'), ['posts']);   // over the cap: evicts /a
+        $cache->purgeByTables(['posts']);
+        $db->onQuery(static fn () => null);
+        foreach (array_unique(array_filter($sql, static fn (string $q): bool => str_starts_with($q, 'DELETE'))) as $q) {
+            $plan = implode("\n", array_column($db->all('EXPLAIN QUERY PLAN ' . $q, array_fill(0, substr_count($q, '?'), 1)), 'detail'));
+            $this->assertDoesNotMatchRegularExpression('/^SCAN (pages|page_tags)$/m', $plan, $q);
+        }
+    }
+
     public function test_only_status_200_is_stored(): void
     {
         $this->cache->put('/gone', '', new Response('nope', 404), []);

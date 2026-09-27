@@ -128,7 +128,9 @@
   pages once the table is full, in two set-based statements, so a cache
   already far over the cap is trimmed in one request instead of a statement
   per row. An index on `created_at` serves both that eviction and the TTL
-  prune, and each `put()` now runs in one transaction. A `max_pages` below
+  prune, a new index on `page_tags(key)` lets every delete by page (prune,
+  eviction and purge, which all scanned the tag table before) find its
+  rows directly, and each `put()` now runs in one transaction. A `max_pages` below
   1 is refused, since it would evict every page as it is written.
 - A guest gets the login redirect on an `#[Auth]` route whatever the
   request: the wrong verb used to answer 405 with an `Allow` header, and a
