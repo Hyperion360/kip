@@ -131,6 +131,13 @@ visitor has actually clicked.
 
 ## Worker-mode notes
 
+This pattern has been run, not just designed: against FrankenPHP v1.12.7 in
+worker mode, one persistent `App`, a fresh `Kip\Session` passed into every
+`handle()` call, and `runDeferred()` after every `send()` served the skeleton
+with correct isolation (two concurrent sessions on one worker process stay
+separate, a cookieless request never inherits state, the page cache still
+HITs and honors its purge rules).
+
 Kip targets the traditional one-request-per-process PHP model by design,
 but nothing in the request-handling path assumes it structurally, `App`
 takes a per-request `Session` in `handle()`, and controllers get a
