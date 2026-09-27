@@ -97,7 +97,13 @@ final class Database
 
     public function rollBack(): void
     {
-        if (!$this->pdo->inTransaction()) return; // unmatched rollback stays a no-op
+        if (!$this->pdo->inTransaction()) {
+            // A driver-side auto-rollback (the MySQL deadlock class) already ended
+            // the transaction; forget the depth so the next begin() starts a real
+            // one instead of a bare SAVEPOINT. Unreachable on SQLite, defensive.
+            $this->txDepth = 0;
+            return; // unmatched rollback stays a no-op
+        }
         if ($this->txDepth === 0) {
             // Only reachable when a commit() already decremented and then failed;
             // the transaction is still open, so unwind it completely.
