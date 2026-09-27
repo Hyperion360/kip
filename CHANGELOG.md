@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A `.csv` upload whose content libmagic reports as plain text is accepted.
+  libmagic's CSV rule varies across PHP builds (the same two-line CSV came
+  back `text/csv` on 8.4 and `text/plain` on 8.3 in CI), so the strict
+  single-MIME equality rejected legitimate CSV uploads on some servers.
+  Text-family extensions accept the plain-text verdict; binary formats keep
+  the strict single-MIME check.
 - The dev-mode error page is a real page: a self-contained HTML document
   with the exception, where it was thrown, the request that triggered it, and
   the stack trace, styled by one inline stylesheet (no external requests, no

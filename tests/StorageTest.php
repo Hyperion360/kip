@@ -94,6 +94,15 @@ final class StorageTest extends TestCase
         $this->assertMatchesRegularExpression('#^/uploads/[0-9a-f]{16}\.csv$#', $path);
     }
 
+    public function test_csv_accepts_the_plain_text_verdict(): void // libmagic's CSV rule varies by build (8.3 vs 8.4 CI)
+    {
+        // Prose is text/plain on every libmagic build; a strict text/csv equality
+        // rejects it, so valid CSVs fail on builds whose CSV heuristic stays quiet.
+        $s = new Storage($this->dir, maxBytes: 1024, allowedExt: ['csv'], mover: static fn(string $t, string $d): bool => rename($t, $d));
+        $path = $s->put($this->fakeUpload('notes.csv', "just some prose, no structure\n"));
+        $this->assertMatchesRegularExpression('#^/uploads/[0-9a-f]{16}\.csv$#', $path);
+    }
+
     public function test_extension_outside_default_whitelist_is_rejected(): void // default config, unknown type
     {
         $this->expectException(UploadException::class);
