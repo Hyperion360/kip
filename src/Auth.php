@@ -1,4 +1,6 @@
 <?php // src/Auth.php
+
+declare(strict_types=1);
 namespace Kip;
 
 final class Auth

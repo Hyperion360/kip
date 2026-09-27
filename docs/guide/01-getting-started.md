@@ -43,6 +43,10 @@ vendor/bin/phpunit   # needs `php` 8.3+ on your PATH
 The framework's tests are self-contained under `tests/Fixtures/` and don't
 depend on `skeleton/` or `examples/blog/`.
 
+Either way, Kip is developed and tested on macOS and Linux; on Windows,
+develop inside WSL (the CLI's hidden-password prompt needs `stty` and
+falls back to visible input where it is missing).
+
 ## Directory layout of a Kip app
 
 Every app built on Kip. The skeleton, `examples/blog`, or one you start

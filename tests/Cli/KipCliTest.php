@@ -55,4 +55,14 @@ final class KipCliTest extends TestCase
         $this->assertSame(0, $code); // default arm: help, not an error
         $this->assertStringContainsString('Usage: kip [', $out);
     }
+
+    public function test_skeleton_and_blog_bin_kip_are_byte_identical(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $this->assertSame(
+            file_get_contents($root . '/skeleton/bin/kip'),
+            file_get_contents($root . '/examples/blog/bin/kip'),
+            'skeleton/bin/kip and examples/blog/bin/kip must stay byte-identical'
+        );
+    }
 }

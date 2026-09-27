@@ -1,4 +1,6 @@
 <?php // src/Admin/Controllers/AdminController.php
+
+declare(strict_types=1);
 namespace Kip\Admin\Controllers;
 
 use Kip\Admin\Schema;

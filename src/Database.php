@@ -1,4 +1,6 @@
 <?php // src/Database.php
+
+declare(strict_types=1);
 namespace Kip;
 
 final class Database
@@ -7,6 +9,9 @@ final class Database
 
     /** @var null|callable(string):void */
     private $onQuery = null;
+
+    /** Transaction nesting depth: 0 = no framework transaction, N = N-1 open SAVEPOINTs. */
+    private int $txDepth = 0;
 
     public function __construct(string $dsn, ?string $user = null, ?string $pass = null)
     {
@@ -57,9 +62,61 @@ final class Database
         return (string) $this->pdo->lastInsertId();
     }
 
-    public function begin(): void { $this->pdo->beginTransaction(); }
-    public function commit(): void { $this->pdo->commit(); }
-    public function rollBack(): void { if ($this->pdo->inTransaction()) $this->pdo->rollBack(); }
+    /**
+     * Begin a transaction, or nest inside the one already open: a nested begin
+     * opens a SAVEPOINT, its commit releases it, its rollBack undoes only its
+     * own work. Framework code that must be atomic (Auth::createReset(),
+     * Auth::resetPassword(), PageCache::put(), the Migrator) is therefore safe
+     * inside a caller's transaction instead of failing with "There is already
+     * an active transaction". Savepoints run on the raw PDO handle so they
+     * never fire the onQuery tap: they are not table reads or writes.
+     */
+    public function begin(): void
+    {
+        if ($this->txDepth === 0) {
+            $this->pdo->beginTransaction();
+        } else {
+            $this->pdo->exec('SAVEPOINT kip_sp' . $this->txDepth);
+        }
+        $this->txDepth++;
+    }
+
+    public function commit(): void
+    {
+        if ($this->txDepth === 0) {
+            $this->pdo->commit(); // unmatched: PDO's own exception, as before
+            return;
+        }
+        $this->txDepth--;
+        if ($this->txDepth === 0) {
+            $this->pdo->commit();
+        } else {
+            $this->pdo->exec('RELEASE SAVEPOINT kip_sp' . $this->txDepth);
+        }
+    }
+
+    public function rollBack(): void
+    {
+        if (!$this->pdo->inTransaction()) {
+            // A driver-side auto-rollback (the MySQL deadlock class) already ended
+            // the transaction; forget the depth so the next begin() starts a real
+            // one instead of a bare SAVEPOINT. Unreachable on SQLite, defensive.
+            $this->txDepth = 0;
+            return; // unmatched rollback stays a no-op
+        }
+        if ($this->txDepth === 0) {
+            // Only reachable when a commit() already decremented and then failed;
+            // the transaction is still open, so unwind it completely.
+            $this->pdo->rollBack();
+            return;
+        }
+        $this->txDepth--;
+        if ($this->txDepth === 0) {
+            $this->pdo->rollBack();
+        } else {
+            $this->pdo->exec('ROLLBACK TO SAVEPOINT kip_sp' . $this->txDepth);
+        }
+    }
 
     /** Multi-statement execution (SQL-file migrations). Tapped like query() so cache tagging stays honest. */
     public function exec(string $sql): void

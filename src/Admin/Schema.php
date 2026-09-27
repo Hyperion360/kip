@@ -1,4 +1,6 @@
 <?php // src/Admin/Schema.php
+
+declare(strict_types=1);
 namespace Kip\Admin;
 use Kip\Database;
 use Kip\Migrations\Migrator;

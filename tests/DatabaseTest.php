@@ -68,4 +68,96 @@ final class DatabaseTest extends TestCase
         $this->assertIsString($id);
         $this->assertSame('1', $id);
     }
+
+    public function test_nested_begin_opens_a_savepoint_instead_of_throwing(): void
+    {
+        $this->db->begin();
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['outer']);
+        $this->db->begin();
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['inner']);
+        $this->db->commit(); // releases the savepoint
+        $this->db->commit(); // commits the outer transaction
+        $this->assertSame(2, (int) $this->db->one('SELECT COUNT(*) c FROM t')['c']);
+    }
+
+    public function test_inner_rollback_undoes_only_the_inner_work(): void
+    {
+        $this->db->begin();
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['outer']);
+        $this->db->begin();
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['inner']);
+        $this->db->rollBack(); // back to the savepoint, outer work intact
+        $this->db->commit();
+        $this->assertSame([['name' => 'outer']], $this->db->all('SELECT name FROM t'));
+    }
+
+    public function test_savepoint_statements_do_not_fire_the_on_query_tap(): void
+    {
+        $seen = [];
+        $this->db->onQuery(function (string $sql) use (&$seen): void { $seen[] = $sql; });
+        $this->db->begin();
+        $this->db->begin();
+        $this->db->commit();
+        $this->db->commit();
+        $this->db->onQuery(static fn () => null);
+        $this->assertSame([], $seen, 'SAVEPOINT plumbing is not table traffic');
+    }
+
+    public function test_three_deep_nesting_undoes_only_the_innermost_level(): void
+    {
+        // Depth 3 is reachable (app transaction > Auth::createReset() > its own
+        // begin()) and is the first depth where the savepoint index arithmetic
+        // differs from depth 2: the inner rollback must target kip_sp2, not the
+        // savepoint of an outer layer.
+        $this->db->begin();                                  // real transaction
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['outer']);
+        $this->db->begin();                                  // SAVEPOINT kip_sp1
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['mid']);
+        $this->db->begin();                                  // SAVEPOINT kip_sp2
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['inner']);
+        $this->db->rollBack();                               // ROLLBACK TO kip_sp2: inner gone
+        $this->db->commit();                                 // RELEASE kip_sp1
+        $this->db->commit();                                 // real COMMIT
+        $this->assertSame([['name' => 'outer'], ['name' => 'mid']], $this->db->all('SELECT name FROM t'));
+    }
+
+    public function test_a_middle_layer_rollback_takes_the_committed_inner_layer_with_it(): void
+    {
+        // Releasing the inner savepoint merges its work into the middle layer,
+        // so a later middle rollback must discard both: this is the release-then-
+        // rollback-to-outer-savepoint ordering, not just the plain nest of the
+        // tests above.
+        $this->db->begin();                                  // real transaction
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['outer']);
+        $this->db->begin();                                  // SAVEPOINT kip_sp1
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['mid']);
+        $this->db->begin();                                  // SAVEPOINT kip_sp2
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['inner']);
+        $this->db->commit();                                 // RELEASE kip_sp2: inner joins the middle level
+        $this->db->rollBack();                               // ROLLBACK TO kip_sp1: mid AND inner gone
+        $this->db->commit();                                 // real COMMIT
+        $this->assertSame([['name' => 'outer']], $this->db->all('SELECT name FROM t'));
+    }
+
+    public function test_unmatched_commit_errors_and_unmatched_rollback_stays_a_noop(): void
+    {
+        // Guide ch. 5 contract: an unmatched rollBack() is a no-op, an unmatched
+        // commit() is PDO's own error. The no-op must also leave the depth
+        // counter clean, so the next begin()/commit() pair still works.
+        $this->db->rollBack(); // no transaction open: silently ignored
+        $this->db->begin();
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['x']);
+        $this->db->commit();
+        try {
+            $this->db->commit(); // unmatched: PDO throws, txDepth must stay 0
+            $this->fail('an unmatched commit() must surface the PDO error');
+        } catch (\PDOException) {
+            // expected: no active transaction
+        }
+        $this->db->rollBack(); // still a no-op after the failed commit
+        $this->db->begin();
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['y']);
+        $this->db->commit();
+        $this->assertSame(2, (int) $this->db->one('SELECT COUNT(*) c FROM t')['c']);
+    }
 }

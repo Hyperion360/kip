@@ -1,4 +1,6 @@
 <?php // src/RequestLog.php
+
+declare(strict_types=1);
 namespace Kip;
 
 use Kip\Http\Request;

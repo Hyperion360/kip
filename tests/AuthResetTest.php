@@ -111,4 +111,24 @@ final class AuthResetTest extends TestCase
         $this->auth->attempt('me@example.com', 'oldpass1'); // any throttled() call prunes
         $this->assertSame(0, (int) $this->db->one("SELECT COUNT(*) c FROM login_attempts WHERE email = 'dead@x.y'")['c']);
     }
+
+    public function test_create_reset_works_inside_a_caller_transaction(): void
+    {
+        $this->db->begin();
+        $token = $this->auth->createReset('me@example.com');
+        $this->db->commit();
+        $this->assertNotNull($token);
+        $this->assertTrue($this->auth->resetPassword($token, 'newpass1'));
+        $this->assertTrue($this->auth->attempt('me@example.com', 'newpass1'));
+    }
+
+    public function test_reset_password_works_inside_a_caller_transaction(): void
+    {
+        $token = $this->auth->createReset('me@example.com');
+        $this->db->begin();
+        $ok = $this->auth->resetPassword($token, 'newpass1');
+        $this->db->commit();
+        $this->assertTrue($ok);
+        $this->assertTrue($this->auth->attempt('me@example.com', 'newpass1'));
+    }
 }

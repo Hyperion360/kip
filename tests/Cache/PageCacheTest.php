@@ -130,4 +130,62 @@ final class PageCacheTest extends TestCase
         $cache->put('/new', '', new Response('new'), []);               // triggers the prune
         $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM page_tags')['c']);
     }
+
+    public function test_framework_default_headers_are_not_stored_so_a_hit_reads_current_ones(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db);
+        $cache->put('/x', '', (new Response('b'))->withHeader('X-App', 'custom'), []);
+        $stored = json_decode($db->one('SELECT headers FROM pages')['headers'], true);
+        // Only what the app actually set is stored; defaults are re-derived on read.
+        $this->assertSame(['X-App' => 'custom'], $stored);
+        $hit = $cache->get('/x', '');
+        $this->assertSame('custom', $hit->headers['X-App']);
+        $this->assertSame(Response::defaultHeaders()['Content-Security-Policy'], $hit->headers['Content-Security-Policy']);
+        $this->assertSame(Response::defaultHeaders()['X-Frame-Options'], $hit->headers['X-Frame-Options']);
+    }
+
+    public function test_an_app_override_of_a_default_header_survives_the_roundtrip(): void
+    {
+        $this->cache->put('/x', '', new Response('b', 200, ['X-Frame-Options' => 'DENY']), []);
+        $hit = $this->cache->get('/x', '');
+        $this->assertSame('DENY', $hit->headers['X-Frame-Options']);
+    }
+
+    public function test_noindexed_responses_are_refused(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db);
+        $cache->put('/empty-listing', '', (new Response('x'))->withHeader('X-Robots-Tag', 'noindex, nofollow'), []);
+        $this->assertNull($cache->get('/empty-listing', ''));
+        $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM pages')['c'], 'no row was written at all');
+        // Other robots directives still cache; the refusal targets noindex.
+        $cache->put('/fine', '', (new Response('y'))->withHeader('X-Robots-Tag', 'noarchive'), []);
+        $this->assertNotNull($cache->get('/fine', ''));
+    }
+    public function test_non_string_header_shapes_are_skipped(): void
+    {
+        // An app violating the documented array<string, string> contract (an int
+        // key, a non-string value) is skipped, not trusted.
+        $this->cache->put('/x', '', new Response('b', 200, [7 => 'x', 'X-Custom' => 42]), []);
+        $hit = $this->cache->get('/x', '');
+        $this->assertNotNull($hit);
+        $this->assertSame('b', $hit->body);
+    }
+
+    public function test_noindex_guard_matches_name_and_directive_case_insensitively(): void
+    {
+        // RFC 9110 field names are case-insensitive and apps spell headers
+        // freely ('x-robots-tag' is common lowercase); the directive itself is
+        // case-insensitive too. A guard keyed to one spelling would cache a page
+        // the app meant to keep out of search indexes.
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db);
+        $cache->put('/lower-name', '', (new Response('x'))->withHeader('x-robots-tag', 'noindex'), []);
+        $cache->put('/upper-value', '', (new Response('x'))->withHeader('X-Robots-Tag', 'NOINDEX'), []);
+        $this->assertNull($cache->get('/lower-name', ''));
+        $this->assertNull($cache->get('/upper-value', ''));
+        $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM pages')['c'], 'neither refusal wrote a row');
+    }
+
 }

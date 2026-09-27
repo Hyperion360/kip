@@ -1,4 +1,6 @@
 <?php // src/Routing/Auth.php
+
+declare(strict_types=1);
 namespace Kip\Routing;
 
 // On a method, or on a controller class, a base class, an interface or a trait to

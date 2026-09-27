@@ -2,6 +2,83 @@
 
 ## Unreleased
 
+- Every autoloaded file under `src/` now declares `strict_types=1`, so a
+  scalar type mismatch inside the framework is a `TypeError` instead of a
+  silent conversion; until now the runtime relaxed exactly what the level 6
+  analysis gate forbids. Almost no working app changes behavior: the places
+  where app-authored data reaches a typed framework parameter coerce
+  deliberately first, so a config integer written as a string (`'30'`) and
+  a session `user_id` stored as `'7'` keep working. A session `user_id` that is not numeric is audited as a
+  guest. Two exotic corners do tighten: a non-string value where a
+  string-typed config key belongs (an integer DSN) now throws at
+  construction instead of being coerced, and an autowired class whose
+  scalar constructor default is bound to a mistyped constant (a string
+  constant defaulting an int parameter) now throws where reflection used
+  to coerce. The one file without the declaration is
+  `src/Routing/RouteMatch.php`, on purpose: `invoke()` is where the
+  framework calls application code with strings parsed from the URL, so an
+  app action declaring an `int` parameter keeps receiving a coerced value.
+  A test pins both the declaration and that exemption.
+- Added `SECURITY.md` (private disclosure via GitHub's vulnerability
+  reporting, scope, and what a good report includes) and `CONTRIBUTING.md`
+  (the quality gate as the first line: `composer check`, what it enforces,
+  and the docs-change-with-code rule). README and the getting-started
+  chapter now state plainly that Windows is untested and WSL is the
+  supported path there.
+- The docs fidelity check validates every digit file-count claim in the doc
+  set ("<N> files", "N-file"), not only the one in `docs/guide/README.md`;
+  the versioning page's core-size claim was wrong once (it said 19 when
+  src/ held 31) and nothing caught it. Both live claims are defined to mean
+  the same thing, every PHP file under `src/`. Incidental digit mentions
+  that are not src/ claims (one exists, a static-analysis example in the
+  testing chapter) sit in a written exceptions ledger whose entries fail as
+  stale once the sentence they excuse changes. Word-number claims
+  ("thirty-five files") are still checked in the guide README only, where
+  prose cannot trip them.
+- `bin/kip` reports failures instead of printing a stack trace. The CLI was
+  autoload, config, then a bare `match`, so a framework exception (a failed
+  database open on `kip migrate`, the new unreadable-migrations-directory
+  error) exited 255 with a trace on stdout. It now prints
+  `kip: <exception>: <message>` to STDERR and exits 1, the same code the
+  argument-validation arms already use. One failure code, deliberately: a
+  deploy script branches on zero versus non-zero. `skeleton/bin/kip` and
+  `examples/blog/bin/kip` are byte-identical and a test now enforces it.
+- The page cache refuses to store a response carrying
+  `X-Robots-Tag: noindex` (comma lists such as `noindex, nofollow`
+  included). Pages that opt out of indexing are exactly the junk-URL shapes
+  that would otherwise each consume a TTL-bounded cache row; the refusal
+  mirrors the file-cache layer in apps built on the skeleton. Other robots
+  directives (such as `noarchive`) still cache.
+- `Database` transactions nest. A `begin()` inside an already-open
+  transaction opens a SAVEPOINT instead of throwing "There is already
+  an active transaction"; the matching `commit()` releases it and `rollBack()`
+  undoes only that level's work. `Auth::createReset()` and
+  `Auth::resetPassword()` therefore work inside a caller's transaction (both
+  used to fail there), and the same is now true for the page cache's write
+  transaction and every migration. Unmatched `rollBack()` is still a no-op
+  and an unmatched `commit()` still errors, as before. The savepoint
+  statements do not fire the `onQuery` tap, so query-budget tests and cache
+  tagging see no new statements.
+- **Behavior change: non-canonical URL spellings now 404 instead of serving
+  the page.** A trailing slash (`/posts/`, `/posts/show/1/`) was silently
+  trimmed, `/home` served the root page's controller, `/posts/index` served
+  `/posts`, and `//browse` served the home page (a `parse_url` quirk that
+  read the path as a host). Each is now a plain 404, matching how uppercase
+  and double-slash paths already behaved: one canonical URL per page. Link
+  to the home page as `/` and to index actions at the bare controller path.
+  Redirecting instead was considered and rejected: a 301 on a POST turns the
+  redirect into a GET in old clients, and the router's design is strict
+  canonicalization, not repair.
+- Cached pages no longer fossilize the framework's default response headers.
+  `PageCache::put()` stored the full header array, defaults included, and a
+  cache HIT replayed the stored values over the current ones, so a tightened
+  default (a stricter CSP, say) did not reach already-cached pages until the
+  TTL expired them. Defaults are now stripped before storing and re-derived
+  from the running framework on every HIT; headers an app set itself are
+  still cached and replayed. Rows written by an earlier version keep their
+  fossilized headers until the TTL expires them; no schema migration, the
+  cache self-heals inside one TTL. `Response::defaultHeaders()` exposes the
+  current defaults (new public static method).
 - Route attributes are autoloadable: `Get`, `Post`, `Put`, `Delete` and
   `Auth` each live in their own file under `src/Routing/`. They were
   declared together in `Attributes.php`, which PSR-4 could not resolve,

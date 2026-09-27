@@ -21,10 +21,26 @@ final class RouterTest extends TestCase
         $this->assertSame('show:42', $m->invoke(new Container()));
     }
 
+    /**
+     * Path segments are always strings, so an app action declaring int relies on
+     * coercion at the call site in RouteMatch::invoke(). That file must NOT
+     * declare strict_types, or every app route with an int parameter throws a
+     * TypeError. Verified: the strict call raises
+     * "Argument #2 ($position) must be of type int, string given".
+     */
+    public function test_int_route_parameter_still_coerces_from_a_path_segment(): void
+    {
+        $m = $this->router()->match(new Request('GET', '/posts/rank/my-story/3', [], [], []));
+        $this->assertNotNull($m);
+        $this->assertSame('rank:my-story:3', $m->invoke(new Container()));
+    }
+
     public function test_root_maps_to_home_index(): void
     {
-        // '/' → HomeController::index. But Fake namespace has no Home, so 404
-        $this->assertNull($this->router()->match(new Request('GET', '/', [], [], [])));
+        // '/' → HomeController::index, the root page's only spelling; '/home' 404s below
+        $m = $this->router()->match(new Request('GET', '/', [], [], []));
+        $this->assertNotNull($m);
+        $this->assertSame('home', $m->invoke(new Container()));
     }
 
     public function test_verb_attribute_enforced(): void
@@ -103,5 +119,21 @@ final class RouterTest extends TestCase
     {
         $this->expectException(\Kip\Routing\MethodNotAllowedException::class);
         $this->router()->match(new Request('HEAD', '/posts/store', [], [], []));
+    }
+
+    public function test_trailing_slash_is_not_matched(): void // one canonical URL: /posts/ must not alias /posts
+    {
+        foreach (['/posts/', '/posts/show/1/', '/team/'] as $path) {
+            $this->assertNull($this->router()->match(new Request('GET', $path, [], [], [])), $path);
+        }
+    }
+
+    public function test_alias_spellings_are_not_matched(): void // /home, /posts/index, //browse
+    {
+        foreach (['/home', '/home/index', '/posts/index', '/posts/index/7', '//browse', '//'] as $path) {
+            $this->assertNull($this->router()->match(new Request('GET', $path, [], [], [])), $path);
+        }
+        // The canonical spellings still resolve: '/' and '/posts' (action index by default).
+        $this->assertNotNull($this->router()->match(new Request('GET', '/posts', [], [], [])));
     }
 }

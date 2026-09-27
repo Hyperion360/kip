@@ -76,14 +76,15 @@ files and reload the browser as you go, no restart needed.
 
 Kip migrations are plain PHP classes with an `up()` and a `down()`, tracked
 by name in a `_migrations` table so `bin/kip migrate` only ever runs each one
-once. The skeleton already has two, `001_create_users.php` and
-`002_create_login_attempts.php`, the auth battery's tables. So posts is
-`003`.
+once. The skeleton ships seven, `001_create_users.php` through
+`007_index_login_attempts_by_time.php`: the auth battery's tables and the
+indexes its login throttle needs. Number your own migrations from where
+those leave off, so posts is `008`.
 
-Create `app/migrations/003_create_posts.php`:
+Create `app/migrations/008_create_posts.php`:
 
 ```php
-<?php // app/migrations/003_create_posts.php
+<?php // app/migrations/008_create_posts.php
 return new class extends Kip\Migrations\Migration {
     public function up(Kip\Database $db): void
     {
@@ -105,12 +106,12 @@ php bin/kip migrate
 ```
 
 ```
-Ran: 003_create_posts
+Ran: 008_create_posts
 ```
 
 (`examples/blog`'s own posts migration is numbered `002`. That app was
 built before the framework/skeleton/example split existed, so its migrations
-never had to share a directory with the auth battery's `001`/`002`. Same SQL
+never had to share a directory with the skeleton's auth battery. Same SQL
 either way; only the number and the reader's own migration history differ.)
 
 ## Step 2: PostsController, index and show
@@ -396,10 +397,10 @@ Comments are guest-facing, no login required, which means they can't rely
 on a session-bound CSRF token (there's no session yet for an anonymous
 visitor). Add the migration, controller, and view for them.
 
-`app/migrations/004_create_comments.php`:
+`app/migrations/009_create_comments.php`:
 
 ```php
-<?php // app/migrations/004_create_comments.php
+<?php // app/migrations/009_create_comments.php
 return new class extends Kip\Migrations\Migration {
     public function up(Kip\Database $db): void
     {
@@ -415,12 +416,12 @@ return new class extends Kip\Migrations\Migration {
 };
 ```
 
-`app/migrations/005_add_comments_post_id_index.php`, a plain index
+`app/migrations/010_add_comments_post_id_index.php`, a plain index
 migration, split out on its own so it's easy to skip on a low-traffic app
 and add later without touching the table's shape:
 
 ```php
-<?php // app/migrations/005_add_comments_post_id_index.php
+<?php // app/migrations/010_add_comments_post_id_index.php
 return new class extends Kip\Migrations\Migration {
     public function up(Kip\Database $db): void
     {
@@ -435,7 +436,7 @@ php bin/kip migrate
 ```
 
 ```
-Ran: 004_create_comments, 005_add_comments_post_id_index
+Ran: 009_create_comments, 010_add_comments_post_id_index
 ```
 
 `app/src/Controllers/CommentsController.php`:
@@ -564,10 +565,10 @@ back to page 1 rather than erroring.
 
 One thing is missing: an index for that `ORDER BY`. Without one, SQLite
 reads and sorts every post to return a page of 20. Create
-`app/migrations/007_add_posts_created_at_index.php`:
+`app/migrations/011_add_posts_created_at_index.php`:
 
 ```php
-<?php // app/migrations/007_add_posts_created_at_index.php
+<?php // app/migrations/011_add_posts_created_at_index.php
 return new class extends Kip\Migrations\Migration {
     public function up(Kip\Database $db): void
     {
@@ -584,7 +585,7 @@ php bin/kip migrate
 ```
 
 ```
-Ran: 007_add_posts_created_at_index
+Ran: 011_add_posts_created_at_index
 ```
 
 The listing now walks the index newest first and stops after 21 rows.

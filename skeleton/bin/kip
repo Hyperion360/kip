@@ -3,7 +3,8 @@
 require __DIR__ . '/../vendor/autoload.php';
 $config = require __DIR__ . '/../config.php';
 
-match ($argv[1] ?? 'help') {
+try {
+    match ($argv[1] ?? 'help') {
     'migrate' => (function () use ($config) {
         $db = new Kip\Database($config['db']['dsn']);
         $log = new Kip\RequestLog(new Kip\Database($config['log_db']['dsn']), $config['log_db']['retention_days'] ?? 30);
@@ -99,4 +100,11 @@ match ($argv[1] ?? 'help') {
         echo "Backup written: {$result}\n";
     })(),
     default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]]\n"),
-};
+    };
+} catch (\Throwable $e) {
+    // A failed deploy needs a stated failure, not a stack trace on stdout.
+    // Exit 1 matches every argument-validation arm; docs/guide/08-cli.md owns
+    // the contract.
+    fwrite(STDERR, 'kip: ' . $e::class . ': ' . $e->getMessage() . \PHP_EOL);
+    exit(1);
+}

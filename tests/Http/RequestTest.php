@@ -15,11 +15,26 @@ final class RequestTest extends TestCase
         $this->assertSame('x', $r->input('missing', 'x'));
     }
 
-    public function test_path_is_normalized(): void
+    public function test_path_is_stored_as_given(): void
     {
-        $r = new Request('GET', '/team/', [], [], []);
-        $this->assertSame('/team', $r->path); // trailing-slash normalization, D4
+        // A trailing slash must reach the router, which 404s it: silently trimming
+        // it would alias /team/ onto the canonical /team (one URL per page).
+        $this->assertSame('/team/', (new Request('GET', '/team/', [], [], []))->path);
+        $this->assertSame('/team', (new Request('GET', '/team', [], [], []))->path);
         $this->assertSame('/', (new Request('GET', '/', [], [], []))->path);
+        $this->assertSame('/', (new Request('GET', '', [], [], []))->path);
+    }
+
+    public function test_from_globals_strips_only_the_query_string(): void
+    {
+        // parse_url() read '//browse' as a host and returned no path, serving '/'
+        // for it. The raw path must survive so the router's whitelist can 404 it.
+        $r = Request::fromGlobals(server: ['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '//browse?x=1']);
+        $this->assertSame('//browse', $r->path);
+        $r2 = Request::fromGlobals(server: ['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/a/b?x=1']);
+        $this->assertSame('/a/b', $r2->path);
+        $r3 = Request::fromGlobals(server: ['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '?q=1']);
+        $this->assertSame('/', $r3->path);
     }
 
     public function test_str_casts_and_trims(): void // review 3A: the framework's most-typed line

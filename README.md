@@ -109,6 +109,11 @@ key. Absence means off.
   inheritance hierarchies to trace. A PHP developer who has never seen Kip
   should understand a controller in one pass.
 
+**Windows:** Kip is developed and tested on macOS and Linux. On Windows,
+develop inside WSL; the CLI's hidden-password prompt needs `stty` and
+falls back to visible input where it is missing, and nothing else has
+been tested there.
+
 ## Documentation
 
 - **[Tutorial](docs/tutorial.md)**: build a blog with Kip in about an hour,

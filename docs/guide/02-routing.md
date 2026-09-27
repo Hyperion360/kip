@@ -11,7 +11,7 @@ the entire implementation, about 40 lines.
 ```
 
 - **`controller`** defaults to `home`, **`action`** defaults to `index`.
-  `/` maps to `HomeController::index()` just like `/home/index` would.
+  `/` maps to `HomeController::index()`, and that is its only spelling.
 - The controller segment is converted to StudlyCase and suffixed with
   `Controller`: `posts` → `PostsController`, `blog-posts` →
   `BlogPostsController` (both `-` and `_` split words), resolved against
@@ -32,6 +32,13 @@ the same as a URL for a controller that doesn't exist. This means every
 page has exactly one canonical URL; there's no ambiguity to worry about for
 caching or SEO. Consecutive slashes 404 too (`/posts//show/1` is not the
 same as `/posts/show/1`). The whole point is one canonical form per page.
+
+Alias spellings 404 the same way. A trailing slash is not trimmed away
+(`/posts/` and `/posts/show/1/`), `/home` is not a spelling of the root
+page (`/` is), an index action is reached only at the bare controller path
+(`/posts/index` and `/posts/index/7` both 404), and a leading `//` never
+routes (`//browse` is a 404, not the home page). Link to the home page as
+`/` and to index actions at the bare controller path.
 
 `Router::match()` whitelists the path itself before doing anything else:
 ```

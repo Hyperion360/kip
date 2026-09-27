@@ -118,8 +118,8 @@ final class AttributeAutoloadTest extends TestCase
     {
         $router = new Router(namespace: 'Kip\\Tests\\Routing\\Unimported\\');
 
-        foreach (['index' => 'the subclass\'s own action', 'shared' => 'an inherited action'] as $action => $label) {
-            $m = $router->match(new Request('GET', '/vault-child/' . $action, [], [], []));
+        foreach (['/vault-child' => 'the subclass\'s own action', '/vault-child/shared' => 'an inherited action'] as $path => $label) {
+            $m = $router->match(new Request('GET', $path, [], [], []));
             $this->assertNotNull($m);
             $this->assertTrue($m->requiresAuth, "{$label} must inherit the parent's #[Auth]");
         }
@@ -130,7 +130,7 @@ final class AttributeAutoloadTest extends TestCase
     {
         $router = new Router(namespace: 'Kip\\Tests\\Routing\\Unimported\\');
 
-        $m = $router->match(new Request('GET', '/vault-contract/index', [], [], []));
+        $m = $router->match(new Request('GET', '/vault-contract', [], [], []));
         $this->assertNotNull($m);
         $this->assertTrue($m->requiresAuth, "an interface's #[Auth] must gate the implementing controller");
     }
@@ -166,9 +166,9 @@ final class AttributeAutoloadTest extends TestCase
         $router = new Router(namespace: 'Kip\\Tests\\Routing\\Unimported\\');
 
         $cases = [
-            '/trait-gate/index' => [true, 'a class-level #[Auth] on a used trait'],
+            '/trait-gate' => [true, 'a class-level #[Auth] on a used trait'],
             '/trait-gate/shared' => [true, 'an action the guarded trait itself provides'],
-            '/nested-trait/index' => [true, 'a guarded trait pulled in by another trait'],
+            '/nested-trait' => [true, 'a guarded trait pulled in by another trait'],
             '/trait-method/secret' => [true, 'a method-level #[Auth] on a trait method'],
             '/trait-method/open' => [false, 'an action gated nowhere'],
         ];
@@ -210,7 +210,7 @@ final class AttributeAutoloadTest extends TestCase
     {
         $router = new Router(namespace: 'Kip\\Tests\\Routing\\Unimported\\');
 
-        $m = $router->match(new Request('GET', '/vault/index', [], [], []));
+        $m = $router->match(new Request('GET', '/vault', [], [], []));
         $this->assertNotNull($m);
         $this->assertTrue($m->requiresAuth, 'a class-level #[Auth] must gate its actions');
     }

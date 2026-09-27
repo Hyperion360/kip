@@ -1,4 +1,6 @@
 <?php // src/Cache/PageCache.php
+
+declare(strict_types=1);
 namespace Kip\Cache;
 
 use Kip\Database;
@@ -55,6 +57,14 @@ final class PageCache
     public function put(string $path, string $query, Response $response, array $tables): void
     {
         if ($response->status !== 200) return;
+        foreach ($response->headers as $n => $v) {
+            // A noindexed page (an empty listing, say) must not consume cache rows:
+            // junk URLs would otherwise each write one TTL-bounded row. The header
+            // name is matched case-insensitively; the value only has to contain
+            // the directive (comma lists included). Cast, not trust: the
+            // array<string,string> docblock is a contract PHP does not enforce.
+            if (strcasecmp((string) $n, 'X-Robots-Tag') === 0 && stripos((string) $v, 'noindex') !== false) return;
+        }
         $this->db->begin(); // one transaction: a write plus its prune is one sync, not one per statement
         try {
             $this->store($path, $query, $response, $tables);
@@ -70,8 +80,18 @@ final class PageCache
     {
         $key = $this->key($path, $query);
         $etag = '"' . hash('sha256', $response->body) . '"';
+        $defaults = Response::defaultHeaders();
+        $stored = [];
+        foreach ($response->headers as $n => $v) {
+            // An entry identical to a current default is not stored: defaults must
+            // come from the reading framework, not the caching one. Trade-off: an
+            // app that deliberately sets a header to exactly the default value also
+            // loses it on the next default change, until the page is re-cached.
+            if (($defaults[$n] ?? null) === $v) continue;
+            $stored[$n] = $v;
+        }
         $this->db->query('INSERT OR REPLACE INTO pages (key, body, headers, etag, created_at) VALUES (?, ?, ?, ?, ?)',
-            [$key, $response->body, json_encode($response->headers), $etag, time()]);
+            [$key, $response->body, json_encode($stored), $etag, time()]);
         $this->db->query('DELETE FROM page_tags WHERE key = ?', [$key]);
         foreach ($tables as $t) {
             $this->db->query('INSERT OR IGNORE INTO page_tags (tag, key) VALUES (?, ?)', [$t, $key]);

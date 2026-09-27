@@ -65,6 +65,21 @@ undocumented dependency, so Kip can refactor internals freely without
 breaking any app that stayed on the documented surface. If the guide
 doesn't document it, don't build on it.
 
+`strict_types` is internal the same way. Every autoloaded file under
+`src/` declares `strict_types=1`, and in PHP the declaration follows
+the calling file: it makes Kip's own internal calls strict, while your
+code calling into the framework is governed by your files, weak or
+strict as you wrote them. Where app-authored data reaches a typed
+framework parameter (a config integer written as `'30'`, a session
+`user_id` stored as `'7'`), Kip coerces it deliberately at the boundary
+first, so the app keeps working. The one boundary that runs the other
+way, `RouteMatch::invoke()` calling your actions with strings parsed
+from the URL, stays coercive on purpose: that file does not declare
+strict types, so an action declaring an `int $id` parameter keeps
+receiving a coerced value. Tightening it would change how every app
+receives route parameters, which is a break on the documented surface
+and needs a deprecation cycle first.
+
 ## Deprecations
 
 When something on the documented surface has to change:
