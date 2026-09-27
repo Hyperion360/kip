@@ -276,7 +276,7 @@ function checkSrcFileCount(string $repoRoot, array $mdFiles): array
         'src/ contains %d PHP file(s); claim(s): %s; exception(s) applied: %d',
         $actual,
         $claimNotes === [] ? 'none' : implode(', ', $claimNotes),
-        count($seenExceptions) === 0 ? 0 : array_sum(array_map('count', $seenExceptions))
+        array_sum(array_map('count', $seenExceptions)) // array_sum([]) is already 0
     );
     return [ $details === [], $details, $stat ];
 }
