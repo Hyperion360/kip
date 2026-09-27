@@ -1,0 +1,28 @@
+# The quality gate CONTRIBUTING.md names, run on every push to main and every
+# PR: PHPStan level 6, the docs fidelity check, then the suite. PHP 8.3 and
+# 8.4, because the runtime contract claims >=8.3 and until now only 8.4 had
+# ever executed the code.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4']
+    name: composer check (PHP ${{ matrix.php }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_sqlite, sqlite3
+          coverage: none
+      - run: composer install --prefer-dist --no-interaction --no-progress
+      - run: composer check
