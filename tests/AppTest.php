@@ -147,6 +147,34 @@ final class AppTest extends TestCase
         $this->assertSame('1.1.1.1', $rows[0]['ip']);
     }
 
+    public function test_session_user_id_string_is_audited_as_int(): void // strict_types boundary
+    {
+        // A session written by older code (or another reader) may carry '7'.
+        // handle() coerces it for the audit log instead of throwing.
+        $app = $this->app('prod');
+        $store = [];
+        $s = new \Kip\Session($store);
+        $s->set('user_id', '7');
+        $res = $app->handle(new Request('GET', '/', [], [], []), $s);
+        $this->assertSame(200, $res->status);
+        $rows = $app->container->make(\Kip\RequestLog::class)->recent(1);
+        $this->assertSame(7, $rows[0]['user_id']); // int 7 in the audit row, not the '7' the session held
+    }
+
+    public function test_non_numeric_session_user_id_is_audited_as_guest(): void
+    {
+        // user_id => 'nonsense' logs as a guest row and the response still
+        // returns.
+        $app = $this->app('prod');
+        $store = [];
+        $s = new \Kip\Session($store);
+        $s->set('user_id', 'nonsense');
+        $res = $app->handle(new Request('GET', '/', [], [], []), $s);
+        $this->assertSame(200, $res->status);
+        $rows = $app->container->make(\Kip\RequestLog::class)->recent(1);
+        $this->assertNull($rows[0]['user_id']); // a guest row exists, not a TypeError with none
+    }
+
     public function test_head_returns_headers_and_status_with_empty_body(): void // v0.1.1 T1
     {
         $res = $this->app('prod')->handle(new Request('HEAD', '/', [], [], []));
@@ -339,5 +367,17 @@ final class AppTest extends TestCase
             try { $bare->container->make(\Kip\Storage::class); return false; } catch (\Throwable) { return true; }
         };
         $this->assertTrue($gone()); // absence = feature never constructed
+    }
+
+    public function test_string_config_integers_boot_and_behave(): void
+    {
+        // App-authored config may carry '30' for an int setting; the framework
+        // coerces at its own boundary, so the app boots today and after strict_types.
+        $app = new App([
+            'log_db' => ['dsn' => 'sqlite::memory:', 'retention_days' => '30'],
+            'cache_db' => ['dsn' => 'sqlite::memory:', 'ttl_seconds' => '3600', 'max_pages' => '50'],
+            'views' => sys_get_temp_dir(),
+        ]);
+        $this->assertInstanceOf(App::class, $app); // no TypeError at construction
     }
 }

@@ -10,6 +10,8 @@ class PostsController
     public function store(): string { return 'stored'; }
     #[Auth]
     public function edit(string $id): string { return "edit:$id"; }
+    /** Coercion guard: path segments are strings, this parameter is not. */
+    public function rank(string $slug, int $position): string { return "rank:$slug:$position"; }
 }
 
 final class HomeController

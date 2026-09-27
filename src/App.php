@@ -36,7 +36,7 @@ final class App
                 $config['log_db']['dsn'],
                 $config['log_db']['user'] ?? null,
                 $config['log_db']['pass'] ?? null
-            ), $config['log_db']['retention_days'] ?? 30);
+            ), (int) ($config['log_db']['retention_days'] ?? 30));
             $this->container->instance(RequestLog::class, $this->requestLog); // tests read it from here
         }
         if (isset($config['cache_db']['dsn'])) {
@@ -48,14 +48,14 @@ final class App
                     $config['cache_db']['user'] ?? null,
                     $config['cache_db']['pass'] ?? null
                 ),
-                $config['cache_db']['ttl_seconds'] ?? 3600,
-                $config['cache_db']['max_pages'] ?? \Kip\Cache\PageCache::DEFAULT_MAX_PAGES
+                (int) ($config['cache_db']['ttl_seconds'] ?? 3600),
+                (int) ($config['cache_db']['max_pages'] ?? \Kip\Cache\PageCache::DEFAULT_MAX_PAGES)
             );
         }
         if (isset($config['uploads']['dir'])) {
             $this->container->instance(Storage::class, new Storage(
                 $config['uploads']['dir'],
-                $config['uploads']['max_bytes'] ?? Storage::DEFAULT_MAX_BYTES,
+                (int) ($config['uploads']['max_bytes'] ?? Storage::DEFAULT_MAX_BYTES),
                 $config['uploads']['ext'] ?? null,
             ));
         }
@@ -87,7 +87,13 @@ final class App
         // D3: reset tokens travel in the URL; never persist them in the audit log.
         // Token length comes from Auth so the redaction cannot drift from token generation.
         $auditPath = preg_replace('#^(/auth/reset/)[0-9a-f]{' . Auth::RESET_TOKEN_HEX . '}$#', '$1<redacted>', $request->path);
-        $this->requestLog?->log($request, $response->status, $active->peek('user_id'), (hrtime(true) - $start) / 1e6, $auditPath);
+        // The session store is app-authored and may hold a numeric string where
+        // the framework declares int; coerce it here (the deliberate boundary).
+        // A non-numeric value is audited as a guest; sessionValid() still
+        // fail-closes on bad data.
+        $sessionUserId = $active->peek('user_id');
+        $auditUserId = is_numeric($sessionUserId) ? (int) $sessionUserId : null;
+        $this->requestLog?->log($request, $response->status, $auditUserId, (hrtime(true) - $start) / 1e6, $auditPath);
         return $response;
     }
 

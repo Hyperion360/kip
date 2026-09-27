@@ -21,6 +21,20 @@ final class RouterTest extends TestCase
         $this->assertSame('show:42', $m->invoke(new Container()));
     }
 
+    /**
+     * Path segments are always strings, so an app action declaring int relies on
+     * coercion at the call site in RouteMatch::invoke(). That file must NOT
+     * declare strict_types, or every app route with an int parameter throws a
+     * TypeError. Verified: the strict call raises
+     * "Argument #2 ($position) must be of type int, string given".
+     */
+    public function test_int_route_parameter_still_coerces_from_a_path_segment(): void
+    {
+        $m = $this->router()->match(new Request('GET', '/posts/rank/my-story/3', [], [], []));
+        $this->assertNotNull($m);
+        $this->assertSame('rank:my-story:3', $m->invoke(new Container()));
+    }
+
     public function test_root_maps_to_home_index(): void
     {
         // '/' → HomeController::index, the root page's only spelling; '/home' 404s below
