@@ -39,8 +39,7 @@ final class Request
         // string by hand; the router's whitelist judges the rest.
         $uri = $server['REQUEST_URI'] ?? '/';
         $q = strpos($uri, '?');
-        $path = $q === false ? $uri : substr($uri, 0, $q);
-        $path = $path === '' ? '/' : $path;
+        $path = $q === false ? $uri : substr($uri, 0, $q); // '' normalizes in the constructor below
         $ip = $server['REMOTE_ADDR'] ?? '';
         if ($trustedProxy && isset($server['HTTP_X_FORWARDED_FOR'])) {
             // One trusted hop: the proxy APPENDS the true client IP, so the LAST element
