@@ -13,14 +13,21 @@ final class Router
 
     public function match(Request $request): ?RouteMatch
     {
-        // Lowercase-only (no i-flag), no consecutive slashes: /POSTS/SHOW/1 and /posts//show/1
-        // are both 404, one canonical URL per page (reviews 9A, D15)
+        // Lowercase-only (no i-flag), no consecutive slashes, no trailing slash:
+        // /POSTS/SHOW/1, /posts//show/1 and /posts/1/ are all 404, one canonical
+        // URL per page (reviews 9A, D15). Request stores the path as given, so a
+        // trailing slash reaches this whitelist instead of being trimmed away.
         if (!preg_match('#^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?$#', $request->path)) return null; // whitelist, threat model
         // Filter empty strings ONLY. A bare array_filter would eat the legal segment "0" (review D15)
         $parts = array_values(array_filter(explode('/', $request->path), static fn(string $p): bool => $p !== ''));
         $name   = $parts[0] ?? 'home';
         $action = $parts[1] ?? 'index';
         $args   = array_slice($parts, 2);
+        // One canonical URL per page: '/' is the home controller's only spelling
+        // (not '/home'), and an index action is reached at the bare controller
+        // path (not '/posts/index'). Both aliases 404 (fuzz + qa 2026-09-26).
+        if ($parts === ['home']) return null;
+        if (isset($parts[1]) && $parts[1] === 'index') return null;
         // A separator only joins words: /posts-, /_posts and /po--sts would otherwise all
         // studly-case to PostsController, giving one page several URLs.
         if (!preg_match('/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/', $name)) return null;

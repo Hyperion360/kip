@@ -104,9 +104,9 @@ final class CacheFlowTest extends TestCase
             'views' => dirname(__DIR__) . '/Fixtures/views',
         ]);
         // fixture route that sets a cookie header on a guest-cacheable GET
-        $res1 = $app->handle(new Request('GET', '/cookiepage/index', [], [], []));
+        $res1 = $app->handle(new Request('GET', '/cookiepage', [], [], []));
         $this->assertSame('MISS', $res1->headers['X-Kip-Cache']);
-        $res2 = $app->handle(new Request('GET', '/cookiepage/index', [], [], []));
+        $res2 = $app->handle(new Request('GET', '/cookiepage', [], [], []));
         $this->assertSame('MISS', $res2->headers['X-Kip-Cache']); // never stored, never HIT
     }
 }

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Behavior change: non-canonical URL spellings now 404 instead of serving
+  the page.** A trailing slash (`/posts/`, `/posts/show/1/`) was silently
+  trimmed, `/home` served the root page's controller, `/posts/index` served
+  `/posts`, and `//browse` served the home page (a `parse_url` quirk that
+  read the path as a host). Each is now a plain 404, matching how uppercase
+  and double-slash paths already behaved: one canonical URL per page. Link
+  to the home page as `/` and to index actions at the bare controller path.
+  Redirecting instead was considered and rejected: a 301 on a POST turns the
+  redirect into a GET in old clients, and the router's design is strict
+  canonicalization, not repair.
 - Cached pages no longer fossilize the framework's default response headers.
   `PageCache::put()` stored the full header array, defaults included, and a
   cache HIT replayed the stored values over the current ones, so a tightened

@@ -11,3 +11,8 @@ class PostsController
     #[Auth]
     public function edit(string $id): string { return "edit:$id"; }
 }
+
+final class HomeController
+{
+    public function index(): string { return 'home'; }
+}

@@ -22,15 +22,23 @@ final class Request
         public readonly array $headers = [],
         public readonly array $files = [],
     ) {
-        $p = rtrim($path, '/');
-        $this->path = $p === '' ? '/' : $p;
+        // Stored as given: a trailing slash must reach the router and 404 there,
+        // not be silently aliased onto the canonical URL. Only the empty path
+        // normalizes to '/'.
+        $this->path = $path === '' ? '/' : $path;
     }
 
     /** @param array<array-key, mixed>|null $server */
     public static function fromGlobals(?array $server = null, bool $trustedProxy = false): self
     {
         $server ??= $_SERVER;
-        $path = parse_url($server['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+        // Not parse_url(): it reads '//x' as a protocol-relative host and returns
+        // no path, which served the home page for '//browse'. Strip the query
+        // string by hand; the router's whitelist judges the rest.
+        $uri = $server['REQUEST_URI'] ?? '/';
+        $q = strpos($uri, '?');
+        $path = $q === false ? $uri : substr($uri, 0, $q);
+        $path = $path === '' ? '/' : $path;
         $ip = $server['REMOTE_ADDR'] ?? '';
         if ($trustedProxy && isset($server['HTTP_X_FORWARDED_FOR'])) {
             // One trusted hop: the proxy APPENDS the true client IP, so the LAST element

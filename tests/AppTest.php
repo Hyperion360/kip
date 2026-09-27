@@ -10,7 +10,8 @@ class BoomController { public function index(): string { throw new \RuntimeExcep
 class EchoController // proves the controller sees the CURRENT request's scope (review 1A)
 {
     public function __construct(private \Kip\Http\Request $request) {}
-    public function index(string $arg = ''): string { return $this->request->path; }
+    public function index(): string { return $this->request->path; }
+    public function again(string $arg = ''): string { return $this->request->path; } // /echo/index/<arg> is not a canonical spelling
 }
 class FormController { #[\Kip\Routing\Post] public function save(): string { return 'saved'; } }
 class SecretController { #[\Kip\Routing\Auth] public function index(): string { return 'top secret'; } }
@@ -31,7 +32,7 @@ final class AppTest extends TestCase
 
     public function test_dispatches_and_wraps_string_in_200_response(): void
     {
-        $res = $this->app('prod')->handle(new Request('GET', '/home/index', [], [], []));
+        $res = $this->app('prod')->handle(new Request('GET', '/', [], [], []));
         $this->assertSame(200, $res->status);
         $this->assertSame('welcome', $res->body);
     }
@@ -44,7 +45,7 @@ final class AppTest extends TestCase
             'views' => sys_get_temp_dir(),
             'db' => ['dsn' => 'sqlite::memory:', 'user' => 'someuser', 'pass' => 'somepass'],
         ]);
-        $res = $app->handle(new Request('GET', '/home/index', [], [], []));
+        $res = $app->handle(new Request('GET', '/', [], [], []));
         $this->assertSame(200, $res->status); // booted and served with credentials forwarded (sqlite ignores them)
     }
 
@@ -56,7 +57,7 @@ final class AppTest extends TestCase
 
     public function test_prod_error_hides_trace(): void // threat model D4: traces must never reach the browser
     {
-        $res = $this->app('prod')->handle(new Request('GET', '/boom/index', [], [], []));
+        $res = $this->app('prod')->handle(new Request('GET', '/boom', [], [], []));
         $this->assertSame(500, $res->status);
         $this->assertStringNotContainsString('secret detail', $res->body);
         $this->assertStringNotContainsString(__FILE__, $res->body);
@@ -64,7 +65,7 @@ final class AppTest extends TestCase
 
     public function test_dev_error_shows_exception_and_file(): void // Play 1 error pages, D4
     {
-        $res = $this->app('dev')->handle(new Request('GET', '/boom/index', [], [], []));
+        $res = $this->app('dev')->handle(new Request('GET', '/boom', [], [], []));
         $this->assertSame(500, $res->status);
         $this->assertStringContainsString('secret detail', $res->body);
         $this->assertStringContainsString('AppTest.php', $res->body);
@@ -73,10 +74,10 @@ final class AppTest extends TestCase
     public function test_sequential_requests_do_not_share_request_state(): void // review 1A: worker-safety regression guard
     {
         $app = $this->app('prod');
-        $first  = $app->handle(new Request('GET', '/echo/index', [], [], []));
-        $second = $app->handle(new Request('GET', '/echo/index/other', [], [], []));
-        $this->assertSame('/echo/index', $first->body);
-        $this->assertSame('/echo/index/other', $second->body); // stale scope would repeat the first path
+        $first  = $app->handle(new Request('GET', '/echo', [], [], []));
+        $second = $app->handle(new Request('GET', '/echo/again/other', [], [], []));
+        $this->assertSame('/echo', $first->body);
+        $this->assertSame('/echo/again/other', $second->body); // stale scope would repeat the first path
     }
 
     public function test_verb_mismatch_returns_405_with_allow_header(): void // review 9A
@@ -124,7 +125,7 @@ final class AppTest extends TestCase
 
     public function test_auth_attribute_blocks_guest(): void // threat model: forced browsing
     {
-        $res = $this->app('prod')->handle(new Request('GET', '/secret/index', [], [], []));
+        $res = $this->app('prod')->handle(new Request('GET', '/secret', [], [], []));
         $this->assertSame(302, $res->status);
         $this->assertSame('/auth/login', $res->headers['Location']);
     }
@@ -140,15 +141,15 @@ final class AppTest extends TestCase
     public function test_every_request_is_audited(): void // review D13-A
     {
         $app = $this->app('prod');
-        $app->handle(new Request('GET', '/home/index', [], [], [], '1.1.1.1'));
+        $app->handle(new Request('GET', '/', [], [], [], '1.1.1.1'));
         $rows = $app->container->make(\Kip\RequestLog::class)->recent(1);
-        $this->assertSame('/home/index', $rows[0]['path']);
+        $this->assertSame('/', $rows[0]['path']);
         $this->assertSame('1.1.1.1', $rows[0]['ip']);
     }
 
     public function test_head_returns_headers_and_status_with_empty_body(): void // v0.1.1 T1
     {
-        $res = $this->app('prod')->handle(new Request('HEAD', '/home/index', [], [], []));
+        $res = $this->app('prod')->handle(new Request('HEAD', '/', [], [], []));
         $this->assertSame(200, $res->status);
         $this->assertSame('', $res->body); // GET body suppressed for HEAD
     }
