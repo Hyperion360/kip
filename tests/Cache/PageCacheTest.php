@@ -173,4 +173,19 @@ final class PageCacheTest extends TestCase
         $this->assertSame('b', $hit->body);
     }
 
+    public function test_noindex_guard_matches_name_and_directive_case_insensitively(): void
+    {
+        // RFC 9110 field names are case-insensitive and apps spell headers
+        // freely ('x-robots-tag' is common lowercase); the directive itself is
+        // case-insensitive too. A guard keyed to one spelling would cache a page
+        // the app meant to keep out of search indexes.
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db);
+        $cache->put('/lower-name', '', (new Response('x'))->withHeader('x-robots-tag', 'noindex'), []);
+        $cache->put('/upper-value', '', (new Response('x'))->withHeader('X-Robots-Tag', 'NOINDEX'), []);
+        $this->assertNull($cache->get('/lower-name', ''));
+        $this->assertNull($cache->get('/upper-value', ''));
+        $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM pages')['c'], 'neither refusal wrote a row');
+    }
+
 }
