@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The docs fidelity check validates every digit file-count claim in the doc
+  set ("<N> files", "N-file"), not only the one in `docs/guide/README.md`;
+  the versioning page's core-size claim was wrong once (it said 19 when
+  src/ held 31) and nothing caught it. Both live claims are defined to mean
+  the same thing, every PHP file under `src/`. Incidental digit mentions
+  that are not src/ claims (one exists, a static-analysis example in the
+  testing chapter) sit in a written exceptions ledger whose entries fail as
+  stale once the sentence they excuse changes. Word-number claims
+  ("thirty-five files") are still checked in the guide README only, where
+  prose cannot trip them.
 - `bin/kip` reports failures instead of printing a stack trace. The CLI was
   autoload, config, then a bare `match`, so a framework exception (a failed
   database open on `kip migrate`, the new unreadable-migrations-directory

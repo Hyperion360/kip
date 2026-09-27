@@ -11,8 +11,13 @@
 // Checks:
 //   1. Link integrity. Relative markdown links in the doc set resolve to
 //                              existing files (fenced code blocks are ignored).
-//   2. Src file count claim, the "<Word> files" claim in docs/guide/README.md
-//                              matches the actual recursive *.php count under src/.
+//   2. Src file count claims, every digit "<N> files" / "N-file" claim in the
+//                              doc set, plus the word-number claim in
+//                              docs/guide/README.md, matches the actual
+//                              recursive *.php count under src/. Incidental
+//                              digit mentions that are not src/ claims sit in
+//                              the COUNT_CLAIM_EXCEPTIONS ledger, whose entries
+//                              fail once the sentence they excuse is gone.
 //   3. Referenced src paths, every literal `src/.../*.php` mention in the doc
 //                              set points to an existing file.
 //   4. CLI chapter commands, every `bin/kip <command>` invocation in
@@ -170,34 +175,74 @@ const WORD_NUMBERS = [
 ];
 
 /**
+ * Digit "<N> files" / "N-file" mentions that are NOT src/ count claims, one
+ * entry per (file, number) with the reason. An entry fails as stale once its
+ * number no longer appears in the file, so the ledger cannot outlive the
+ * sentence it excuses.
+ */
+const COUNT_CLAIM_EXCEPTIONS = [
+    'docs/guide/11-testing.md' => [
+        4 => 'a static-analysis example about the blog app, not an src/ count claim',
+    ],
+];
+
+/**
+ * @param list<string> $mdFiles
  * @return array{0: bool, 1: list<string>, 2: string}
  */
-function checkSrcFileCount(string $repoRoot): array
+function checkSrcFileCount(string $repoRoot, array $mdFiles): array
 {
+    $actual = countPhpFiles($repoRoot . '/src');
+    $details = [];
+    $claimNotes = [];
+    $seenExceptions = [];
+
+    // Digit pass over every doc file: fenced code is stripped and whitespace
+    // collapsed, so a claim wrapped across lines still matches. Both claim
+    // shapes mean the same thing here: every PHP file under src/.
+    foreach ($mdFiles as $file) {
+        $relPath = rel($repoRoot, $file);
+        $lines = stripFencedCode(explode("\n", (string) file_get_contents($file)));
+        $text = preg_replace('/\s+/', ' ', implode("\n", $lines)) ?? '';
+        // The hyphen form matches only the singular ("35-file core") by design:
+        // that is the idiom, and a hyphenated plural ("35-files") is not
+        // English, so leaving that shape unmatching is accepted.
+        preg_match_all('/\b(\d+)(?:\s+files|-file)\b/', $text, $m, PREG_SET_ORDER);
+        foreach ($m as $match) {
+            $claimed = (int) $match[1];
+            $excused = isset(COUNT_CLAIM_EXCEPTIONS[$relPath][$claimed]);
+            if ($excused) {
+                $seenExceptions[$relPath][$claimed] = true;
+            } elseif ($claimed !== $actual) {
+                $details[] = sprintf(
+                    '%s claims "%s" but src/ contains %d PHP file(s)',
+                    $relPath,
+                    $match[0],
+                    $actual
+                );
+            }
+            $claimNotes[] = sprintf('%s "%s"%s', $relPath, $match[0], $excused ? ' (exception)' : '');
+        }
+    }
+
+    // Word-number pass, unchanged in behavior: only the guide README, whose
+    // prose owns the word-number form ("thirty-five files") the digit pass
+    // does not cover.
     $docRel = 'docs/guide/README.md';
     $doc = $repoRoot . '/' . $docRel;
     if (!is_file($doc)) {
         return [false, ["{$docRel} not found, cannot verify the src/ file-count claim"], ''];
     }
-
-    $actual = countPhpFiles($repoRoot . '/src');
-
-    // Collapse whitespace so a "<Word> files" claim wrapped across lines still matches.
-    // Digit claims ("31 files") are accepted alongside word numbers so the check
-    // stays usable past the word-number table's ceiling.
     $text = preg_replace('/\s+/', ' ', (string) file_get_contents($doc)) ?? '';
     $wordAlt = implode('|', array_keys(WORD_NUMBERS));
     preg_match_all('/\b(' . $wordAlt . '|\d+)\s+files\b/i', $text, $m, PREG_SET_ORDER);
-
     if ($m === []) {
-        return [
-            false,
-            [sprintf('%s contains no "<N> files" claim to compare against src/ (found %d PHP files)', $docRel, $actual)],
-            sprintf('src/ contains %d PHP file(s)', $actual),
-        ];
+        $details[] = sprintf(
+            '%s contains no "<N> files" claim to compare against src/ (found %d PHP files)',
+            $docRel,
+            $actual
+        );
     }
-
-    $details = [];
     foreach ($m as $match) {
         $claimed = ctype_digit($match[1]) ? (int) $match[1] : WORD_NUMBERS[strtolower($match[1])];
         if ($claimed !== $actual) {
@@ -208,9 +253,32 @@ function checkSrcFileCount(string $repoRoot): array
                 $actual
             );
         }
+        if (!ctype_digit($match[1])) {
+            $claimNotes[] = sprintf('%s "%s files"', $docRel, $match[1]); // digit forms are already noted above
+        }
     }
 
-    return [ $details === [], $details, sprintf('src/ contains %d PHP file(s); claim(s) found: %s', $actual, implode(', ', array_column($m, 1))) ];
+    // A ledger entry whose number no longer appears in its file is stale: the
+    // exception cannot outlive the sentence it excuses.
+    foreach (COUNT_CLAIM_EXCEPTIONS as $excFile => $numbers) {
+        foreach (array_keys($numbers) as $n) {
+            if (!isset($seenExceptions[$excFile][(int) $n])) {
+                $details[] = sprintf(
+                    'exception for %s number %d no longer matches any claim; update or remove it',
+                    $excFile,
+                    $n
+                );
+            }
+        }
+    }
+
+    $stat = sprintf(
+        'src/ contains %d PHP file(s); claim(s): %s; exception(s) applied: %d',
+        $actual,
+        $claimNotes === [] ? 'none' : implode(', ', $claimNotes),
+        count($seenExceptions) === 0 ? 0 : array_sum(array_map('count', $seenExceptions))
+    );
+    return [ $details === [], $details, $stat ];
 }
 
 /* ------------------------------------------ check 3: referenced src/ paths exist */
@@ -345,7 +413,7 @@ if ($mdFiles === []) {
 
 $checks = [
     'Link integrity'              => checkLinkIntegrity($repoRoot, $mdFiles),
-    'Src file count claim'        => checkSrcFileCount($repoRoot),
+    'Src file count claim'        => checkSrcFileCount($repoRoot, $mdFiles),
     'Referenced src/ paths exist' => checkReferencedSrcPaths($repoRoot, $mdFiles),
     'CLI chapter commands'        => checkCliChapter($repoRoot, kipCommands($repoRoot)),
 ];
