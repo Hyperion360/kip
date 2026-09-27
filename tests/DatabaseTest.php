@@ -68,4 +68,38 @@ final class DatabaseTest extends TestCase
         $this->assertIsString($id);
         $this->assertSame('1', $id);
     }
+
+    public function test_nested_begin_opens_a_savepoint_instead_of_throwing(): void
+    {
+        $this->db->begin();
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['outer']);
+        $this->db->begin();
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['inner']);
+        $this->db->commit(); // releases the savepoint
+        $this->db->commit(); // commits the outer transaction
+        $this->assertSame(2, (int) $this->db->one('SELECT COUNT(*) c FROM t')['c']);
+    }
+
+    public function test_inner_rollback_undoes_only_the_inner_work(): void
+    {
+        $this->db->begin();
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['outer']);
+        $this->db->begin();
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['inner']);
+        $this->db->rollBack(); // back to the savepoint, outer work intact
+        $this->db->commit();
+        $this->assertSame([['name' => 'outer']], $this->db->all('SELECT name FROM t'));
+    }
+
+    public function test_savepoint_statements_do_not_fire_the_on_query_tap(): void
+    {
+        $seen = [];
+        $this->db->onQuery(function (string $sql) use (&$seen): void { $seen[] = $sql; });
+        $this->db->begin();
+        $this->db->begin();
+        $this->db->commit();
+        $this->db->commit();
+        $this->db->onQuery(static fn () => null);
+        $this->assertSame([], $seen, 'SAVEPOINT plumbing is not table traffic');
+    }
 }

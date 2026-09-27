@@ -10,6 +10,9 @@ $db->query(string $sql, array $params = []): \PDOStatement;   // any statement
 $db->all(string $sql, array $params = []): array;              // fetchAll(), assoc rows
 $db->one(string $sql, array $params = []): ?array;              // first row, or null
 $db->lastInsertId(): string;
+$db->begin(): void;                                             // transaction, or SAVEPOINT if one is open
+$db->commit(): void;
+$db->rollBack(): void;
 ```
 
 ```php
@@ -28,6 +31,14 @@ placeholders; PDO handles quoting.
 fetch mode to `PDO::FETCH_ASSOC`. A failed query throws `PDOException`
 rather than returning `false` silently, and every row comes back as an
 associative array (`$row['title']`, not `$row[0]`).
+
+Transactions nest via savepoints. A `$db->begin()` inside an already-open
+transaction opens a SAVEPOINT instead of failing; the matching `commit()`
+releases it, and `rollBack()` inside a nest undoes only that level's work.
+Framework internals that need atomicity (password resets, the page cache
+write, migrations) call `begin()` themselves, so they run safely inside
+your app's transaction instead of throwing "There is already an active
+transaction".
 
 ## SQLite by default, MySQL/Postgres if you want them
 

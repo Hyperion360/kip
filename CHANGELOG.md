@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `Database` transactions nest. A `begin()` inside an already-open
+  transaction opens a SAVEPOINT instead of throwing "There is already
+  an active transaction"; the matching `commit()` releases it and `rollBack()`
+  undoes only that level's work. `Auth::createReset()` and
+  `Auth::resetPassword()` therefore work inside a caller's transaction (both
+  used to fail there), and the same is now true for the page cache's write
+  transaction and every migration. Unmatched `rollBack()` is still a no-op
+  and an unmatched `commit()` still errors, as before. The savepoint
+  statements do not fire the `onQuery` tap, so query-budget tests and cache
+  tagging see no new statements.
 - **Behavior change: non-canonical URL spellings now 404 instead of serving
   the page.** A trailing slash (`/posts/`, `/posts/show/1/`) was silently
   trimmed, `/home` served the root page's controller, `/posts/index` served
