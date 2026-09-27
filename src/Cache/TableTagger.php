@@ -1,4 +1,6 @@
 <?php
+
+declare(strict_types=1);
 namespace Kip\Cache;
 
 use Kip\Migrations\Migrator;

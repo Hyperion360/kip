@@ -1,4 +1,6 @@
 <?php // src/Routing/Router.php
+
+declare(strict_types=1);
 namespace Kip\Routing;
 
 use Kip\Http\Request;

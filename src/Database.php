@@ -1,4 +1,6 @@
 <?php // src/Database.php
+
+declare(strict_types=1);
 namespace Kip;
 
 final class Database

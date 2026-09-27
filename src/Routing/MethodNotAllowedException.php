@@ -1,4 +1,6 @@
 <?php // src/Routing/MethodNotAllowedException.php  (review 9A: verb mismatch is 405, message = allowed verbs)
+
+declare(strict_types=1);
 namespace Kip\Routing;
 
 final class MethodNotAllowedException extends \RuntimeException

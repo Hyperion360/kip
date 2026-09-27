@@ -1,4 +1,6 @@
 <?php // src/Http/Request.php
+
+declare(strict_types=1);
 namespace Kip\Http;
 
 final class Request

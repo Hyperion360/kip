@@ -1,4 +1,6 @@
 <?php // src/Http/Response.php
+
+declare(strict_types=1);
 namespace Kip\Http;
 
 final class Response

@@ -1,4 +1,6 @@
 <?php // src/Storage.php
+
+declare(strict_types=1);
 namespace Kip;
 
 /**

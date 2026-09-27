@@ -1,4 +1,6 @@
 <?php // src/Testing/TestClient.php
+
+declare(strict_types=1);
 namespace Kip\Testing;
 
 use Kip\App;
