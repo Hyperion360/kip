@@ -61,7 +61,7 @@ final class Router
         $allowed = self::verbsIn($declarers, $action) ?: ['GET'];
         if (!in_array($requestMethod, $allowed, true)) {
             // The route exists but the verb is wrong. That's a 405, not a 404 (review 9A)
-            throw new MethodNotAllowedException(implode(', ', $allowed));
+            throw new MethodNotAllowedException(implode(', ', $allowed), $requiresAuth);
         }
 
         return new RouteMatch($class, $action, $args, $requiresAuth);

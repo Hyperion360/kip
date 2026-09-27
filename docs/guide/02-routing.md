@@ -65,7 +65,9 @@ If the route exists (controller + action + arg count all resolve) but the
 verb doesn't match any attribute on the method, that's a **405 Method Not
 Allowed** with an `Allow` header listing the verbs that would work, not a
 404. A route that doesn't exist at all (no such controller, no such
-method, or wrong argument count) is a 404.
+method, or wrong argument count) is a 404. On an `#[Auth]` route, a guest
+with the wrong verb gets the login redirect instead of the 405, so the
+response does not confirm to a guest that the route exists.
 
 Verbs follow the class hierarchy. An override in a subclass, or a method
 implementing an interface signature or replacing a trait method, keeps the

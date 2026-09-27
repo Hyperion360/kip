@@ -115,6 +115,11 @@
   local probe). New `cache_db.max_pages` (default 10000) evicts the oldest
   pages once the table is full, and an index on `created_at` serves both
   that eviction and the TTL prune.
+- A guest sending the wrong verb to an `#[Auth]` route gets the login
+  redirect, not a 405. The 405 and its `Allow` header confirmed to a guest
+  that the route existed and which verb it takes. Logged-in users still
+  get the 405. `MethodNotAllowedException` gains a `requiresAuth` property
+  (constructor default `false`, so existing code keeps working).
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a

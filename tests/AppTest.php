@@ -180,6 +180,22 @@ final class AppTest extends TestCase
         $this->assertSame(200, $res->status);
     }
 
+    public function test_guest_wrong_verb_on_a_gated_route_redirects_rather_than_405(): void // pentest: 405 confirmed the route to guests
+    {
+        $res = $this->app('prod')->handle(new Request('GET', '/secret-form/save', [], [], []));
+        $this->assertSame(302, $res->status);
+        $this->assertSame('/auth/login', $res->headers['Location']);
+    }
+
+    public function test_logged_in_wrong_verb_on_a_gated_route_is_405(): void
+    {
+        $app = $this->app('prod');
+        $app->session->set('user_id', 1);
+        $res = $app->handle(new Request('GET', '/secret-form/save', [], [], []));
+        $this->assertSame(405, $res->status);
+        $this->assertSame('POST', $res->headers['Allow']);
+    }
+
     public function test_authed_route_still_requires_token(): void // origin proof must NOT unlock #[Auth] routes
     {
         $app = $this->app('prod');

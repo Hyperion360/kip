@@ -219,6 +219,8 @@ final class App
             $result = $match->invoke($scope);
             return $result instanceof Response ? $result : new Response((string) $result);
         } catch (\Kip\Routing\MethodNotAllowedException $e) {
+            // A guest learns nothing about a gated route: the same redirect a right-verb request gets.
+            if ($e->requiresAuth && !$this->authSessionValid($active)) return Response::redirect('/auth/login');
             return (new Response('Method not allowed', 405))->withHeader('Allow', $e->getMessage()); // review 9A
         } catch (\Throwable $e) {
             return $this->errorResponse($e);
