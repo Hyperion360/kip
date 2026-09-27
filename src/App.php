@@ -128,7 +128,9 @@ final class App
             try {
                 $task();
             } catch (\Throwable $e) {
-                error_log('Deferred task failed: ' . $e); // with the trace: nothing else will report it
+                // Where it failed, not the full trace: trace arguments would copy a mail
+                // recipient or message into the log.
+                error_log(sprintf('Deferred task failed: %s: %s at %s:%d', $e::class, $e->getMessage(), $e->getFile(), $e->getLine()));
             }
         }
     }

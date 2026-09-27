@@ -200,9 +200,16 @@ final class AppTest extends TestCase
     {
         $app = $this->app('prod');
         $ran = [];
-        $app->defer(static function (): void { throw new \RuntimeException('boom'); });
+        $send = static function (string $to): void { throw new \RuntimeException('boom'); };
+        $app->defer(static function () use ($send): void { $send('secret@example.com'); });
         $app->defer(static function () use (&$ran): void { $ran[] = 'second'; });
-        $app->runDeferred();
+        $log = tempnam(sys_get_temp_dir(), 'kip-log-');
+        $previous = ini_set('error_log', $log);
+        try { $app->runDeferred(); } finally { ini_set('error_log', (string) $previous); }
+        $logged = (string) file_get_contents($log);
+        unlink($log);
+        $this->assertStringContainsString('Deferred task failed: RuntimeException: boom at ', $logged);
+        $this->assertStringNotContainsString('secret@', $logged, 'no trace arguments in the log');
         $this->assertSame(['second'], $ran, 'a throwing task must not stop the ones queued after it');
         $app->runDeferred();
         $this->assertSame(['second'], $ran, 'the queue is cleared once run');
