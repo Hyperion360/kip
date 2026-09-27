@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The page cache refuses to store a response carrying
+  `X-Robots-Tag: noindex` (comma lists such as `noindex, nofollow`
+  included). Pages that opt out of indexing are exactly the junk-URL shapes
+  that would otherwise each consume a TTL-bounded cache row; the refusal
+  mirrors the file-cache layer in apps built on the skeleton. Other robots
+  directives (such as `noarchive`) still cache.
 - `Database` transactions nest. A `begin()` inside an already-open
   transaction opens a SAVEPOINT instead of throwing "There is already
   an active transaction"; the matching `commit()` releases it and `rollBack()`

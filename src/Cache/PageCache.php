@@ -55,6 +55,13 @@ final class PageCache
     public function put(string $path, string $query, Response $response, array $tables): void
     {
         if ($response->status !== 200) return;
+        foreach ($response->headers as $n => $v) {
+            // A noindexed page (an empty listing, say) must not consume cache rows:
+            // junk URLs would otherwise each write one TTL-bounded row. The header
+            // name is matched case-insensitively; the value only has to contain
+            // the directive (comma lists included).
+            if (strcasecmp($n, 'X-Robots-Tag') === 0 && stripos($v, 'noindex') !== false) return;
+        }
         $this->db->begin(); // one transaction: a write plus its prune is one sync, not one per statement
         try {
             $this->store($path, $query, $response, $tables);

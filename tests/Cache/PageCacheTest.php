@@ -151,4 +151,16 @@ final class PageCacheTest extends TestCase
         $hit = $this->cache->get('/x', '');
         $this->assertSame('DENY', $hit->headers['X-Frame-Options']);
     }
+
+    public function test_noindexed_responses_are_refused(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db);
+        $cache->put('/empty-listing', '', (new Response('x'))->withHeader('X-Robots-Tag', 'noindex, nofollow'), []);
+        $this->assertNull($cache->get('/empty-listing', ''));
+        $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM pages')['c'], 'no row was written at all');
+        // Other robots directives still cache; the refusal targets noindex.
+        $cache->put('/fine', '', (new Response('y'))->withHeader('X-Robots-Tag', 'noarchive'), []);
+        $this->assertNotNull($cache->get('/fine', ''));
+    }
 }
