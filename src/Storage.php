@@ -17,7 +17,11 @@ final class Storage
     private const DEFAULT_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'txt', 'csv'];
     private const MIME = [
         'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif',
-        'webp' => 'image/webp', 'pdf' => 'application/pdf', 'txt' => 'text/plain', 'csv' => 'text/csv',
+        'webp' => 'image/webp', 'pdf' => 'application/pdf', 'txt' => 'text/plain',
+        // libmagic's CSV rule is build-dependent (the same two-line CSV reports as
+        // text/csv on one PHP build, text/plain on another), so csv accepts the
+        // plain-text verdict too. Binary formats keep the strict single-MIME check.
+        'csv' => ['text/csv', 'text/plain'],
     ];
 
     /** @var callable(string,string):bool */
@@ -65,7 +69,7 @@ final class Storage
             throw new UploadException("No content check is defined for .{$ext}, only " . implode(', ', array_keys(self::MIME)) . ' can be stored');
         }
         $mime = (new \finfo(FILEINFO_MIME_TYPE))->file((string) $file['tmp_name']);
-        if ($mime !== self::MIME[$ext]) {
+        if (!in_array($mime, (array) self::MIME[$ext], true)) {
             throw new UploadException("File content does not match .{$ext}");
         }
         if (!is_dir($this->dir) && !mkdir($this->dir, 0755, true) && !is_dir($this->dir)) {
