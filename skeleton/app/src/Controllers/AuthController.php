@@ -56,16 +56,11 @@ final class AuthController
         if ($token !== null) {
             $url = rtrim((string) $this->app->config('base_url', 'http://localhost:8080'), '/') . "/auth/reset/{$token}";
             // Sent after the response: only existing accounts get mail, so sending here
-            // would make a known email answer slower. A failure is logged, never shown.
-            $this->app->defer(function () use ($email, $url): void {
-                try {
-                    $this->mailer->send($email, 'Reset your password',
-                        "Someone (hopefully you) asked to reset the password for this address.\n\n"
-                        . "Reset link (valid 30 minutes):\n{$url}\n\nIf this wasn't you, ignore this email.");
-                } catch (\Throwable $e) {
-                    error_log("Password-reset mail failed for a known address: {$e->getMessage()}");
-                }
-            });
+            // would make a known email answer slower. runDeferred() logs a failed send;
+            // the visitor never sees it.
+            $this->app->defer(fn () => $this->mailer->send($email, 'Reset your password',
+                "Someone (hopefully you) asked to reset the password for this address.\n\n"
+                . "Reset link (valid 30 minutes):\n{$url}\n\nIf this wasn't you, ignore this email."));
         }
         // Same page whether the account exists or not, no enumeration.
         return $this->view->render('auth/forgot', ['title' => 'Reset password', 'sent' => true]);
