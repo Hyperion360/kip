@@ -71,6 +71,15 @@ final class AppTest extends TestCase
         $this->assertStringContainsString('AppTest.php', $res->body);
     }
 
+    public function test_dev_error_is_a_self_contained_document_with_request_context(): void
+    {
+        $res = $this->app('dev')->handle(new Request('GET', '/boom', [], [], []));
+        $this->assertSame(500, $res->status);
+        $this->assertStringStartsWith('<!DOCTYPE html>', $res->body);
+        $this->assertStringContainsString('<style>', $res->body);
+        $this->assertStringContainsString('GET /boom', $res->body); // what triggered it
+    }
+
     public function test_sequential_requests_do_not_share_request_state(): void // review 1A: worker-safety regression guard
     {
         $app = $this->app('prod');
