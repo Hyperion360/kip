@@ -67,12 +67,12 @@ suspenders, not the primary mechanism.
 
 **Known limitation, in the framework's own words:**
 
-> **Known limitation: cache flooding.** Every distinct query string creates
-> its own cache row (that's what makes `?page=2` cacheable), so an attacker
-> can inflate `cache.sqlite` with junk-query requests. Entries expire with
-> the TTL and are pruned opportunistically, bounding growth to
-> request-rate × `ttl_seconds`. A query-string length cap or total-row cap
-> is planned as a follow-up.
+> **Cache flooding is capped.** Every distinct query string creates its own
+> cache row (that's what makes `?page=2` cacheable), so junk-query requests
+> add rows. Entries expire with the TTL, and `cache_db.max_pages` (default
+> 10000) caps the table: once it is full, each new page evicts the oldest.
+> A flood can push real pages out of the cache, costing re-renders, but it
+> cannot grow `cache.sqlite` past the cap.
 
 ## ETag / conditional GET
 

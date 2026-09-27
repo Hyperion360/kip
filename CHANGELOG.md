@@ -109,6 +109,12 @@
   send. Apps built from the skeleton should copy both the `remind()`
   change and the three lines added to `public/index.php`. `TestClient`
   runs deferred work after each request, as production does.
+- The page cache caps its row count. Every distinct query string got its
+  own row with no limit, so requests like `/posts?junk=N` grew
+  `cache.sqlite` until the TTL pruned them (60 requests added 60 rows in a
+  local probe). New `cache_db.max_pages` (default 10000) evicts the oldest
+  pages once the table is full, and an index on `created_at` serves both
+  that eviction and the TTL prune.
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a

@@ -48,6 +48,20 @@ final class PageCacheTest extends TestCase
         $this->assertNull($short->get('/x', '')); // TTL 0 → immediately stale
     }
 
+    public function test_row_cap_evicts_the_oldest_pages_and_their_tags(): void // pentest: junk query strings filled the cache
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db, ttlSeconds: 3600, maxPages: 3);
+        foreach (range(1, 5) as $n) {
+            $cache->put('/posts', "junk={$n}", new Response("p{$n}"), ['posts']);
+        }
+        $this->assertSame(3, (int) $db->one('SELECT COUNT(*) c FROM pages')['c']);
+        $this->assertSame(3, (int) $db->one('SELECT COUNT(*) c FROM page_tags')['c']);
+        $this->assertNull($cache->get('/posts', 'junk=1'), 'the oldest went first');
+        $this->assertNull($cache->get('/posts', 'junk=2'));
+        $this->assertNotNull($cache->get('/posts', 'junk=5'), 'the newest stays');
+    }
+
     public function test_only_status_200_is_stored(): void
     {
         $this->cache->put('/gone', '', new Response('nope', 404), []);

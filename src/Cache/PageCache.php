@@ -7,7 +7,10 @@ use Kip\Http\Response;
 /** Full-page cache for anonymous GETs: SQLite store + table-tag purge (CDN Surrogate-Key model, v0.2). */
 final class PageCache
 {
-    public function __construct(private Database $db, private int $ttlSeconds = 3600)
+    public const DEFAULT_MAX_PAGES = 10000;
+
+    /** @param int $maxPages row cap: every distinct query string is its own row, so without one junk queries fill the disk */
+    public function __construct(private Database $db, private int $ttlSeconds = 3600, private int $maxPages = self::DEFAULT_MAX_PAGES)
     {
         $this->db->query('CREATE TABLE IF NOT EXISTS pages (
             key TEXT PRIMARY KEY, body TEXT NOT NULL, headers TEXT NOT NULL,
@@ -16,6 +19,8 @@ final class PageCache
         $this->db->query('CREATE TABLE IF NOT EXISTS page_tags (
             tag TEXT NOT NULL, key TEXT NOT NULL, PRIMARY KEY (tag, key)
         )');
+        // Serves the TTL prune and the oldest-first eviction below.
+        $this->db->query('CREATE INDEX IF NOT EXISTS idx_pages_created_at ON pages (created_at)');
     }
 
     private function key(string $path, string $query): string
@@ -57,6 +62,14 @@ final class PageCache
         $cutoff = time() - $this->ttlSeconds;
         $this->db->query('DELETE FROM page_tags WHERE key IN (SELECT key FROM pages WHERE created_at < ?)', [$cutoff]);
         $this->db->query('DELETE FROM pages WHERE created_at < ?', [$cutoff]);
+        // Row cap: evict the oldest pages, so a flood of unique query strings replaces
+        // older entries instead of growing the file.
+        $excess = (int) $this->db->one('SELECT COUNT(*) c FROM pages')['c'] - $this->maxPages;
+        if ($excess > 0) {
+            foreach ($this->db->all('SELECT key FROM pages ORDER BY created_at, rowid LIMIT ?', [$excess]) as $row) {
+                $this->forget($row['key']);
+            }
+        }
     }
 
     /** @param string[] $tables written tables → purge every page tagged with any of them */

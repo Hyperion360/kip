@@ -47,7 +47,8 @@ final class App
                     $config['cache_db']['user'] ?? null,
                     $config['cache_db']['pass'] ?? null
                 ),
-                $config['cache_db']['ttl_seconds'] ?? 3600
+                $config['cache_db']['ttl_seconds'] ?? 3600,
+                $config['cache_db']['max_pages'] ?? \Kip\Cache\PageCache::DEFAULT_MAX_PAGES
             );
         }
         if (isset($config['uploads']['dir'])) {
