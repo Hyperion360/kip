@@ -101,6 +101,20 @@ final class PageCacheTest extends TestCase
         }
     }
 
+    /** put() is one transaction: a write that fails partway leaves no page behind without its tags. */
+    public function test_a_failed_put_leaves_no_half_written_page(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db, ttlSeconds: 3600);
+        $db->query('DROP TABLE page_tags');   // the tag write will fail after the page row is inserted
+        try {
+            $cache->put('/posts', '', new Response('list'), ['posts']);
+            $this->fail('a failed tag write must surface');
+        } catch (\PDOException) {
+        }
+        $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM pages')['c'], 'the page row was rolled back');
+    }
+
     public function test_only_status_200_is_stored(): void
     {
         $this->cache->put('/gone', '', new Response('nope', 404), []);
