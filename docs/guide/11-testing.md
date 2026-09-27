@@ -122,9 +122,12 @@ by reference, so the same array backs every call and state (login, CSRF
 token) survives between calls. Every helper bottoms out in `request()`,
 which builds a `Request` (IP `127.0.0.1`, cookies synthesized per the
 rule above) and calls `App::handle(Request, Session)` directly: one
-full kernel cycle: routing, both CSRF lanes, the `#[Auth]` gate,
+full kernel cycle: routing, the `#[Auth]` gate, both CSRF lanes,
 constructor autowiring, error handling, the same path
-`public/index.php` drives, minus `Response::send()`.
+`public/index.php` drives, minus `Response::send()`. It then calls
+`App::runDeferred()`, as the front controller does after sending, so
+work a controller queued with `App::defer()` (the skeleton's
+password-reset mail) has run by the time `request()` returns.
 
 ## What it doesn't cover
 
