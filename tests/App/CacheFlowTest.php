@@ -15,6 +15,16 @@ class CookiePageController
     }
 }
 
+// HTTP field names are case-insensitive, so the cacheability guard scans every
+// key rather than enumerating spellings.
+class CookieCasePageController
+{
+    public function index(): \Kip\Http\Response
+    {
+        return (new \Kip\Http\Response('c'))->withHeader('SET-COOKIE', 'pref=dark');
+    }
+}
+
 final class CacheFlowTest extends TestCase
 {
     private App $app;
@@ -104,9 +114,29 @@ final class CacheFlowTest extends TestCase
             'views' => dirname(__DIR__) . '/Fixtures/views',
         ]);
         // fixture route that sets a cookie header on a guest-cacheable GET
-        $res1 = $app->handle(new Request('GET', '/cookiepage', [], [], []));
+        // ('/cookie-page', not '/cookiepage': the router studly-cases on separators,
+        // a bare path resolves to CookiepageController and 404s, testing nothing)
+        $res1 = $app->handle(new Request('GET', '/cookie-page', [], [], []));
+        $this->assertSame(200, $res1->status); // the fixture actually rendered
         $this->assertSame('MISS', $res1->headers['X-Kip-Cache']);
-        $res2 = $app->handle(new Request('GET', '/cookiepage', [], [], []));
+        $res2 = $app->handle(new Request('GET', '/cookie-page', [], [], []));
+        $this->assertSame('MISS', $res2->headers['X-Kip-Cache']); // never stored, never HIT
+    }
+
+    public function test_response_with_arbitrary_case_set_cookie_spelling_never_cached(): void // defense: field names are case-insensitive
+    {
+        $app = new App([
+            'env' => 'dev',
+            'controller_namespace' => 'Kip\\Tests\\App\\',
+            'db' => ['dsn' => 'sqlite::memory:'],
+            'cache_db' => ['dsn' => 'sqlite::memory:', 'ttl_seconds' => 3600],
+            'views' => dirname(__DIR__) . '/Fixtures/views',
+        ]);
+        // Field-name case must not affect the cacheability judgment.
+        $res1 = $app->handle(new Request('GET', '/cookie-case-page', [], [], []));
+        $this->assertSame(200, $res1->status); // the fixture actually rendered
+        $this->assertSame('MISS', $res1->headers['X-Kip-Cache']);
+        $res2 = $app->handle(new Request('GET', '/cookie-case-page', [], [], []));
         $this->assertSame('MISS', $res2->headers['X-Kip-Cache']); // never stored, never HIT
     }
 }

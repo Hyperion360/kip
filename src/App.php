@@ -189,9 +189,14 @@ final class App
         }
         // A render that touched the session is personal: never cache it (touch-delta, not a flag,
         // so one App instance serving many requests judges each request on its own).
-        // a response that sets a cookie is personal, never cache it (threat model: cache poisoning)
-        if ($response->status === 200 && $writes === [] && $active->touchCount() === $touchesBefore
-            && array_intersect(['Set-Cookie', 'set-cookie'], array_keys($response->headers)) === []) {
+        // A response that sets a cookie is personal too: never cache it (threat model: cache
+        // poisoning). Field names are case-insensitive (RFC 9110 5.1), so every key is scanned,
+        // not two spellings enumerated.
+        $setsCookie = false;
+        foreach (array_keys($response->headers) as $n) {
+            if (strcasecmp((string) $n, 'Set-Cookie') === 0) { $setsCookie = true; break; }
+        }
+        if ($response->status === 200 && $writes === [] && $active->touchCount() === $touchesBefore && !$setsCookie) {
             $this->pageCache->put($request->path, $query, $response, array_unique($reads));
         }
         return $this->conditional($request, $response->withHeader('X-Kip-Cache', 'MISS'));
