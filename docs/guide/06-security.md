@@ -97,6 +97,16 @@ if ($this->auth->throttled($email, $this->request->ip)) {
 }
 ```
 
+**The email half is a deliberate trade-off.** Because the count includes
+every failure for the email from any IP, anyone who knows a user's email
+can lock that account out of login for 15 minutes with five wrong
+passwords, even from an address the user never shares. Counting per
+email and IP pair instead would stop that, but it would also let an
+attacker with many IPs make five guesses per address against one
+account. Kip keeps the stricter rule. The lockout is temporary, and the
+user has a way back in: password reset uses its own counter (below), and
+a successful reset clears the login failures for that email.
+
 **Split buckets for resets.** Once `login_attempts` carries the `kind`
 column (skeleton migration `006_add_login_attempts_kind`), password-reset
 requests count against their **own** limits: 3 per account, 10 per IP,
