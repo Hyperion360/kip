@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Cached pages no longer fossilize the framework's default response headers.
+  `PageCache::put()` stored the full header array, defaults included, and a
+  cache HIT replayed the stored values over the current ones, so a tightened
+  default (a stricter CSP, say) did not reach already-cached pages until the
+  TTL expired them. Defaults are now stripped before storing and re-derived
+  from the running framework on every HIT; headers an app set itself are
+  still cached and replayed. Rows written by an earlier version keep their
+  fossilized headers until the TTL expires them; no schema migration, the
+  cache self-heals inside one TTL. `Response::defaultHeaders()` exposes the
+  current defaults (new public static method).
 - Route attributes are autoloadable: `Get`, `Post`, `Put`, `Delete` and
   `Auth` each live in their own file under `src/Routing/`. They were
   declared together in `Attributes.php`, which PSR-4 could not resolve,

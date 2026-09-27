@@ -70,8 +70,18 @@ final class PageCache
     {
         $key = $this->key($path, $query);
         $etag = '"' . hash('sha256', $response->body) . '"';
+        $defaults = Response::defaultHeaders();
+        $stored = [];
+        foreach ($response->headers as $n => $v) {
+            // An entry identical to a current default is not stored: defaults must
+            // come from the reading framework, not the caching one. Trade-off: an
+            // app that deliberately sets a header to exactly the default value also
+            // loses it on the next default change, until the page is re-cached.
+            if (($defaults[$n] ?? null) === $v) continue;
+            $stored[$n] = $v;
+        }
         $this->db->query('INSERT OR REPLACE INTO pages (key, body, headers, etag, created_at) VALUES (?, ?, ?, ?, ?)',
-            [$key, $response->body, json_encode($response->headers), $etag, time()]);
+            [$key, $response->body, json_encode($stored), $etag, time()]);
         $this->db->query('DELETE FROM page_tags WHERE key = ?', [$key]);
         foreach ($tables as $t) {
             $this->db->query('INSERT OR IGNORE INTO page_tags (tag, key) VALUES (?, ?)', [$t, $key]);

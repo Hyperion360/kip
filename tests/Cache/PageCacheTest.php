@@ -130,4 +130,25 @@ final class PageCacheTest extends TestCase
         $cache->put('/new', '', new Response('new'), []);               // triggers the prune
         $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM page_tags')['c']);
     }
+
+    public function test_framework_default_headers_are_not_stored_so_a_hit_reads_current_ones(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db);
+        $cache->put('/x', '', (new Response('b'))->withHeader('X-App', 'custom'), []);
+        $stored = json_decode($db->one('SELECT headers FROM pages')['headers'], true);
+        // Only what the app actually set is stored; defaults are re-derived on read.
+        $this->assertSame(['X-App' => 'custom'], $stored);
+        $hit = $cache->get('/x', '');
+        $this->assertSame('custom', $hit->headers['X-App']);
+        $this->assertSame(Response::defaultHeaders()['Content-Security-Policy'], $hit->headers['Content-Security-Policy']);
+        $this->assertSame(Response::defaultHeaders()['X-Frame-Options'], $hit->headers['X-Frame-Options']);
+    }
+
+    public function test_an_app_override_of_a_default_header_survives_the_roundtrip(): void
+    {
+        $this->cache->put('/x', '', new Response('b', 200, ['X-Frame-Options' => 'DENY']), []);
+        $hit = $this->cache->get('/x', '');
+        $this->assertSame('DENY', $hit->headers['X-Frame-Options']);
+    }
 }

@@ -27,6 +27,18 @@ final class Response
         $this->headers = [...self::DEFAULT_HEADERS, ...$headers];
     }
 
+    /**
+     * The headers every Response carries unless the app overrides them. PageCache
+     * strips these at store time, so a cache HIT re-derives them from the framework
+     * version reading it, not from whatever was current when the page was stored.
+     *
+     * @return array<string, string>
+     */
+    public static function defaultHeaders(): array
+    {
+        return self::DEFAULT_HEADERS;
+    }
+
     public function withHeader(string $name, string $value): self
     {
         return new self($this->body, $this->status, [...$this->headers, $name => $value]);
