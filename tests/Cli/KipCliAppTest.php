@@ -127,4 +127,21 @@ final class KipCliAppTest extends TestCase
         $this->assertSame(0, $code);
         $this->assertStringContainsString('Pruned 0 rows older than 1 days.', $out);
     }
+
+    public function test_a_framework_exception_becomes_a_cli_failure_not_a_trace(): void
+    {
+        // The harness copies config.php as source, so the DSN to break is the
+        // expression itself, not a resolved path. /no-such-dir cannot exist
+        // beside the filesystem root, so the PDO open throws instead of
+        // creating a database.
+        $configPath = $this->cliApp . '/config.php';
+        $config = (string) file_get_contents($configPath);
+        $broken = str_replace("'sqlite:' . __DIR__ . '/app/data.sqlite'", "'sqlite:/no-such-dir/data.sqlite'", $config);
+        $this->assertNotSame($config, $broken, 'skeleton/config.php changed how the db DSN is spelled; update the injection');
+        file_put_contents($configPath, $broken);
+        [$out, $code] = $this->cli(['migrate']); // harness records combined stdout+stderr
+        $this->assertSame(1, $code, $out);
+        $this->assertStringStartsWith('kip: ', $out);
+        $this->assertStringNotContainsString('Stack trace', $out);
+    }
 }

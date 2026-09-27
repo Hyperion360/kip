@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `bin/kip` reports failures instead of printing a stack trace. The CLI was
+  autoload, config, then a bare `match`, so a framework exception (a failed
+  database open on `kip migrate`, the new unreadable-migrations-directory
+  error) exited 255 with a trace on stdout. It now prints
+  `kip: <exception>: <message>` to STDERR and exits 1, the same code the
+  argument-validation arms already use. One failure code, deliberately: a
+  deploy script branches on zero versus non-zero. `skeleton/bin/kip` and
+  `examples/blog/bin/kip` are byte-identical and a test now enforces it.
 - The page cache refuses to store a response carrying
   `X-Robots-Tag: noindex` (comma lists such as `noindex, nofollow`
   included). Pages that opt out of indexing are exactly the junk-URL shapes

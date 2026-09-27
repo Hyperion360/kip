@@ -10,6 +10,12 @@ against the live example, running them would mutate or restart it, so
 their output is derived directly from source (or a throwaway copy)
 instead, using the tutorial's own migration names as placeholders.
 
+Every command also shares one failure contract: an unexpected framework
+exception (a database that will not open, an unreadable migrations
+directory) prints `kip: <error>` on STDERR and exits **1**, never a stack
+trace on stdout. The per-command sections below cover the expected
+outcomes and their exit codes.
+
 ```
 $ php bin/kip
 Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]]
