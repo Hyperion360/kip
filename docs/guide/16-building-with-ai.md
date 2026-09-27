@@ -18,7 +18,8 @@ Convention routing is predictable: /post/show/1 maps to
 PostController::show('1'), and an agent can hold that rule forever.
 
 SQLite plus migrations-as-plain-SQL makes the test loop fast. A test
-database is a temp file; a migration is a class with up() and down();
+database is a temp file; a migration is a `.sql` file with `-- up` and
+`-- down` markers, or a PHP class with up() and down() when it needs logic;
 resetting state costs milliseconds, so agents can afford to run the suite
 constantly, which is exactly what you want them doing.
 

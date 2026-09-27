@@ -156,9 +156,9 @@ final class PostsController
 Ignore the pagination fields for a moment, we'll get there in Step 7. The
 constructor and the `#[Auth]`/`#[Post]` imports that aren't used yet are
 the whole controller's final shape; there's no harm in typing them once
-now. `show()` above is an **interim version**, it'll grow a `comments`
-query in Step 6, once the `comments` table actually exists. Querying it
-now would throw, since the table isn't there yet.
+now. `show()` above is an **interim version**: in Step 6 its query also
+fetches the post's comments, once the `comments` table actually exists.
+Querying it now would throw, since the table isn't there yet.
 
 **How it works:** `Router::match()` (`src/Routing/Router.php`) turns a URL
 into `Class::method(args)` by convention, no route table to maintain.
@@ -352,7 +352,8 @@ switching its action based on whether `$post['id']` is set:
 ```
 
 **How it works, the convention router and its attributes**
-(`src/Routing/Router.php`, `src/Routing/Attributes.php`):
+(`src/Routing/Router.php`, and one file per attribute such as
+`src/Routing/Auth.php`):
 
 - A method with **no verb attribute** is GET-only by convention. `#[Post]`
   (and `#[Put]`/`#[Delete]`, unused here) restrict it to that verb, hit
@@ -475,9 +476,17 @@ Now wire comments into the post page. This is where the interim
 ```php
     public function show(string $id): Response|string
     {
-        $post = $this->db->one('SELECT * FROM posts WHERE id = ?', [$id]);
+        // One query per page: the comments arrive as a JSON array in the post's own row.
+        $post = $this->db->one("SELECT p.*,
+                (SELECT json_group_array(json_object('id', c.id, 'author', c.author,
+                                                     'body', c.body, 'created_at', c.created_at))
+                   FROM comments c WHERE c.post_id = p.id) AS comments_json
+                FROM posts p
+                WHERE p.id = ?", [$id]);
         if ($post === null) return new Response('Post not found', 404);
-        $comments = $this->db->all('SELECT * FROM comments WHERE post_id = ? ORDER BY created_at, id', [$id]);
+        // SUBSTITUTE: one comment with invalid UTF-8 would otherwise make json_decode() return null.
+        $comments = json_decode($post['comments_json'], true, flags: JSON_INVALID_UTF8_SUBSTITUTE);
+        usort($comments, fn ($a, $b) => [$a['created_at'], $a['id']] <=> [$b['created_at'], $b['id']]);
         return $this->view->render('posts/show', [
             'title' => $post['title'],
             'post' => $post,
@@ -485,6 +494,17 @@ Now wire comments into the post page. This is where the interim
         ]);
     }
 ```
+
+The page needs a post and its comments, and it gets both in one query:
+SQLite's `json_group_array()` folds every comment into a JSON array
+carried in the post's own row, and `json_decode()` turns it back into the
+same list of rows a second query would have returned. A post with no
+comments yields `[]`. The sort happens in PHP because an aggregate does not
+promise an order. The `JSON_INVALID_UTF8_SUBSTITUTE` flag keeps one comment
+posted with a stray non-UTF-8 byte from breaking the whole page: the bad
+bytes show as `�` instead of making `json_decode()` return `null`. Kip apps hold every page to one query against the
+content database; [chapter 15](guide/15-performance-contract.md) explains
+why and shows the other patterns.
 
 And replace `app/views/posts/show.php` with:
 
@@ -541,6 +561,33 @@ via `/posts/create` if you don't want to type that many, or seed the table
 directly with SQLite) and `/posts` will show an "Older →" link; `/posts?page=2`
 will show "← Newer" going back. Non-numeric or negative `page` values fall
 back to page 1 rather than erroring.
+
+One thing is missing: an index for that `ORDER BY`. Without one, SQLite
+reads and sorts every post to return a page of 20. Create
+`app/migrations/007_add_posts_created_at_index.php`:
+
+```php
+<?php // app/migrations/007_add_posts_created_at_index.php
+return new class extends Kip\Migrations\Migration {
+    public function up(Kip\Database $db): void
+    {
+        // The listing orders by created_at DESC, id DESC. SQLite appends the rowid to
+        // every index entry, so this one column covers the id tie-break too.
+        $db->query('CREATE INDEX idx_posts_created_at ON posts (created_at)');
+    }
+    public function down(Kip\Database $db): void { $db->query('DROP INDEX idx_posts_created_at'); }
+};
+```
+
+```bash
+php bin/kip migrate
+```
+
+```
+Ran: 007_add_posts_created_at_index
+```
+
+The listing now walks the index newest first and stops after 21 rows.
 
 ## Watch the batteries work
 

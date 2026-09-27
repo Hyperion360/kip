@@ -68,6 +68,30 @@ final class RouterTest extends TestCase
         $this->assertNull($this->router()->match(new Request('GET', '/posts//show/1', [], [], [])));
     }
 
+    /**
+     * A separator only joins words: a controller segment that starts or ends with one,
+     * or doubles one, would otherwise studly-case to the same controller as the clean
+     * spelling and give one page several URLs.
+     */
+    public function test_stray_separators_in_the_controller_segment_are_not_matched(): void
+    {
+        foreach (['/_posts', '/-posts', '/posts-', '/posts_', '/po--sts', '/po__sts', '/po-_sts', '/-/show/1'] as $path) {
+            $this->assertNull($this->router()->match(new Request('GET', $path, [], [], [])), $path);
+        }
+        $this->assertNotNull($this->router()->match(new Request('GET', '/posts', [], [], [])));
+    }
+
+    /**
+     * PHP class names are case-insensitive, so /po-sts (PoStsController) used to find
+     * PostsController. The studly name must match the declared class name exactly.
+     */
+    public function test_a_word_split_that_changes_the_class_name_case_is_not_matched(): void
+    {
+        foreach (['/po-sts', '/p_osts', '/post-s/show/1'] as $path) {
+            $this->assertNull($this->router()->match(new Request('GET', $path, [], [], [])), $path);
+        }
+    }
+
     public function test_head_matches_get_routes(): void // v0.1.1 T1: HEAD must not 405 (RFC 9110)
     {
         $m = $this->router()->match(new Request('HEAD', '/posts/show/42', [], [], []));

@@ -1,0 +1,46 @@
+# Kip static analysis contract. Run it with: composer lint
+#
+# Level 6 is the target and src/ is clean at it. Measured on this tree
+# 2026-09-25, with the two ignores below in place: level 7 is 3 errors,
+# level 8 is 10, level 9 is 99, level 10 is 102.
+#
+# The three findings at level 7 are annotations in this file's own
+# vocabulary being more specific than the source can prove, not defects:
+# Schema::columns() declares a column shape Database::all() cannot
+# guarantee, App.php passes array<int<0,max>, string> where list<string>
+# is declared, and Database::all() narrows fetchAll()'s bare array.
+#
+# The jump at level 9 is strict-mixed rules firing on values that arrive
+# as mixed from array<array-key, mixed> surfaces: 38 argument.type, 16
+# offsetAccess, 11 cast.string, 9 cast.int. Clearing it needs real column
+# shapes throughout, which is a design change to the array-row model
+# rather than an annotation pass.
+parameters:
+    level: 6
+
+    paths:
+        - src
+
+    excludePaths:
+        # View::render() injects template locals with extract(), which the
+        # analyzer cannot follow, so every variable in a template reads as
+        # undefined. Measured: 71 unavoidable errors across these five files.
+        - src/Admin/views
+
+    ignoreErrors:
+        -
+            # View::render() nulls $this->layout, then require's a template that
+            # may call $this->layout('name'). The analyzer cannot see through the
+            # require, narrows the property to null, and calls the check dead.
+            # That check IS the layout mechanism; do not "fix" it.
+            identifier: notIdentical.alwaysFalse
+            count: 1
+            path: src/View.php
+        -
+            # $eager is reference-bound to the caller's session store. The
+            # nullable type keeps a null assignment to the referenced variable
+            # from raising a TypeError through the reference. Tightening it to
+            # `array` is a behavior change, not a cleanup.
+            identifier: property.unusedType
+            count: 1
+            path: src/Session.php

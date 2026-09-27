@@ -11,6 +11,7 @@ namespace Kip;
  */
 final class Mailer
 {
+    /** @param array<string, mixed> $config */
     public function __construct(private array $config) {}
 
     public function send(string $to, string $subject, string $body): void

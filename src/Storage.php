@@ -21,7 +21,10 @@ final class Storage
     /** @var callable(string,string):bool */
     private $mover;
 
-    /** @param ?callable(string,string):bool $mover test seam, move_uploaded_file() rejects non-SAPI files */
+    /**
+     * @param list<string>|null             $allowedExt extensions to accept, null = the built-in map
+     * @param ?callable(string,string):bool $mover      test seam, move_uploaded_file() rejects non-SAPI files
+     */
     public function __construct(
         private string $dir,
         private int $maxBytes = self::DEFAULT_MAX_BYTES,
@@ -31,7 +34,10 @@ final class Storage
         $this->mover = $mover ?? static fn(string $tmp, string $dest): bool => move_uploaded_file($tmp, $dest);
     }
 
-    /** @param array $file one $_FILES entry. @return string public path, e.g. /uploads/9f2ab3….png */
+    /**
+     * @param  array<array-key, mixed> $file one $_FILES entry
+     * @return string                  public path, e.g. /uploads/9f2ab3….png
+     */
     public function put(array $file): string
     {
         if (($file['error'] ?? -1) !== UPLOAD_ERR_OK) {

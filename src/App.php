@@ -10,10 +10,15 @@ final class App
     public readonly Container $container;
     public readonly Session $session;
     private Router $router;
+    /** @var array<string, mixed> backing store for an eager session */
     private array $sessionStore = [];
     private ?RequestLog $requestLog = null;
     private ?\Kip\Cache\PageCache $pageCache = null;
+    /** @var list<callable(): void> work queued by defer(), run after the response is sent */
+    private array $deferred = [];
+    private bool $deferFallbackArmed = false;
 
+    /** @param array<string, mixed> $config */
     public function __construct(private array $config, ?Session $session = null)
     {
         $this->container = new Container();
@@ -43,7 +48,8 @@ final class App
                     $config['cache_db']['user'] ?? null,
                     $config['cache_db']['pass'] ?? null
                 ),
-                $config['cache_db']['ttl_seconds'] ?? 3600
+                $config['cache_db']['ttl_seconds'] ?? 3600,
+                $config['cache_db']['max_pages'] ?? \Kip\Cache\PageCache::DEFAULT_MAX_PAGES
             );
         }
         if (isset($config['uploads']['dir'])) {
@@ -83,6 +89,50 @@ final class App
         $auditPath = preg_replace('#^(/auth/reset/)[0-9a-f]{' . Auth::RESET_TOKEN_HEX . '}$#', '$1<redacted>', $request->path);
         $this->requestLog?->log($request, $response->status, $active->peek('user_id'), (hrtime(true) - $start) / 1e6, $auditPath);
         return $response;
+    }
+
+    /**
+     * Queue work to run after the response has been sent, so its duration never shows
+     * in the response time. Use it for side effects whose cost would reveal something,
+     * such as mail that is only sent when an account exists. The front controller calls
+     * runDeferred() after send(); under PHP-FPM, fastcgi_finish_request() closes the
+     * connection first, so the client never waits on this work. runDeferred() closes
+     * the session before running the queue, so a task must not read or write it.
+     * One queue per App: under a persistent worker, call runDeferred() once per request.
+     *
+     * @param callable(): void $task
+     */
+    public function defer(callable $task): void
+    {
+        $this->deferred[] = $task;
+        if (!$this->deferFallbackArmed) {
+            // A front controller that never calls runDeferred() must not lose the work
+            // (a reset email, say): whatever is still queued runs when the script ends.
+            register_shutdown_function(fn () => $this->runDeferred());
+            $this->deferFallbackArmed = true;
+        }
+    }
+
+    /**
+     * Run and clear the deferred queue. A failing task is logged and the rest still run:
+     * the response is already gone, so there is no one left to report an error to.
+     */
+    public function runDeferred(): void
+    {
+        // Release the session lock first. With PHP's file handler the session stays
+        // locked until the script ends, so a deferred send (only made for an existing
+        // account) would stall the visitor's next request and reveal the account.
+        if ($this->deferred !== [] && session_status() === PHP_SESSION_ACTIVE) session_write_close();
+        while ($this->deferred !== []) {
+            $task = array_shift($this->deferred);
+            try {
+                $task();
+            } catch (\Throwable $e) {
+                // Where it failed, not the full trace: trace arguments would copy a mail
+                // recipient or message into the log.
+                error_log(sprintf('Deferred task failed: %s: %s at %s:%d', $e::class, $e->getMessage(), $e->getFile(), $e->getLine()));
+            }
+        }
     }
 
     /** Read-only config access for app code (base_url etc.). */
@@ -166,6 +216,11 @@ final class App
             // per-request scope, never the long-lived container, worker-mode
             // guarantee (D7). The boot Session alone would go stale under a
             // persistent worker, so each request may bring its own.
+            // Login before CSRF: a guest gets the same redirect on a gated route whatever
+            // the token, so neither the response nor its status confirms the route exists.
+            if ($match->requiresAuth && !$this->authSessionValid($active)) {
+                return Response::redirect('/auth/login');
+            }
             if (!in_array($request->method, ['GET', 'HEAD'], true)) {
                 $tokenOk = $active->validateCsrf($request->postStr('_token') ?: null);
                 if ($match->requiresAuth) {
@@ -175,15 +230,14 @@ final class App
                     return new Response('Cross-site request rejected', 403);
                 }
             }
-            if ($match->requiresAuth && !$this->authSessionValid($active)) {
-                return Response::redirect('/auth/login');
-            }
             $scope = clone $this->container;
             $scope->instance(Request::class, $request);
             $scope->instance(Session::class, $active);
             $result = $match->invoke($scope);
             return $result instanceof Response ? $result : new Response((string) $result);
         } catch (\Kip\Routing\MethodNotAllowedException $e) {
+            // A guest learns nothing about a gated route: the same redirect a right-verb request gets.
+            if ($e->requiresAuth && !$this->authSessionValid($active)) return Response::redirect('/auth/login');
             return (new Response('Method not allowed', 405))->withHeader('Allow', $e->getMessage()); // review 9A
         } catch (\Throwable $e) {
             return $this->errorResponse($e);

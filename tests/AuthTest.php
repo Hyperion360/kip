@@ -45,20 +45,241 @@ final class AuthTest extends TestCase
         $this->assertNull($this->auth->user());
     }
 
-    public function test_attempt_unknown_email_fails_records_attempt_and_stays_logged_out(): void // enumeration timing equalizer
+    public function test_attempt_unknown_email_fails_records_attempt_and_stays_logged_out(): void
     {
-        $before = microtime(true);
         $this->assertFalse($this->auth->attempt('ghost@b.c', 'whatever'));
-        $unknownAt = microtime(true) - $before;
         $this->assertNull($this->auth->user());
         // the throttle row must exist. Unknown emails count toward lockout like wrong passwords
         $this->assertSame(1, (int) $this->db->one("SELECT COUNT(*) AS c FROM login_attempts WHERE email = 'ghost@b.c'")['c']);
-        // the dummy-hash verify makes the unknown-email path cost a bcrypt round like the known one
-        $this->auth->register('a@b.c', 'secret123');
-        $before = microtime(true);
-        $this->assertFalse($this->auth->attempt('a@b.c', 'wrong'));
-        $knownAt = microtime(true) - $before;
-        $this->assertGreaterThan($unknownAt * 0.1, $knownAt); // both do real bcrypt work, not a trivial miss
+    }
+
+    /**
+     * A lower bound, not a ratio: the unknown-email path must actually perform a
+     * bcrypt verify rather than returning early. A stall can only make this longer,
+     * so unlike the ratio it replaced, load cannot produce a false failure. bcrypt
+     * at the default cost is ~200ms here, so a 10ms floor has a wide margin and
+     * still catches the verify being removed altogether.
+     */
+    public function test_unknown_email_path_performs_real_bcrypt_work(): void
+    {
+        $start = microtime(true);
+        $this->assertFalse($this->auth->attempt('ghost@b.c', 'whatever'));
+        $elapsedMs = (microtime(true) - $start) * 1000;
+
+        $this->assertGreaterThan(
+            10.0,
+            $elapsedMs,
+            'the unknown-email path returned too fast to have run a bcrypt verify, '
+            . 'so response time now reveals that the account does not exist'
+        );
+    }
+
+    /**
+     * The same floor for an account whose stored hash is not a hash PHP recognizes
+     * (empty, truncated, hand-edited). password_verify() rejects those in
+     * microseconds, which would mark the account as existing.
+     */
+    public function test_unverifiable_stored_hash_still_performs_real_bcrypt_work(): void
+    {
+        $cases = [
+            'empty' => '',
+            'garbage' => 'not-a-hash',
+            'truncated' => '$2y$12$abc',
+            'bad salt alphabet' => '$2y$12$' . str_repeat('!', 53),
+            'out-of-range cost' => '$2y$99$' . str_repeat('a', 53),
+        ];
+        foreach ($cases as $label => $stored) {
+            $label = str_replace(' ', '-', $label);
+            $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ["{$label}@b.c", $stored]);
+
+            $start = microtime(true);
+            $this->assertFalse($this->auth->attempt("{$label}@b.c", 'whatever'), $label);
+            $elapsedMs = (microtime(true) - $start) * 1000;
+
+            $this->assertGreaterThan(10.0, $elapsedMs, "a {$label} stored hash returned too fast, revealing the account");
+        }
+    }
+
+    /**
+     * Bcrypt hashes from other systems use the $2a$/$2b$/$2x$ prefixes.
+     * password_verify() accepts them though password_get_info() does not name them,
+     * so the equalizer must not mistake them for corrupt hashes and lock users out.
+     */
+    public function test_other_bcrypt_prefixes_still_log_in(): void
+    {
+        $y = password_hash('right-pass', PASSWORD_BCRYPT, ['cost' => 4]);
+        foreach (['2a', '2b', '2x'] as $variant) {
+            $email = "{$variant}@b.c";
+            $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', [$email, '$' . $variant . substr($y, 3)]);
+            $this->assertTrue($this->auth->attempt($email, 'right-pass'), "a \${$variant}\$ bcrypt hash must still verify");
+        }
+    }
+
+    /**
+     * password_hash() throws on a NUL byte where password_verify() just returns false.
+     * If only the unknown-email path threw, the response (500 vs a normal failure) and
+     * the missing throttle row would reveal which emails exist.
+     */
+    public function test_nul_byte_password_fails_the_same_way_for_known_and_unknown_emails(): void
+    {
+        $this->auth->register('real@b.c', 'right-pass');
+        foreach (['real@b.c', 'ghost@b.c'] as $email) {
+            $start = microtime(true);
+            $this->assertFalse($this->auth->attempt($email, "right\0pass"), $email);
+            $this->assertGreaterThan(10.0, (microtime(true) - $start) * 1000, "{$email} returned too fast");
+            $row = $this->db->one('SELECT COUNT(*) c FROM login_attempts WHERE email = ?', [$email]);
+            $this->assertSame(1, (int) $row['c'], "{$email}: the failure must count toward the throttle");
+        }
+    }
+
+    /**
+     * A valid hash from a non-bcrypt algorithm (argon2id, e.g. rows imported from
+     * another system) must still verify, not be mistaken for a corrupt hash.
+     */
+    public function test_argon2id_hash_still_logs_in_and_rejects_a_wrong_password(): void
+    {
+        if (!defined('PASSWORD_ARGON2ID')) {
+            $this->markTestSkipped('this PHP build has no argon2 support');
+        }
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)',
+            ['argon@b.c', password_hash('right-pass', PASSWORD_ARGON2ID)]);
+
+        $this->assertFalse($this->auth->attempt('argon@b.c', 'wrong-pass'));
+        $this->assertTrue($this->auth->attempt('argon@b.c', 'right-pass'));
+    }
+
+    /**
+     * A hash stored at another cost or algorithm is rewritten at PASSWORD_DEFAULT on the
+     * next successful login, so its verify time stops differing from the unknown-email
+     * path. The new hash changes the session epoch: this session is issued the new one,
+     * and sessions logged in before the rewrite end.
+     */
+    public function test_successful_login_rehashes_an_outdated_hash(): void
+    {
+        $old = password_hash('right-pass', PASSWORD_BCRYPT, ['cost' => 4]);
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ['old@b.c', $old]);
+        // A session this user opened before the rewrite, e.g. on another device.
+        $otherStore = ['user_id' => 1, 'pwd_epoch' => substr($old, 0, Auth::EPOCH_LEN)];
+        $other = new Auth($this->db, new Session($otherStore), static function (): void {});
+        $this->assertTrue($other->sessionValid());
+
+        $this->assertTrue($this->auth->attempt('old@b.c', 'right-pass'));
+
+        $stored = (string) $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['old@b.c'])['password_hash'];
+        $this->assertFalse(password_needs_rehash($stored, PASSWORD_DEFAULT), 'rewritten at PASSWORD_DEFAULT');
+        $this->assertTrue(password_verify('right-pass', $stored));
+        $this->assertTrue($this->auth->sessionValid(), 'this login carries the new epoch');
+        $this->assertFalse($other->sessionValid(), 'a session from before the rewrite ends');
+    }
+
+    /** A password change that lands between the verify and the rehash write must win. */
+    public function test_rehash_does_not_overwrite_a_password_changed_meanwhile(): void
+    {
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)',
+            ['race@b.c', password_hash('old-pass', PASSWORD_BCRYPT, ['cost' => 4])]);
+        $reset = password_hash('new-pass', PASSWORD_DEFAULT);
+        $raced = false;
+        $this->db->onQuery(function (string $sql) use (&$raced, $reset): void {
+            if (!$raced && str_starts_with($sql, 'UPDATE users SET password_hash = ? WHERE id = ? AND')) {
+                $raced = true;   // a reset completes just before the rehash write runs
+                $this->db->query('UPDATE users SET password_hash = ? WHERE id = 1', [$reset]);
+            }
+        });
+        $this->assertTrue($this->auth->attempt('race@b.c', 'old-pass'));
+        $this->db->onQuery(static fn () => null);
+
+        $this->assertTrue($raced);
+        $this->assertSame($reset, $this->db->one('SELECT password_hash FROM users WHERE id = 1')['password_hash'], 'the reset stands');
+        $this->assertFalse($this->auth->sessionValid(), 'and this login does not carry an epoch for the old password');
+    }
+
+    /** Two logins racing on the same outdated hash (a double submit): both sessions stay valid. */
+    public function test_concurrent_rehash_with_the_same_password_keeps_both_sessions_valid(): void
+    {
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)',
+            ['twice@b.c', password_hash('same-pass', PASSWORD_BCRYPT, ['cost' => 4])]);
+        $winner = password_hash('same-pass', PASSWORD_DEFAULT);   // the other login's rehash, fresh salt
+        $raced = false;
+        $this->db->onQuery(function (string $sql) use (&$raced, $winner): void {
+            if (!$raced && str_starts_with($sql, 'UPDATE users SET password_hash = ? WHERE id = ? AND')) {
+                $raced = true;
+                $this->db->query('UPDATE users SET password_hash = ? WHERE id = 1', [$winner]);
+            }
+        });
+        $this->assertTrue($this->auth->attempt('twice@b.c', 'same-pass'));
+        $this->db->onQuery(static fn () => null);
+
+        $this->assertTrue($raced);
+        $this->assertSame($winner, $this->db->one('SELECT password_hash FROM users WHERE id = 1')['password_hash']);
+        $this->assertTrue($this->auth->sessionValid(), 'the losing login takes the winning hash epoch');
+    }
+
+    /** An old bcrypt hash already stopped at 72 bytes, so a long password loses nothing by the rewrite. */
+    public function test_an_outdated_bcrypt_hash_of_a_password_over_72_bytes_is_still_rewritten(): void
+    {
+        $long = str_repeat('b', 80);
+        $old = password_hash($long, PASSWORD_BCRYPT, ['cost' => 4]);
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ['longb@b.c', $old]);
+        $this->assertTrue($this->auth->attempt('longb@b.c', $long));
+        $stored = (string) $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['longb@b.c'])['password_hash'];
+        $this->assertNotSame($old, $stored);
+        $this->assertFalse(password_needs_rehash($stored, PASSWORD_DEFAULT));
+    }
+
+    /** bcrypt reads only 72 bytes: an argon2 hash of a longer password is kept, not weakened. */
+    public function test_an_argon2_hash_of_a_password_over_72_bytes_is_not_rewritten_to_bcrypt(): void
+    {
+        if (!defined('PASSWORD_ARGON2ID')) {
+            $this->markTestSkipped('this PHP build has no argon2 support');
+        }
+        $long = str_repeat('a', 72) . 'tail-that-bcrypt-would-drop';
+        $argon = password_hash($long, PASSWORD_ARGON2ID);
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ['long@b.c', $argon]);
+        $this->assertTrue($this->auth->attempt('long@b.c', $long));
+        $this->assertSame($argon, $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['long@b.c'])['password_hash']);
+    }
+
+    /** An app may log a user in inside its own transaction: attempt() must not open a second one. */
+    public function test_attempt_works_inside_a_callers_transaction(): void
+    {
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)',
+            ['tx@b.c', password_hash('right-pass', PASSWORD_BCRYPT, ['cost' => 4])]);   // outdated: forces the rehash write
+        $this->db->begin();
+        $this->assertTrue($this->auth->attempt('tx@b.c', 'right-pass'));
+        $this->db->commit();
+        $this->assertTrue($this->auth->sessionValid());
+    }
+
+    public function test_other_bcrypt_prefixes_are_rewritten_as_2y(): void
+    {
+        $y = password_hash('right-pass', PASSWORD_BCRYPT, ['cost' => 4]);
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ['b@b.c', '$2b' . substr($y, 3)]);
+        $this->assertTrue($this->auth->attempt('b@b.c', 'right-pass'));
+        $stored = (string) $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['b@b.c'])['password_hash'];
+        $this->assertStringStartsWith('$2y$', $stored);
+    }
+
+    public function test_a_current_hash_is_not_rewritten(): void
+    {
+        $this->auth->register('fresh@b.c', 'right-pass');
+        $before = $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['fresh@b.c'])['password_hash'];
+        $this->assertTrue($this->auth->attempt('fresh@b.c', 'right-pass'));
+        $this->assertSame($before, $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['fresh@b.c'])['password_hash']);
+    }
+
+    /**
+     * argon2 verifies a password containing a NUL byte, but password_hash() at bcrypt
+     * throws on one. That login must still succeed, keeping the argon2 hash.
+     */
+    public function test_nul_byte_password_on_an_argon2_hash_logs_in_without_a_rehash(): void
+    {
+        if (!defined('PASSWORD_ARGON2ID')) {
+            $this->markTestSkipped('this PHP build has no argon2 support');
+        }
+        $argon = password_hash("right\0pass", PASSWORD_ARGON2ID);
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ['nul@b.c', $argon]);
+        $this->assertTrue($this->auth->attempt('nul@b.c', "right\0pass"));
+        $this->assertSame($argon, $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['nul@b.c'])['password_hash']);
     }
 
     public function test_logout_clears_user(): void

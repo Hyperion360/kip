@@ -10,7 +10,8 @@
   <?php foreach ($rows as $row): ?>
   <tr>
     <?php foreach ($columns as $c): ?>
-      <td title="<?= $this->e($row[$c['name']] ?? '') ?>"><?= $c['name'] === 'password_hash' ? '••••' : $this->e($row[$c['name']] ?? '') ?></td>
+      <?php $shown = $c['name'] === 'password_hash' ? '••••' : $this->e($row[$c['name']] ?? ''); /* never the hash, not even in title */ ?>
+      <td title="<?= $shown ?>"><?= $shown ?></td>
     <?php endforeach; ?>
     <td>
       <a href="/admin/edit/<?= $this->e($table) ?>/<?= $this->e($row['__rid']) ?>" aria-label="edit <?= $this->e($table) ?> row <?= $this->e($row['__rid']) ?>">edit</a>

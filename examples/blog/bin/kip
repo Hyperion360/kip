@@ -46,6 +46,10 @@ match ($argv[1] ?? 'help') {
             fwrite(STDERR, "Password must be at least 8 characters (matches the reset flow).\n");
             exit(1);
         }
+        if (str_contains($password, "\0")) {
+            fwrite(STDERR, "Password cannot contain a NUL byte.\n");
+            exit(1);
+        }
         $db = new Kip\Database($config['db']['dsn']);
         $store = [];
         $auth = new Kip\Auth($db, new Kip\Session($store));

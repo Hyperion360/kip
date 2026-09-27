@@ -48,6 +48,73 @@ final class PageCacheTest extends TestCase
         $this->assertNull($short->get('/x', '')); // TTL 0 → immediately stale
     }
 
+    public function test_row_cap_evicts_the_oldest_pages_and_their_tags(): void // pentest: junk query strings filled the cache
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db, ttlSeconds: 3600, maxPages: 3);
+        foreach (range(1, 5) as $n) {
+            $cache->put('/posts', "junk={$n}", new Response("p{$n}"), ['posts']);
+        }
+        $this->assertSame(3, (int) $db->one('SELECT COUNT(*) c FROM pages')['c']);
+        $this->assertSame(3, (int) $db->one('SELECT COUNT(*) c FROM page_tags')['c']);
+        $this->assertNull($cache->get('/posts', 'junk=1'), 'the oldest went first');
+        $this->assertNull($cache->get('/posts', 'junk=2'));
+        $this->assertNotNull($cache->get('/posts', 'junk=5'), 'the newest stays');
+    }
+
+    /** An upgrade or a lowered max_pages can leave the cache far over the cap: one put() trims it in a few statements. */
+    public function test_a_cache_far_over_the_cap_is_trimmed_in_a_bounded_number_of_statements(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db, ttlSeconds: 3600, maxPages: 3);
+        $db->query("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 500)
+                    INSERT INTO pages (key, body, headers, etag, created_at) SELECT 'k' || i, 'b', '{}', 'e', ? FROM n", [time()]);
+        $statements = 0;
+        $db->onQuery(function () use (&$statements): void { $statements++; });
+        $cache->put('/new', '', new Response('fresh'), ['posts']);
+        $db->onQuery(static fn () => null);
+        $this->assertSame(3, (int) $db->one('SELECT COUNT(*) c FROM pages')['c']);
+        $this->assertNotNull($cache->get('/new', ''), 'the page just written survives');
+        $this->assertLessThan(15, $statements, 'eviction is set-based, not a statement per evicted row');
+    }
+
+    public function test_a_row_cap_below_one_is_refused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new PageCache(new Database('sqlite::memory:'), ttlSeconds: 3600, maxPages: 0);
+    }
+
+    /** Every delete the cache issues finds its rows through an index, not a table scan. */
+    public function test_cache_deletes_never_scan_a_table(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db, ttlSeconds: 3600, maxPages: 1);
+        $sql = [];
+        $db->onQuery(function (string $q) use (&$sql): void { $sql[] = $q; });
+        $cache->put('/a', '', new Response('a'), ['posts']);
+        $cache->put('/b', '', new Response('b'), ['posts']);   // over the cap: evicts /a
+        $cache->purgeByTables(['posts']);
+        $db->onQuery(static fn () => null);
+        foreach (array_unique(array_filter($sql, static fn (string $q): bool => str_starts_with($q, 'DELETE'))) as $q) {
+            $plan = implode("\n", array_column($db->all('EXPLAIN QUERY PLAN ' . $q, array_fill(0, substr_count($q, '?'), 1)), 'detail'));
+            $this->assertDoesNotMatchRegularExpression('/^SCAN (pages|page_tags)$/m', $plan, $q);
+        }
+    }
+
+    /** put() is one transaction: a write that fails partway leaves no page behind without its tags. */
+    public function test_a_failed_put_leaves_no_half_written_page(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db, ttlSeconds: 3600);
+        $db->query('DROP TABLE page_tags');   // the tag write will fail after the page row is inserted
+        try {
+            $cache->put('/posts', '', new Response('list'), ['posts']);
+            $this->fail('a failed tag write must surface');
+        } catch (\PDOException) {
+        }
+        $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM pages')['c'], 'the page row was rolled back');
+    }
+
     public function test_only_status_200_is_stored(): void
     {
         $this->cache->put('/gone', '', new Response('nope', 404), []);

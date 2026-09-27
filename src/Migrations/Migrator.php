@@ -64,9 +64,44 @@ final class Migrator
     /** @return array<string,string> name (no extension, ledger-compatible) => absolute path, sorted by name */
     private function files(): array
     {
+        // DELIBERATE: no migrations directory means nothing to run, so this stays a no-op
+        // and an app without migrations keeps working. Anything else that stops the
+        // directory being listed is refused, because treating a failed listing as an
+        // empty one would let migrate() report success against a schema it never touched,
+        // and one partial listing would apply an incomplete inventory as a complete batch.
+        //
+        // scandir() rather than glob(): glob() reads the directory path itself as a
+        // pattern, so a real path containing [ ] * ? silently listed nothing, and it
+        // reported an unreadable directory as empty unless given GLOB_ERR, whose handling
+        // of a missing directory differs between C libraries.
+        if (!file_exists($this->dir) && !is_link($this->dir)) return []; // a dangling link is broken config, not absence
+        error_clear_last();
+        $entries = is_dir($this->dir) ? @scandir($this->dir) : false;
+        if ($entries === false) {
+            $why = error_get_last()['message'] ?? 'not a directory';
+            throw new \RuntimeException(
+                "Cannot list migrations in {$this->dir}: {$why}. "
+                . 'Refusing to report an empty migration set, because that would '
+                . 'record a partial batch as complete. Check that this path is a '
+                . 'directory readable by the PHP process.'
+            );
+        }
+
         $map = [];
-        foreach (array_merge(glob($this->dir . '/*.php'), glob($this->dir . '/*.sql')) as $file) {
-            $name = pathinfo($file, PATHINFO_FILENAME);
+        foreach ($entries as $entry) {
+            if ($entry[0] === '.') continue;                  // dotfiles, . and .., as glob('*.sql') skipped them
+            $ext = pathinfo($entry, PATHINFO_EXTENSION);
+            if ($ext !== 'php' && $ext !== 'sql') continue;
+            $file = $this->dir . '/' . $entry;
+            if (!is_file($file)) {
+                // A directory or a dangling symlink named like a migration: skipping it
+                // would apply an incomplete batch and report success.
+                throw new \RuntimeException(
+                    "{$entry} in {$this->dir} is named like a migration but is not a regular "
+                    . 'file (a directory, or a symlink whose target is missing). Rename or remove it.'
+                );
+            }
+            $name = pathinfo($entry, PATHINFO_FILENAME);
             if (isset($map[$name])) {
                 throw new \RuntimeException("Migration name collision: {$name} exists as both .php and .sql");
             }

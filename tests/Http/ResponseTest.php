@@ -40,6 +40,8 @@ final class ResponseTest extends TestCase
         $r = new Response('ok');
         $this->assertSame('nosniff', $r->headers['X-Content-Type-Options']);
         $this->assertSame('SAMEORIGIN', $r->headers['X-Frame-Options']);
+        $this->assertSame('strict-origin-when-cross-origin', $r->headers['Referrer-Policy']);
+        $this->assertSame("base-uri 'self'; object-src 'none'", $r->headers['Content-Security-Policy']);
     }
 
     public function test_custom_headers_can_override_defaults(): void

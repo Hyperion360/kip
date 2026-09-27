@@ -6,12 +6,16 @@ final class SessionStarter
 {
     public function __construct(private bool $secureCookie = false) {}
 
+    /** @return array<string, mixed> the live session store */
     public function &start(): array
     {
         if (session_status() !== PHP_SESSION_ACTIVE) {
             if (headers_sent($file, $line)) {
                 throw new \RuntimeException("Cannot start session: headers already sent at {$file}:{$line}");
             }
+            // Reject a session id the server never issued: without this, PHP adopts an
+            // id planted in the cookie (login still regenerates, but guest state is shared).
+            ini_set('session.use_strict_mode', '1');
             session_set_cookie_params([
                 'httponly' => true,
                 'samesite' => 'Lax',

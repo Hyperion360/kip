@@ -55,15 +55,12 @@ final class AuthController
         $token = $this->auth->createReset($email, $this->request->ip);
         if ($token !== null) {
             $url = rtrim((string) $this->app->config('base_url', 'http://localhost:8080'), '/') . "/auth/reset/{$token}";
-            try {
-                $this->mailer->send($email, 'Reset your password',
-                    "Someone (hopefully you) asked to reset the password for this address.\n\n"
-                    . "Reset link (valid 30 minutes):\n{$url}\n\nIf this wasn't you, ignore this email.");
-            } catch (\Throwable $e) {
-                // A mailer failure must not become an account-existence oracle: the page
-                // is identical either way, and the failure lands in the server log.
-                error_log("Password-reset mail failed for a known address: {$e->getMessage()}");
-            }
+            // Sent after the response: only existing accounts get mail, so sending here
+            // would make a known email answer slower. runDeferred() logs a failed send;
+            // the visitor never sees it.
+            $this->app->defer(fn () => $this->mailer->send($email, 'Reset your password',
+                "Someone (hopefully you) asked to reset the password for this address.\n\n"
+                . "Reset link (valid 30 minutes):\n{$url}\n\nIf this wasn't you, ignore this email."));
         }
         // Same page whether the account exists or not, no enumeration.
         return $this->view->render('auth/forgot', ['title' => 'Reset password', 'sent' => true]);
@@ -81,6 +78,9 @@ final class AuthController
         $password = $this->request->postStr('password');
         if (strlen($password) < 8) {
             return new Response($this->resetView($token, 'Password must be at least 8 characters.'), 422);
+        }
+        if (str_contains($password, "\0")) { // password_hash() throws on it: a 500, not a form error
+            return new Response($this->resetView($token, 'Password cannot contain a NUL byte.'), 422);
         }
         if (!$this->auth->resetPassword($token, $password)) {
             return new Response($this->resetView($token, 'That reset link is invalid or has expired, request a new one.'), 422);

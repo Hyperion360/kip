@@ -67,12 +67,14 @@ suspenders, not the primary mechanism.
 
 **Known limitation, in the framework's own words:**
 
-> **Known limitation: cache flooding.** Every distinct query string creates
-> its own cache row (that's what makes `?page=2` cacheable), so an attacker
-> can inflate `cache.sqlite` with junk-query requests. Entries expire with
-> the TTL and are pruned opportunistically, bounding growth to
-> request-rate × `ttl_seconds`. A query-string length cap or total-row cap
-> is planned as a follow-up.
+> **Cache flooding is capped.** Every distinct query string creates its own
+> cache row (that's what makes `?page=2` cacheable), so junk-query requests
+> add rows. Entries expire with the TTL, and `cache_db.max_pages` (default
+> 10000) caps the table: once it is full, each new page evicts the oldest.
+> A flood can push real pages out of the cache, costing re-renders, but it
+> cannot grow `cache.sqlite` past the cap. Eviction is oldest-written
+> first, not least-recently-read: a sustained flood cycles real pages out
+> too, and they are re-rendered and re-cached on their next request.
 
 ## ETag / conditional GET
 
@@ -134,7 +136,7 @@ but nothing in the request-handling path assumes it structurally, `App`
 takes a per-request `Session` in `handle()`, and controllers get a
 per-request `Container` scope (see [chapter 3](03-controllers.md)). If you
 adapt it to a persistent-worker runtime (Swoole, RoadRunner, FrankenPHP
-worker mode), two things are on you to get right:
+worker mode), three things are on you to get right:
 
 1. **Pass a per-request `Session`** into `App::handle()` explicitly rather
    than relying on the boot-time session, the fallback
@@ -152,3 +154,9 @@ worker mode), two things are on you to get right:
    request's cache entries would corrupt invalidation silently, the
    `finally` block is the correct pattern to preserve, not something to
    skip or swallow if you customize the request lifecycle.
+3. **Run `App::runDeferred()` once per request.** The queue that
+   `App::defer()` fills belongs to the `App`, not to a request. The
+   front controller drains it after `send()`; a worker loop must do the
+   same after every request. The queue is not safe to share between
+   requests in flight at the same time (coroutine runtimes): one
+   request's `runDeferred()` would run another's work.

@@ -5,6 +5,13 @@ final class Request
 {
     public readonly string $path;
 
+    /**
+     * @param array<array-key, mixed>  $get     ?0=x yields an integer key
+     * @param array<array-key, mixed>  $post
+     * @param array<array-key, mixed>  $cookies a name like a[b] yields an array value
+     * @param array<string, string>    $headers lowercase keys, built by fromGlobals (v0.2 T2)
+     * @param array<array-key, mixed>  $files   $_FILES-shaped (v0.3 T8)
+     */
     public function __construct(
         public readonly string $method,
         string $path,
@@ -12,13 +19,14 @@ final class Request
         public readonly array $post,
         public readonly array $cookies,
         public readonly string $ip = '',
-        public readonly array $headers = [], // lowercase keys (v0.2 T2)
-        public readonly array $files = [],   // $_FILES-shaped (v0.3 T8)
+        public readonly array $headers = [],
+        public readonly array $files = [],
     ) {
         $p = rtrim($path, '/');
         $this->path = $p === '' ? '/' : $p;
     }
 
+    /** @param array<array-key, mixed>|null $server */
     public static function fromGlobals(?array $server = null, bool $trustedProxy = false): self
     {
         $server ??= $_SERVER;
@@ -68,7 +76,11 @@ final class Request
         return is_string($v) ? $v : null;
     }
 
-    /** One successfully-uploaded $_FILES entry, or null (absent / errored / malformed). */
+    /**
+     * One successfully-uploaded $_FILES entry, or null (absent / errored / malformed).
+     *
+     * @return array<array-key, mixed>|null
+     */
     public function file(string $key): ?array
     {
         $f = $this->files[$key] ?? null;

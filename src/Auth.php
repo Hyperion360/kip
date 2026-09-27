@@ -76,27 +76,85 @@ final class Auth
         return $byAccount >= self::RESET_MAX_PER_ACCOUNT || $byIp >= self::RESET_MAX_PER_IP;
     }
 
-    /** Timing-equalizer: a real bcrypt hash of an unguessable value, verified on the
-     *  unknown-email path so response time does not reveal account existence. */
-    private const DUMMY_HASH = '$2y$10$usesomesillystringfore7hnbXJ/9TDwTFvOXSVYlV3xqjPYvGQ9Oy';
+    /**
+     * Whether password_verify() will do real work on $hash. Any bcrypt variant
+     * ($2a$, $2b$, $2x$, $2y$) must have its full shape: crypt() rejects a bad salt
+     * alphabet or an out-of-range cost in microseconds, and password_get_info() only
+     * names $2y$ while password_verify() accepts all four. Anything else counts when
+     * password_get_info() recognizes its algorithm.
+     */
+    private static function verifiable(string $hash): bool
+    {
+        if (str_starts_with($hash, '$2')) {
+            return preg_match('~^\$2[abxy]\$(0[4-9]|[12][0-9]|3[01])\$[./A-Za-z0-9]{53}$~', $hash) === 1;
+        }
+        return password_get_info($hash)['algo'] !== null;
+    }
 
+    /**
+     * Timing equalizer: every failed attempt does one full hash at PASSWORD_DEFAULT,
+     * so response time does not reveal whether the account exists. An unknown email,
+     * or a stored hash password_verify() cannot really check (empty, truncated, or a
+     * bcrypt hash with a bad salt or cost, all rejected in microseconds; see
+     * verifiable()), runs a discarded
+     * password_hash($password, PASSWORD_DEFAULT): the same algorithm and cost
+     * register() uses, on every PHP version, with nothing to keep in sync. Measured on
+     * 8.4 at cost 12: 212ms for the discarded hash against 214ms verifying a real one.
+     *
+     * A valid hash stored at another cost or algorithm verifies at its own speed:
+     * after moving from PHP 8.3 to 8.4 an existing account verifies at cost 10 (~52ms)
+     * while an unknown email pays cost 12 (~210ms), and rows imported from another
+     * system (argon2, a $2b$ prefix, or a low cost) differ the same way. So a
+     * successful login rewrites any hash password_needs_rehash() flags at
+     * PASSWORD_DEFAULT. LIMIT: an account stays distinguishable until its owner next
+     * logs in, and for good when the rewrite is skipped (a NUL byte in the password, or
+     * a non-bcrypt hash of a password over 72 bytes; see below). The rewrite changes the session epoch (see sessionValid()), so this
+     * login gets the new epoch and that user's older sessions end, once.
+     */
     public function attempt(string $email, string $password, string $ip = ''): bool
     {
         if ($this->throttled($email, $ip)) return false; // refuse before verifying. Correct password included
         $user = $this->db->one('SELECT * FROM users WHERE email = ?', [$email]);
-        if ($user === null) {
-            password_verify($password, self::DUMMY_HASH); // identical work either way (as createReset does)
+        $hash = $user === null ? '' : (string) $user['password_hash'];
+        if ($user === null || !self::verifiable($hash)) {
+            // Discarded: the work a real verify costs. NULs are stripped because
+            // password_hash() throws on them where password_verify() just returns false,
+            // and a 500 on this path alone would reveal that the email is unknown.
+            password_hash(str_replace("\0", '', $password), PASSWORD_DEFAULT);
             $this->recordAttempt($email, $ip, 'login');
             return false;
         }
-        if (!password_verify($password, (string) $user['password_hash'])) {
+        if (!password_verify($password, $hash)) {
             $this->recordAttempt($email, $ip, 'login');
             return false;
+        }
+        // Not rehashed: a NUL byte (argon2 verifies it, bcrypt's password_hash() throws), or a
+        // non-bcrypt hash of a password over 72 bytes (bcrypt reads only the first 72, so it
+        // would quietly get weaker; an old bcrypt hash already stopped at 72, so it loses
+        // nothing). No transaction here: the compare-and-swap below is atomic on its own,
+        // and a caller may already have one open.
+        $weakens = strlen($password) > 72 && !str_starts_with($hash, '$2');
+        $rehash = password_needs_rehash($hash, PASSWORD_DEFAULT) && !str_contains($password, "\0") && !$weakens
+            ? password_hash($password, PASSWORD_DEFAULT) : null;
+        // Compare-and-swap on the hash just verified: a reset or admin edit that landed
+        // since then wins, rather than being overwritten with the old password.
+        if ($rehash !== null) {
+            if ($this->db->query('UPDATE users SET password_hash = ? WHERE id = ? AND password_hash = ?',
+                    [$rehash, $user['id'], $hash])->rowCount() === 1) {
+                $hash = $rehash;
+            } else {
+                // Lost the race. A concurrent login with this same password rehashed
+                // it first: take that hash's epoch so both sessions stay valid. A reset
+                // to another password does not verify, and this session stays on the
+                // old epoch, which the reset has revoked.
+                $current = (string) ($this->db->one('SELECT password_hash FROM users WHERE id = ?', [$user['id']])['password_hash'] ?? '');
+                if (password_verify($password, $current)) $hash = $current;
+            }
         }
         $this->db->query('DELETE FROM login_attempts WHERE email = ?', [$email]);
         ($this->regenerator)();
         $this->session->set('user_id', $user['id']);
-        $this->session->set('pwd_epoch', substr((string) $user['password_hash'], 0, self::EPOCH_LEN));
+        $this->session->set('pwd_epoch', substr($hash, 0, self::EPOCH_LEN));
         return true;
     }
 
@@ -120,6 +178,7 @@ final class Auth
         return $user !== null && hash_equals(substr((string) $user['password_hash'], 0, self::EPOCH_LEN), $epoch);
     }
 
+    /** @return array<array-key, mixed>|null the id and email columns */
     public function user(): ?array
     {
         $id = $this->session->get('user_id');

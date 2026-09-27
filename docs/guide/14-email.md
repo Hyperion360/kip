@@ -121,16 +121,23 @@ and `App::handle()` redacts it before audit logging: a path matching
 
 - **Text-only.** Every message is `text/plain; charset=utf-8`, no
   HTML email, no attachments, no multipart.
-- **No queue, no retry.** `send()` is synchronous: a slow SMTP server
-  stalls the HTTP request that triggered it, bounded by the 5-second
-  connect/read timeouts and a 30-second whole-conversation deadline.
-  Two consequences of sending inside the request: a stalled relay holds
-  a worker for up to that deadline, and, because the reset email only
-  sends for existing accounts. The SMTP round-trip is itself a timing
-  oracle for account existence. The log transport (the default) has
-  neither problem. Send from a CLI command
-  ([chapter 8](08-cli.md)) if you can't accept the stall; a mail queue
-  is the Phase-2 answer if real usage demands it.
+- **No queue, no retry.** `send()` is synchronous, bounded by the
+  5-second connect/read timeouts and a 30-second whole-conversation
+  deadline. The skeleton's `remind()` wraps it in `App::defer()`, which
+  runs it after the response is sent: the reset email goes only to
+  existing accounts, so sending it inside the request made a known email
+  answer slower than an unknown one (measured: 5.0s against 0.02s with a
+  stalled relay). Under PHP-FPM, `fastcgi_finish_request()` closes the
+  connection before deferred work runs, so the client sees no
+  difference; the worker is still held until the send finishes.
+  `runDeferred()` closes the session before it runs the queue: PHP's file
+  sessions stay locked until the script ends, and a send that holds the
+  lock would stall the visitor's next request only when the account
+  exists. Other
+  servers (`php -S`, Apache's module) keep the connection open until the
+  script ends, so the gap returns there. Do the same with any mail you
+  send only in some cases. A mail queue is the Phase-2 answer if real
+  usage demands retries.
 - **No email verification.** Kip has no public registration route to
   trigger one (`Auth::register()` exists as a method; the skeleton
   ships no signup form). That's a design fact, not unfinished work.

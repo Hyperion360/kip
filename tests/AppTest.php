@@ -132,7 +132,7 @@ final class AppTest extends TestCase
     public function test_guest_post_with_valid_token_still_redirects_to_login(): void // review 4A: CSRF-then-auth ordering
     {
         $app = $this->app('prod');
-        $res = $app->handle(new Request('POST', '/secretform/save', [], ['_token' => $app->session->csrfToken()], []));
+        $res = $app->handle(new Request('POST', '/secret-form/save', [], ['_token' => $app->session->csrfToken()], []));
         $this->assertSame(302, $res->status); // valid token passes CSRF, auth still gates
         $this->assertSame('/auth/login', $res->headers['Location']);
     }
@@ -180,11 +180,79 @@ final class AppTest extends TestCase
         $this->assertSame(200, $res->status);
     }
 
+    public function test_guest_wrong_verb_on_a_gated_route_redirects_rather_than_405(): void // pentest: 405 confirmed the route to guests
+    {
+        $res = $this->app('prod')->handle(new Request('GET', '/secret-form/save', [], [], []));
+        $this->assertSame(302, $res->status);
+        $this->assertSame('/auth/login', $res->headers['Location']);
+    }
+
+    public function test_logged_in_wrong_verb_on_a_gated_route_is_405(): void
+    {
+        $app = $this->app('prod');
+        $app->session->set('user_id', 1);
+        $res = $app->handle(new Request('GET', '/secret-form/save', [], [], []));
+        $this->assertSame(405, $res->status);
+        $this->assertSame('POST', $res->headers['Allow']);
+    }
+
+    public function test_a_failing_deferred_task_is_logged_and_the_rest_still_run(): void
+    {
+        $app = $this->app('prod');
+        $ran = [];
+        $send = static function (string $to): void { throw new \RuntimeException('boom'); };
+        $app->defer(static function () use ($send): void { $send('secret@example.com'); });
+        $app->defer(static function () use (&$ran): void { $ran[] = 'second'; });
+        $log = tempnam(sys_get_temp_dir(), 'kip-log-');
+        $previous = ini_set('error_log', $log);
+        try { $app->runDeferred(); } finally { ini_set('error_log', (string) $previous); }
+        $logged = (string) file_get_contents($log);
+        unlink($log);
+        $this->assertStringContainsString('Deferred task failed: RuntimeException: boom at ', $logged);
+        $this->assertStringNotContainsString('secret@', $logged, 'no trace arguments in the log');
+        $this->assertSame(['second'], $ran, 'a throwing task must not stop the ones queued after it');
+        $app->runDeferred();
+        $this->assertSame(['second'], $ran, 'the queue is cleared once run');
+    }
+
+    /** A front controller that never calls runDeferred() still gets its work done at shutdown. */
+    public function test_deferred_work_runs_at_shutdown_when_runDeferred_is_never_called(): void
+    {
+        $marker = tempnam(sys_get_temp_dir(), 'kip-defer-');
+        unlink($marker);
+        $script = sprintf('require %s; $app = new Kip\\App([]); $app->defer(static function (): void { touch(%s); });',
+            var_export(dirname(__DIR__) . '/vendor/autoload.php', true), var_export($marker, true));
+        exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($script) . ' 2>&1', $out, $code);
+        $this->assertSame(0, $code, implode("\n", $out));
+        $this->assertFileExists($marker);
+        unlink($marker);
+    }
+
+    /** A deferred send must not keep the visitor's session locked (an existence oracle). */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+    #[\PHPUnit\Framework\Attributes\PreserveGlobalState(false)]
+    public function test_deferred_work_runs_with_the_session_released(): void
+    {
+        session_start();
+        $app = $this->app('prod');
+        $status = null;
+        $app->defer(static function () use (&$status): void { $status = session_status(); });
+        $app->runDeferred();
+        $this->assertSame(PHP_SESSION_NONE, $status);
+    }
+
+    public function test_guest_post_without_token_on_a_gated_route_redirects_rather_than_403(): void
+    {
+        $res = $this->app('prod')->handle(new Request('POST', '/secret-form/save', [], [], []));
+        $this->assertSame(302, $res->status);
+        $this->assertSame('/auth/login', $res->headers['Location']);
+    }
+
     public function test_authed_route_still_requires_token(): void // origin proof must NOT unlock #[Auth] routes
     {
         $app = $this->app('prod');
         $app->session->set('user_id', 1); // simulate logged-in
-        $res = $app->handle(new Request('POST', '/secretform/save', [], [], [], '',
+        $res = $app->handle(new Request('POST', '/secret-form/save', [], [], [], '',
             ['origin' => 'http://blog.test', 'sec-fetch-site' => 'same-origin']));
         $this->assertSame(403, $res->status); // same-origin alone is not enough where ambient authority exists
     }

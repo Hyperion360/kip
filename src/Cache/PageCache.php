@@ -7,8 +7,15 @@ use Kip\Http\Response;
 /** Full-page cache for anonymous GETs: SQLite store + table-tag purge (CDN Surrogate-Key model, v0.2). */
 final class PageCache
 {
-    public function __construct(private Database $db, private int $ttlSeconds = 3600)
+    public const DEFAULT_MAX_PAGES = 10000;
+
+    /** @param int $maxPages row cap: every distinct query string is its own row, so without one junk queries fill the disk */
+    public function __construct(private Database $db, private int $ttlSeconds = 3600, private int $maxPages = self::DEFAULT_MAX_PAGES)
     {
+        if ($maxPages < 1) {
+            // 0 would evict every page as it is written: caching silently off.
+            throw new \InvalidArgumentException("cache_db.max_pages must be at least 1, got {$maxPages}");
+        }
         $this->db->query('CREATE TABLE IF NOT EXISTS pages (
             key TEXT PRIMARY KEY, body TEXT NOT NULL, headers TEXT NOT NULL,
             etag TEXT NOT NULL, created_at INTEGER NOT NULL
@@ -16,6 +23,11 @@ final class PageCache
         $this->db->query('CREATE TABLE IF NOT EXISTS page_tags (
             tag TEXT NOT NULL, key TEXT NOT NULL, PRIMARY KEY (tag, key)
         )');
+        // Serves the TTL prune and the oldest-first eviction below.
+        $this->db->query('CREATE INDEX IF NOT EXISTS idx_pages_created_at ON pages (created_at)');
+        // page_tags' key leads with tag, so every delete by page key (prune, eviction,
+        // purge) scanned the whole table without this one.
+        $this->db->query('CREATE INDEX IF NOT EXISTS idx_page_tags_key ON page_tags (key)');
     }
 
     private function key(string $path, string $query): string
@@ -35,10 +47,27 @@ final class PageCache
         return new Response($row['body'], 200, [...$headers, 'X-Kip-Cache' => 'HIT', 'ETag' => $row['etag']]);
     }
 
-    /** Store a 200 HTML response with the tables its render read as purge tags. */
+    /**
+     * Store a 200 HTML response with the tables its render read as purge tags.
+     *
+     * @param list<string> $tables
+     */
     public function put(string $path, string $query, Response $response, array $tables): void
     {
         if ($response->status !== 200) return;
+        $this->db->begin(); // one transaction: a write plus its prune is one sync, not one per statement
+        try {
+            $this->store($path, $query, $response, $tables);
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /** @param list<string> $tables */
+    private function store(string $path, string $query, Response $response, array $tables): void
+    {
         $key = $this->key($path, $query);
         $etag = '"' . hash('sha256', $response->body) . '"';
         $this->db->query('INSERT OR REPLACE INTO pages (key, body, headers, etag, created_at) VALUES (?, ?, ?, ?, ?)',
@@ -53,6 +82,16 @@ final class PageCache
         $cutoff = time() - $this->ttlSeconds;
         $this->db->query('DELETE FROM page_tags WHERE key IN (SELECT key FROM pages WHERE created_at < ?)', [$cutoff]);
         $this->db->query('DELETE FROM pages WHERE created_at < ?', [$cutoff]);
+        // Row cap: evict the oldest pages, so a flood of unique query strings replaces
+        // older entries instead of growing the file. Set-based, like the prune above: a
+        // cache already far over the cap (an upgrade, a lowered max_pages) trims in two
+        // statements, not two per row.
+        $excess = (int) $this->db->one('SELECT COUNT(*) c FROM pages')['c'] - $this->maxPages;
+        if ($excess > 0) {
+            $oldest = 'SELECT key FROM pages ORDER BY created_at, rowid LIMIT ?';
+            $this->db->query("DELETE FROM page_tags WHERE key IN ({$oldest})", [$excess]);
+            $this->db->query("DELETE FROM pages WHERE key IN ({$oldest})", [$excess]);
+        }
     }
 
     /** @param string[] $tables written tables → purge every page tagged with any of them */

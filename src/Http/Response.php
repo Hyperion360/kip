@@ -7,10 +7,18 @@ final class Response
         'Content-Type'           => 'text/html; charset=utf-8',
         'X-Content-Type-Options' => 'nosniff',
         'X-Frame-Options'        => 'SAMEORIGIN',
+        // Pinned rather than left to the browser: a page with a token in its URL
+        // (/auth/reset/...) must never send that path to another site.
+        'Referrer-Policy'        => 'strict-origin-when-cross-origin',
+        // Only directives no Kip page needs to loosen: no <base> hijack, no plugins.
+        // No script-src, no frame-ancestors (it would override an app's X-Frame-Options: DENY).
+        'Content-Security-Policy' => "base-uri 'self'; object-src 'none'",
     ];
 
+    /** @var array<string, string> */
     public readonly array $headers;
 
+    /** @param array<string, string> $headers */
     public function __construct(
         public readonly string $body = '',
         public readonly int $status = 200,

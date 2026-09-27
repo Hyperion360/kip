@@ -4,12 +4,15 @@ namespace Kip;
 final class Session
 {
     private bool $isLazy = false;           // review D4: explicit mode, not a nulled reference
+    /** @var array<string, mixed>|null reference-bound to the caller's store */
     private ?array $eager;
     private SessionStarter|\Closure|null $starter = null;
+    /** @var array<string, mixed>|null */
     private ?array $lazyData = null;
     private bool $started = false;
     private int $touches = 0;
 
+    /** @param array<string, mixed> $data */
     public function __construct(array &$data)
     {
         $this->eager = &$data;
@@ -25,7 +28,7 @@ final class Session
         return $s;
     }
 
-    /** @return array the live session store (starting it if lazy and untouched) */
+    /** @return array<string, mixed> the live session store (starting it if lazy and untouched) */
     private function &data(): array
     {
         $this->touches++;

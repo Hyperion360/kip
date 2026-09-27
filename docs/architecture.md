@@ -2,8 +2,8 @@
 
 Kip is a batteries-included, server-rendered framework for PHP 8.3+ with
 zero JavaScript and zero runtime dependencies. `composer.json` requires
-exactly `php >= 8.3` and `ext-pdo`. The whole core is 19 PHP files under
-`src/`, roughly 970 lines, and every class in it is `final` except
+exactly `php >= 8.3` and `ext-pdo`. The whole core is 35 PHP files under
+`src/`, roughly 2,050 lines, and every class in it is `final` except
 `Kip\Migrations\Migration`, the abstract base your own migrations extend.
 The bet: a kernel this small can be read end-to-end in an afternoon.
 This page is the map. What happens to a request, where security is
@@ -29,6 +29,10 @@ $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
 $app = new Kip\App($config, Kip\Session::lazy(new Kip\SessionStarter($https)));
 $app->handle(Kip\Http\Request::fromGlobals(trustedProxy: $config['trusted_proxy']))->send();
 ob_end_flush();
+// Work queued with App::defer() runs after the response is out. Under PHP-FPM the
+// connection closes first, so the client never waits on it.
+if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+$app->runDeferred();
 ```
 
 1. **`Request::fromGlobals()`** builds an immutable snapshot: method,
@@ -55,6 +59,14 @@ ob_end_flush();
 6. **`Response::send()`** emits status, headers, body. The defaults
    (`Content-Type`, `nosniff`, `X-Frame-Options: SAMEORIGIN`) merge
    into every response, redirects and 304s included.
+7. **`App::runDeferred()`** runs whatever the request queued with
+   `App::defer()`, after the response is sent. Under PHP-FPM,
+   `fastcgi_finish_request()` has closed the connection by then, so a
+   slow side effect (the skeleton's password-reset mail) adds nothing to
+   the response time. A failing task is logged and the rest still run.
+   Work still queued when the script ends (a front controller that never
+   calls `runDeferred()`) runs from a shutdown function instead of being
+   dropped.
 
 ```
 skeleton/public/index.php
@@ -66,7 +78,7 @@ App::handle($request) ───────────────────�
    ├─ cachedProcess() ── page-cache lookup / tap / purge / store
    │      └─ process() ── routing + security + invocation
    │            ├─ Router::match()  → RouteMatch | null (404) | 405 throw
-   │            ├─ CSRF lanes, then #[Auth] login gate
+   │            ├─ #[Auth] login gate, then CSRF lanes
    │            ├─ $scope = clone $container; bind Request + Session
    │            ├─ RouteMatch::invoke($scope)
    │            │      └─ Container::make() autowires the controller
@@ -88,6 +100,9 @@ Both lanes live in `App::process()`, before the controller is
 constructed:
 
 ```php
+if ($match->requiresAuth && !$this->authSessionValid($active)) {
+    return Response::redirect('/auth/login');
+}
 if (!in_array($request->method, ['GET', 'HEAD'], true)) {
     $tokenOk = $active->validateCsrf($request->postStr('_token') ?: null);
     if ($match->requiresAuth) {
@@ -95,9 +110,6 @@ if (!in_array($request->method, ['GET', 'HEAD'], true)) {
     } elseif (!$tokenOk && !$this->sameOriginProof($request)) {
         return new Response('Cross-site request rejected', 403);
     }
-}
-if ($match->requiresAuth && $active->get('user_id') === null) {
-    return Response::redirect('/auth/login');
 }
 ```
 
@@ -114,13 +126,17 @@ if ($match->requiresAuth && $active->get('user_id') === null) {
   against the request's own `Host` header. A request carrying none of
   those headers is accepted, a documented accepted risk (legacy and
   privacy-hardened clients share that exact signature).
-- **The `#[Auth]` login gate.** After the lanes: an `#[Auth]` route
-  with no `user_id` in the session redirects to `/auth/login`. Note
-  the order. CSRF runs first, so a tokenless unauthenticated POST to
-  an `#[Auth]` route gets the 403, not the redirect.
+- **The `#[Auth]` login gate.** Before the lanes: an `#[Auth]` route
+  without a valid logged-in session redirects to `/auth/login`. Note
+  the order. The gate runs first, so a guest gets the same redirect on a
+  gated route whether or not the request carries a token, and with the
+  wrong verb too; no status or message tells a guest the route exists.
+  A logged-in user still needs the token, so the lanes lose nothing.
 
 `#[Auth]` is detected by `Router::match()` and carried on
-`RouteMatch::$requiresAuth`.
+`RouteMatch::$requiresAuth`. It counts on the controller class, any parent
+class, interface or trait, or any declaration of the action in that hierarchy,
+matched by short name in any letter case.
 
 ## Page-cache orchestration
 

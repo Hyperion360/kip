@@ -146,6 +146,10 @@ accordingly. This means:
   the same flag also fixes the login-throttle IP issue from
   [chapter 6](06-security.md), so it's one setting worth getting right
   early in a deploy, not two separate things to remember.
+- Once every page loads over HTTPS, add `Strict-Transport-Security:
+  max-age=31536000` at the proxy. Kip does not send it: a browser that
+  has seen it refuses plain HTTP for the host until `max-age` runs out,
+  so turn it on only when you are sure HTTPS is there to stay.
 
 ## What isn't here
 

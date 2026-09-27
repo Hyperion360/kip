@@ -53,4 +53,19 @@ final class DatabaseTest extends TestCase
         $db->query('INSERT INTO t (id) VALUES (1)');
         $this->assertSame(1, (int) $db->one('SELECT COUNT(*) c FROM t')['c']);
     }
+
+    /**
+     * lastInsertId() declares string. PDO::lastInsertId() is string|false, so
+     * the declared type must be enforced rather than assumed.
+     */
+    public function test_last_insert_id_is_always_a_string(): void
+    {
+        $db = new \Kip\Database('sqlite::memory:');
+        $db->exec('CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT)');
+        $db->query('INSERT INTO t (v) VALUES (?)', ['x']);
+
+        $id = $db->lastInsertId();
+        $this->assertIsString($id);
+        $this->assertSame('1', $id);
+    }
 }

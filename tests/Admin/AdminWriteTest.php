@@ -92,6 +92,22 @@ final class AdminWriteTest extends TestCase
         $this->assertSame('ORIGINALHASH', $this->db->one('SELECT password_hash FROM users WHERE id = 1')['password_hash']);
     }
 
+    public function test_browse_never_renders_the_password_hash(): void // pentest: the title attribute carried it
+    {
+        $res = $this->client->get('/admin/browse/users');
+        $this->assertSame(200, $res->status);
+        $this->assertStringContainsString('admin@x.com', $res->body);
+        $this->assertStringNotContainsString('ORIGINALHASH', $res->body);
+    }
+
+    public function test_nul_byte_password_is_a_form_error_not_a_500(): void
+    {
+        $res = $this->client->postWithToken('/admin/update/users/1', ['email' => 'admin@x.com', 'password_hash' => "new\0pass", 'is_admin' => '1']);
+        $this->assertSame(422, $res->status);
+        $this->assertStringContainsString('password cannot contain a NUL byte', $res->body);
+        $this->assertSame('ORIGINALHASH', $this->db->one('SELECT password_hash FROM users WHERE id = 1')['password_hash']);
+    }
+
     public function test_nonblank_password_is_rehashed(): void
     {
         $this->client->postWithToken('/admin/update/users/1', ['email' => 'admin@x.com', 'password_hash' => 'newpw123', 'is_admin' => '1']);

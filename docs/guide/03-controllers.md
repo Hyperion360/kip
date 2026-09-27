@@ -85,9 +85,12 @@ Response::redirect(string $to, int $status = 302): self;
 $response->withHeader(string $name, string $value): self;   // returns a NEW instance
 ```
 
-Every `Response` carries three headers by default, merged under whatever
+Every `Response` carries five headers by default, merged under whatever
 you pass explicitly: `Content-Type: text/html; charset=utf-8`,
-`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`. These
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`,
+`Referrer-Policy: strict-origin-when-cross-origin`, and
+`Content-Security-Policy: base-uri 'self'; object-src 'none'`
+([chapter 6](06-security.md) explains each). These
 merge into *every* response the framework sends, including 302 redirects
 and 304s. Which is harmless (clients that don't apply a header to a
 bodyless response just ignore it) but worth knowing when you're inspecting

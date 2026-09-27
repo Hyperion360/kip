@@ -16,7 +16,11 @@ the entire implementation, about 40 lines.
   `Controller`: `posts` → `PostsController`, `blog-posts` →
   `BlogPostsController` (both `-` and `_` split words), resolved against
   `{controller_namespace}{Studly}Controller` (default namespace
-  `App\Controllers\`).
+  `App\Controllers\`). A separator must sit between two words: a
+  controller segment that starts or ends with `-` or `_`, or doubles one,
+  is a 404. The StudlyCase name must also match the declared class name
+  exactly, so `/blogposts` does not reach `BlogPostsController`: PHP
+  ignores case in class names, but the URL does not.
 - Anything after the second segment becomes positional string arguments to
   the method: `/posts/show/42` calls `PostsController::show('42')`.
 
@@ -61,7 +65,16 @@ If the route exists (controller + action + arg count all resolve) but the
 verb doesn't match any attribute on the method, that's a **405 Method Not
 Allowed** with an `Allow` header listing the verbs that would work, not a
 404. A route that doesn't exist at all (no such controller, no such
-method, or wrong argument count) is a 404.
+method, or wrong argument count) is a 404. On an `#[Auth]` route, a guest
+with the wrong verb gets the login redirect instead of the 405, so the
+response does not confirm to a guest that the route exists.
+
+Verbs follow the class hierarchy. An override in a subclass, or a method
+implementing an interface signature or replacing a trait method, keeps the
+verbs of the nearest declaration of that action that names any. A parent's
+`#[Post] store()` stays POST-only in a subclass that overrides `store()`
+without repeating the attribute, rather than falling back to GET. An
+override that names its own verb uses that verb instead.
 
 ## `#[Auth]`
 
@@ -80,6 +93,34 @@ at all. `#[Auth]` also changes CSRF enforcement for that route, see
 
 Attributes stack. `#[Auth] #[Post]` on one method is common for
 create/update actions that must be both logged-in and POST-only.
+
+To require login for every action in a controller, put `#[Auth]` on the
+class instead. It also counts on a parent class, an interface or a trait,
+so a base controller, a marker interface or a shared trait carrying
+`#[Auth]` gates every controller that extends, implements or uses it:
+
+```php
+use Kip\Routing\Auth;
+
+#[Auth]
+abstract class AdminBase {}
+
+final class ReportsController extends AdminBase
+{
+    public function index(): string { /* login required */ }
+}
+```
+
+A method-level `#[Auth]` counts on any declaration of that action in the
+hierarchy: an override in a subclass stays gated even if it leaves the
+attribute off, and so does a method whose interface signature or trait
+declaration carries it.
+
+The router matches attribute names by their short name, without regard to
+letter case or imports, so an `#[Auth]` you forgot to import still gates the
+route rather than leaving it public. The flip side: an attribute of your own
+named `Auth`, `Get`, `Post`, `Put` or `Delete`, in any namespace, is read as
+Kip's. Give app attributes other names.
 
 ## HEAD requests
 

@@ -69,7 +69,10 @@ your own CSRF check for it.
 - **Fixation defense.** `Kip\Auth::attempt()` calls a session-id
   regenerator on successful login (`session_regenerate_id(true)` by
   default) *before* setting `user_id`. A session that existed pre-login
-  is never the one that carries post-login authority.
+  is never the one that carries post-login authority. Before that,
+  `SessionStarter` turns on `session.use_strict_mode`, so PHP replaces a
+  session id the server never issued instead of adopting one planted in
+  the visitor's cookie.
 - **Logout rotation.** `Kip\Auth::logout()` does the same thing in
   reverse: it forgets `user_id`, rotates the CSRF token
   (`rotateCsrf()`), and regenerates the session id, the same fixation
@@ -97,6 +100,16 @@ if ($this->auth->throttled($email, $this->request->ip)) {
 }
 ```
 
+**The email half is a deliberate trade-off.** Because the count includes
+every failure for the email from any IP, anyone who knows a user's email
+can lock that account out of login for 15 minutes with five wrong
+passwords, even from an address the user never shares. Counting per
+email and IP pair instead would stop that, but it would also let an
+attacker with many IPs make five guesses per address against one
+account. Kip keeps the stricter rule. The lockout is temporary, and the
+user has a way back in: password reset uses its own counter (below), and
+a successful reset clears the login failures for that email.
+
 **Split buckets for resets.** Once `login_attempts` carries the `kind`
 column (skeleton migration `006_add_login_attempts_kind`), password-reset
 requests count against their **own** limits: 3 per account, 10 per IP,
@@ -105,7 +118,11 @@ deliberate in both directions: reset spam can no longer lock a victim
 out of *login*, and a login-failure flood can no longer block the
 *forgot-password* recovery path. Apps without the column keep the older,
 stricter shared-counter behavior (the framework detects the column at
-runtime). Tightening reset limits further when login attempts look
+runtime). Skeleton migration `007_index_login_attempts_by_time` indexes
+the table by email, by IP and by attempt time, so every throttle check
+and prune is an index lookup rather than a read of the whole table;
+without it a credential-stuffing burst makes each login slower.
+Tightening reset limits further when login attempts look
 abusive (step-up verification) is deliberately not built, see
 [`../design-decisions.md`](../design-decisions.md).
 
@@ -124,6 +141,12 @@ missing users table, a deleted user row, or a legacy session without an
 epoch all count as not logged in. (After upgrading an existing app,
 logged-in users re-authenticate once. Their pre-upgrade sessions have
 no epoch.)
+
+A successful login also rewrites a hash stored at an outdated cost or
+algorithm (after a PHP upgrade raises the default bcrypt cost, or for
+rows imported from another system), so response timing cannot tell
+those accounts apart from unknown emails. That rewrite changes the
+epoch too: the user's other sessions end once, at that login.
 
 **Reverse-proxy caveat.** Throttling keys on `Request::ip`, which is
 `REMOTE_ADDR` unless `trusted_proxy` is on. Behind a reverse proxy without
@@ -148,10 +171,25 @@ sensitive in your own controllers.
 
 ## Security headers
 
-Every `Response` carries `X-Content-Type-Options: nosniff` and
-`X-Frame-Options: SAMEORIGIN` by default (see [chapter 3](03-controllers.md))
-. Including redirects and 304s, which is harmless per RFC but worth knowing
-when inspecting headers.
+Every `Response` carries these by default (see [chapter 3](03-controllers.md)),
+including redirects and 304s, which is harmless per RFC but worth knowing
+when inspecting headers:
+
+| Header | Value | Why |
+|---|---|---|
+| `X-Content-Type-Options` | `nosniff` | no MIME sniffing of uploads or text |
+| `X-Frame-Options` | `SAMEORIGIN` | no framing by other sites (clickjacking) |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | a URL carrying a token, such as `/auth/reset/...`, never reaches another site |
+| `Content-Security-Policy` | `base-uri 'self'; object-src 'none'` | no `<base>` hijack, no plugins |
+
+The CSP is deliberately minimal: it sets no `script-src`, so it blocks
+nothing a Kip page does, and no `frame-ancestors`, which would override an
+app's own `X-Frame-Options: DENY`. Pass your own
+`Content-Security-Policy` header to replace it with a stricter one.
+`Strict-Transport-Security` is not set by the framework: once a browser
+sees it, it refuses plain HTTP for that host until it expires, so enable it
+at the proxy or in your app once HTTPS works end to end (see
+[chapter 10](10-deployment.md)).
 
 ## Error modes
 

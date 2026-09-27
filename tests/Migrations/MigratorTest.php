@@ -47,4 +47,160 @@ final class MigratorTest extends TestCase
         $this->assertNull($this->db->one("SELECT name FROM sqlite_master WHERE name = 'gadgets'"));
         $this->assertNotNull($this->db->one("SELECT name FROM sqlite_master WHERE name = 'widgets'")); // batch 1 untouched
     }
+
+    /**
+     * DELIBERATE: no migrations directory means nothing to run, so migrate() is a
+     * clean no-op. Throwing here would break an app that simply has no migrations.
+     * Pinned so a future change to that is a decision, not an accident.
+     */
+    public function test_missing_migrations_directory_is_a_no_op(): void
+    {
+        $dir = sys_get_temp_dir() . '/kip-mig-absent-' . bin2hex(random_bytes(6));
+        $migrator = new \Kip\Migrations\Migrator(new \Kip\Database('sqlite::memory:'), $dir);
+
+        $this->assertSame([], $migrator->migrate());
+    }
+
+    /**
+     * A path that exists but is not a directory cannot be listed, so migrate() must
+     * refuse rather than report nothing to do. Unlike the unreadable-directory case
+     * below, this reaches the throw for every user, root included.
+     */
+    public function test_path_that_is_a_file_throws_rather_than_reporting_none(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'kip-mig-file-');
+        try {
+            $migrator = new \Kip\Migrations\Migrator(new \Kip\Database('sqlite::memory:'), $file);
+
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('Cannot list migrations in');
+            $migrator->migrate();
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * glob() read the directory path itself as a pattern, so a real migrations
+     * directory under a path containing [ ] silently listed as empty and its
+     * migrations never ran. Hidden files are skipped, as glob('*.sql') skipped them.
+     */
+    public function test_directory_path_with_glob_metacharacters_still_lists_migrations(): void
+    {
+        $base = sys_get_temp_dir() . '/kip-mig-br[x]-' . bin2hex(random_bytes(6));
+        $dir = $base . '/m';
+        mkdir($dir, 0777, true);
+        file_put_contents($dir . '/001_meta.sql', "-- up\nCREATE TABLE meta_t (id INTEGER PRIMARY KEY);\n-- down\nDROP TABLE meta_t;\n");
+        file_put_contents($dir . '/.hidden.sql', "-- up\nCREATE TABLE hidden_t (id INTEGER);\n-- down\nDROP TABLE hidden_t;\n");
+        $db = new \Kip\Database('sqlite::memory:');
+
+        try {
+            $this->assertSame(['001_meta'], (new \Kip\Migrations\Migrator($db, $dir))->migrate());
+            $this->assertNotNull($db->one("SELECT name FROM sqlite_master WHERE name = 'meta_t'"));
+            $this->assertNull($db->one("SELECT name FROM sqlite_master WHERE name = 'hidden_t'"), 'a dotfile is not a migration');
+        } finally {
+            unlink($dir . '/001_meta.sql');
+            unlink($dir . '/.hidden.sql');
+            rmdir($dir);
+            rmdir($base);
+        }
+    }
+
+    /** A migrations path that is a dangling symlink is broken config, not "no migrations". */
+    public function test_dangling_symlink_as_migrations_directory_throws(): void
+    {
+        $link = sys_get_temp_dir() . '/kip-mig-link-' . bin2hex(random_bytes(6));
+        symlink($link . '-missing-target', $link);
+        try {
+            $migrator = new \Kip\Migrations\Migrator(new \Kip\Database('sqlite::memory:'), $link);
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('Cannot list migrations in');
+            $migrator->migrate();
+        } finally {
+            unlink($link);
+        }
+    }
+
+    /**
+     * An entry named like a migration that is not a regular file (a directory, or a
+     * symlink whose target is gone) must stop migrate(), not vanish from the batch.
+     * glob() used to list these and apply() then failed loudly; skipping them would
+     * record a partial batch as complete.
+     */
+    public function test_migration_named_entry_that_is_not_a_regular_file_throws(): void
+    {
+        foreach (['directory' => static fn (string $p) => mkdir($p),
+                  'broken symlink' => static fn (string $p) => symlink($p . '-missing-target', $p)] as $kind => $make) {
+            $dir = sys_get_temp_dir() . '/kip-mig-odd-' . bin2hex(random_bytes(6));
+            mkdir($dir, 0777, true);
+            file_put_contents($dir . '/001_real.sql', "-- up\nCREATE TABLE real_t (id INTEGER);\n-- down\nDROP TABLE real_t;\n");
+            $odd = $dir . '/002_odd.sql';
+            $make($odd);
+            $error = null;
+            try {
+                (new \Kip\Migrations\Migrator(new \Kip\Database('sqlite::memory:'), $dir))->migrate();
+            } catch (\RuntimeException $e) {
+                $error = $e->getMessage();
+            } finally {
+                is_link($odd) ? unlink($odd) : @rmdir($odd);
+                unlink($dir . '/001_real.sql');
+                rmdir($dir);
+            }
+            $this->assertNotNull($error, "a {$kind} named like a migration must throw");
+            $this->assertStringContainsString('002_odd.sql', $error, $kind);
+        }
+    }
+
+    /**
+     * The realistic failure: a migrations directory that exists but cannot be read.
+     * The old glob() listing returned [] here, so migrate() reported "nothing to
+     * migrate" and exited cleanly against a schema it never touched.
+     *
+     * Skipped when this user can read a 0000 directory anyway (root, common in
+     * containers); the path-is-a-file test above still reaches the throw there.
+     */
+    public function test_unreadable_migrations_directory_throws_rather_than_reporting_none(): void
+    {
+        $dir = sys_get_temp_dir() . '/kip-mig-' . bin2hex(random_bytes(6));
+        mkdir($dir, 0777, true);
+        chmod($dir, 0000);
+
+        try {
+            clearstatcache();
+            if (is_readable($dir)) {
+                $this->markTestSkipped('this user can read a 0000 directory (root), so the failure cannot be staged');
+            }
+            $migrator = new \Kip\Migrations\Migrator(new \Kip\Database('sqlite::memory:'), $dir);
+
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('Cannot list migrations in');
+            $migrator->migrate();
+        } finally {
+            chmod($dir, 0777);
+            rmdir($dir);
+        }
+    }
+
+    /**
+     * Regression guard for the glob() hardening: an empty but READABLE migrations
+     * directory must stay a normal no-op: only a genuine read failure is an error,
+     * never an empty listing.
+     */
+    public function test_empty_readable_migrations_directory_is_a_no_op(): void
+    {
+        $dir = sys_get_temp_dir() . '/kip-mig-' . bin2hex(random_bytes(6));
+        mkdir($dir, 0777, true);
+
+        $db = new \Kip\Database('sqlite::memory:');
+        $migrator = new \Kip\Migrations\Migrator($db, $dir);
+
+        try {
+            // migrate() is one of Migrator's two public methods (the other is
+            // rollback()); it calls the private files() that scandir()s the
+            // directory and keeps the .php and .sql entries.
+            $this->assertSame([], $migrator->migrate(), 'an empty directory applies nothing');
+        } finally {
+            rmdir($dir);
+        }
+    }
 }
