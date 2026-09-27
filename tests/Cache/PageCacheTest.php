@@ -163,4 +163,14 @@ final class PageCacheTest extends TestCase
         $cache->put('/fine', '', (new Response('y'))->withHeader('X-Robots-Tag', 'noarchive'), []);
         $this->assertNotNull($cache->get('/fine', ''));
     }
+    public function test_non_string_header_shapes_are_skipped(): void
+    {
+        // An app violating the documented array<string, string> contract (an int
+        // key, a non-string value) is skipped, not trusted.
+        $this->cache->put('/x', '', new Response('b', 200, [7 => 'x', 'X-Custom' => 42]), []);
+        $hit = $this->cache->get('/x', '');
+        $this->assertNotNull($hit);
+        $this->assertSame('b', $hit->body);
+    }
+
 }

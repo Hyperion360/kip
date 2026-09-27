@@ -61,8 +61,9 @@ final class PageCache
             // A noindexed page (an empty listing, say) must not consume cache rows:
             // junk URLs would otherwise each write one TTL-bounded row. The header
             // name is matched case-insensitively; the value only has to contain
-            // the directive (comma lists included).
-            if (strcasecmp($n, 'X-Robots-Tag') === 0 && stripos($v, 'noindex') !== false) return;
+            // the directive (comma lists included). Cast, not trust: the
+            // array<string,string> docblock is a contract PHP does not enforce.
+            if (strcasecmp((string) $n, 'X-Robots-Tag') === 0 && stripos((string) $v, 'noindex') !== false) return;
         }
         $this->db->begin(); // one transaction: a write plus its prune is one sync, not one per statement
         try {
