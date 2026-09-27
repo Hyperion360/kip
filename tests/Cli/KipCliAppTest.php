@@ -144,4 +144,30 @@ final class KipCliAppTest extends TestCase
         $this->assertStringStartsWith('kip: ', $out);
         $this->assertStringNotContainsString('Stack trace', $out);
     }
+
+    public function test_failure_output_lands_on_stderr_not_stdout(): void
+    {
+        // Guide ch. 8 owns the contract: failures print "kip: <error>" on STDERR,
+        // so deploy tooling can read stdout for success output. The harness merges
+        // the two streams and cannot tell a regression to stdout (echo) from the
+        // contract; this run separates them.
+        $configPath = $this->cliApp . '/config.php';
+        $config = (string) file_get_contents($configPath);
+        $broken = str_replace("'sqlite:' . __DIR__ . '/app/data.sqlite'", "'sqlite:/no-such-dir/data.sqlite'", $config);
+        $this->assertNotSame($config, $broken, 'skeleton/config.php changed how the db DSN is spelled; update the injection');
+        file_put_contents($configPath, $broken);
+        $errFile = (string) tempnam(sys_get_temp_dir(), 'kip-cli-err-');
+        $outFile = (string) tempnam(sys_get_temp_dir(), 'kip-cli-out-');
+        try {
+            $cmd = 'cd ' . escapeshellarg($this->cliApp) . ' && ' . escapeshellarg(PHP_BINARY) . ' ./bin/kip migrate'
+                . ' > ' . escapeshellarg($outFile) . ' 2> ' . escapeshellarg($errFile);
+            exec($cmd, $lines, $code);
+            $this->assertSame(1, $code);
+            $this->assertStringStartsWith('kip: ', (string) file_get_contents($errFile));
+            $this->assertSame('', (string) file_get_contents($outFile), 'the failure line must not leak into stdout');
+        } finally {
+            @unlink($errFile);
+            @unlink($outFile);
+        }
+    }
 }
