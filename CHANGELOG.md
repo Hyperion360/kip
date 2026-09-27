@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Every autoloaded file under `src/` now declares `strict_types=1`, so a
+  scalar type mismatch inside the framework is a `TypeError` instead of a
+  silent conversion; until now the runtime relaxed exactly what the level 6
+  analysis gate forbids. Almost no working app changes behavior: the places
+  where app-authored data reaches a typed framework parameter coerce
+  deliberately first, so a config integer written as a string (`'30'`) and
+  a session `user_id` stored as `'7'` keep working. A session `user_id` that is not numeric is audited as a
+  guest. Two exotic corners do tighten: a non-string value where a
+  string-typed config key belongs (an integer DSN) now throws at
+  construction instead of being coerced, and an autowired class whose
+  scalar constructor default is bound to a mistyped constant (a string
+  constant defaulting an int parameter) now throws where reflection used
+  to coerce. The one file without the declaration is
+  `src/Routing/RouteMatch.php`, on purpose: `invoke()` is where the
+  framework calls application code with strings parsed from the URL, so an
+  app action declaring an `int` parameter keeps receiving a coerced value.
+  A test pins both the declaration and that exemption.
 - Added `SECURITY.md` (private disclosure via GitHub's vulnerability
   reporting, scope, and what a good report includes) and `CONTRIBUTING.md`
   (the quality gate as the first line: `composer check`, what it enforces,
