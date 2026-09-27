@@ -16,6 +16,7 @@ final class App
     private ?\Kip\Cache\PageCache $pageCache = null;
     /** @var list<callable(): void> work queued by defer(), run after the response is sent */
     private array $deferred = [];
+    private bool $deferFallbackArmed = false;
 
     /** @param array<string, mixed> $config */
     public function __construct(private array $config, ?Session $session = null)
@@ -95,13 +96,21 @@ final class App
      * in the response time. Use it for side effects whose cost would reveal something,
      * such as mail that is only sent when an account exists. The front controller calls
      * runDeferred() after send(); under PHP-FPM, fastcgi_finish_request() closes the
-     * connection first, so the client never waits on this work.
+     * connection first, so the client never waits on this work. runDeferred() closes
+     * the session before running the queue, so a task must not read or write it.
+     * One queue per App: under a persistent worker, call runDeferred() once per request.
      *
      * @param callable(): void $task
      */
     public function defer(callable $task): void
     {
         $this->deferred[] = $task;
+        if (!$this->deferFallbackArmed) {
+            // A front controller that never calls runDeferred() must not lose the work
+            // (a reset email, say): whatever is still queued runs when the script ends.
+            register_shutdown_function(fn () => $this->runDeferred());
+            $this->deferFallbackArmed = true;
+        }
     }
 
     /**
@@ -110,12 +119,16 @@ final class App
      */
     public function runDeferred(): void
     {
+        // Release the session lock first. With PHP's file handler the session stays
+        // locked until the script ends, so a deferred send (only made for an existing
+        // account) would stall the visitor's next request and reveal the account.
+        if ($this->deferred !== [] && session_status() === PHP_SESSION_ACTIVE) session_write_close();
         while ($this->deferred !== []) {
             $task = array_shift($this->deferred);
             try {
                 $task();
             } catch (\Throwable $e) {
-                error_log('Deferred task failed: ' . $e->getMessage());
+                error_log('Deferred task failed: ' . $e); // with the trace: nothing else will report it
             }
         }
     }
@@ -201,6 +214,11 @@ final class App
             // per-request scope, never the long-lived container, worker-mode
             // guarantee (D7). The boot Session alone would go stale under a
             // persistent worker, so each request may bring its own.
+            // Login before CSRF: a guest gets the same redirect on a gated route whatever
+            // the token, so neither the response nor its status confirms the route exists.
+            if ($match->requiresAuth && !$this->authSessionValid($active)) {
+                return Response::redirect('/auth/login');
+            }
             if (!in_array($request->method, ['GET', 'HEAD'], true)) {
                 $tokenOk = $active->validateCsrf($request->postStr('_token') ?: null);
                 if ($match->requiresAuth) {
@@ -209,9 +227,6 @@ final class App
                 } elseif (!$tokenOk && !$this->sameOriginProof($request)) {
                     return new Response('Cross-site request rejected', 403);
                 }
-            }
-            if ($match->requiresAuth && !$this->authSessionValid($active)) {
-                return Response::redirect('/auth/login');
             }
             $scope = clone $this->container;
             $scope->instance(Request::class, $request);

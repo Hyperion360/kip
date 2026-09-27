@@ -127,10 +127,26 @@ final class Auth
             $this->recordAttempt($email, $ip, 'login');
             return false;
         }
-        // A NUL-byte password can verify against argon2 but would make password_hash() throw.
-        if (password_needs_rehash($hash, PASSWORD_DEFAULT) && !str_contains($password, "\0")) {
-            $hash = password_hash($password, PASSWORD_DEFAULT);
-            $this->db->query('UPDATE users SET password_hash = ? WHERE id = ?', [$hash, $user['id']]);
+        // Not rehashed: a NUL byte (argon2 verifies it, bcrypt's password_hash() throws) or
+        // more than 72 bytes (bcrypt reads only the first 72, so an argon2 hash of a longer
+        // password would quietly get weaker). No transaction here: the compare-and-swap
+        // below is atomic on its own, and a caller may already have one open.
+        $rehash = password_needs_rehash($hash, PASSWORD_DEFAULT) && !str_contains($password, "\0") && strlen($password) <= 72
+            ? password_hash($password, PASSWORD_DEFAULT) : null;
+        // Compare-and-swap on the hash just verified: a reset or admin edit that landed
+        // since then wins, rather than being overwritten with the old password.
+        if ($rehash !== null) {
+            if ($this->db->query('UPDATE users SET password_hash = ? WHERE id = ? AND password_hash = ?',
+                    [$rehash, $user['id'], $hash])->rowCount() === 1) {
+                $hash = $rehash;
+            } else {
+                // Lost the race. A concurrent login with this same password rehashed
+                // it first: take that hash's epoch so both sessions stay valid. A reset
+                // to another password does not verify, and this session stays on the
+                // old epoch, which the reset has revoked.
+                $current = (string) ($this->db->one('SELECT password_hash FROM users WHERE id = ?', [$user['id']])['password_hash'] ?? '');
+                if (password_verify($password, $current)) $hash = $current;
+            }
         }
         $this->db->query('DELETE FROM login_attempts WHERE email = ?', [$email]);
         ($this->regenerator)();

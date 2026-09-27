@@ -484,7 +484,8 @@ Now wire comments into the post page. This is where the interim
                 FROM posts p
                 WHERE p.id = ?", [$id]);
         if ($post === null) return new Response('Post not found', 404);
-        $comments = json_decode($post['comments_json'], true);
+        // SUBSTITUTE: one comment with invalid UTF-8 would otherwise make json_decode() return null.
+        $comments = json_decode($post['comments_json'], true, flags: JSON_INVALID_UTF8_SUBSTITUTE);
         usort($comments, fn ($a, $b) => [$a['created_at'], $a['id']] <=> [$b['created_at'], $b['id']]);
         return $this->view->render('posts/show', [
             'title' => $post['title'],
@@ -499,7 +500,9 @@ SQLite's `json_group_array()` folds every comment into a JSON array
 carried in the post's own row, and `json_decode()` turns it back into the
 same list of rows a second query would have returned. A post with no
 comments yields `[]`. The sort happens in PHP because an aggregate does not
-promise an order. Kip apps hold every page to one query against the
+promise an order. The `JSON_INVALID_UTF8_SUBSTITUTE` flag keeps one comment
+posted with a stray non-UTF-8 byte from breaking the whole page: the bad
+bytes show as `�` instead of making `json_decode()` return `null`. Kip apps hold every page to one query against the
 content database; [chapter 15](guide/15-performance-contract.md) explains
 why and shows the other patterns.
 

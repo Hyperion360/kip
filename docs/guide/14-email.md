@@ -129,7 +129,11 @@ and `App::handle()` redacts it before audit logging: a path matching
   answer slower than an unknown one (measured: 5.0s against 0.02s with a
   stalled relay). Under PHP-FPM, `fastcgi_finish_request()` closes the
   connection before deferred work runs, so the client sees no
-  difference; the worker is still held until the send finishes. Other
+  difference; the worker is still held until the send finishes.
+  `runDeferred()` closes the session before it runs the queue: PHP's file
+  sessions stay locked until the script ends, and a send that holds the
+  lock would stall the visitor's next request only when the account
+  exists. Other
   servers (`php -S`, Apache's module) keep the connection open until the
   script ends, so the gap returns there. Do the same with any mail you
   send only in some cases. A mail queue is the Phase-2 answer if real

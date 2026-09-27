@@ -57,6 +57,21 @@ final class ContainerTest extends TestCase
         $this->assertInstanceOf(ContainerDep::class, $diamond->right);
     }
 
+    /** A failed resolve must pop its class, or a retry of it reads as a false cycle. */
+    public function test_a_failed_resolve_does_not_poison_a_retry_of_the_same_class(): void
+    {
+        $c = new Container();
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            try {
+                $c->make(NeedsScalar::class);
+                $this->fail('an unautowirable parameter must throw');
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('$label', $e->getMessage(), "attempt {$attempt}");
+                $this->assertStringNotContainsString('Circular', $e->getMessage(), "attempt {$attempt}");
+            }
+        }
+    }
+
     public function test_unautowirable_parameter_throws_named_error(): void // review 4A
     {
         $c = new Container();

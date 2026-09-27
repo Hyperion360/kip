@@ -44,7 +44,11 @@
   `password_needs_rehash()` flags at `PASSWORD_DEFAULT`. Limit: such an
   account stays distinguishable by timing until its owner next logs in.
   The rewrite changes the session epoch, so that login ends the user's
-  other sessions, once.
+  other sessions, once. The write only applies if the stored hash is still
+  the one just verified, so a password reset that lands in between wins,
+  while two simultaneous logins with the same password both stay logged
+  in. A hash of a password over 72 bytes is not rewritten to bcrypt, which
+  reads only the first 72.
 - **Security, behavior change: verb attributes follow the class hierarchy.**
   The router read `#[Get]`, `#[Post]`, `#[Put]` and `#[Delete]` only from
   the method it resolved, so a subclass overriding a parent's
@@ -92,7 +96,10 @@
   page; blog migration `007_add_posts_created_at_index` lets it read
   through an index instead. The tutorial's Step 6 and Step 7 teach both,
   and a test renders each page against the blog's migrations and fails on
-  a second query.
+  a second query. It decodes the comment JSON with
+  `JSON_INVALID_UTF8_SUBSTITUTE`, so one comment posted with invalid UTF-8
+  cannot make the post's page fail. The JSON functions are built into
+  SQLite 3.38 and later; older builds need the JSON1 extension.
 - **Security: the admin panel no longer exposes password hashes.** The
   browse table masked the `password_hash` cell as `••••` but still wrote the
   full hash into that cell's `title` attribute, so it was in the page source
@@ -107,18 +114,27 @@
   skeleton's front controller calls `fastcgi_finish_request()` first, so
   under PHP-FPM the client never waits on it. `remind()` now defers the
   send. Apps built from the skeleton should copy both the `remind()`
-  change and the three lines added to `public/index.php`. `TestClient`
-  runs deferred work after each request, as production does.
+  change and the three lines added to `public/index.php`; without them
+  the queued work still runs, at script shutdown, rather than being lost.
+  `runDeferred()` closes the session before running the queue, so a slow
+  send never holds the visitor's session lock (which would stall their next
+  request only for an existing account). `TestClient` runs deferred work
+  after each request, as production does.
 - The page cache caps its row count. Every distinct query string got its
   own row with no limit, so requests like `/posts?junk=N` grew
   `cache.sqlite` until the TTL pruned them (60 requests added 60 rows in a
   local probe). New `cache_db.max_pages` (default 10000) evicts the oldest
-  pages once the table is full, and an index on `created_at` serves both
-  that eviction and the TTL prune.
-- A guest sending the wrong verb to an `#[Auth]` route gets the login
-  redirect, not a 405. The 405 and its `Allow` header confirmed to a guest
-  that the route existed and which verb it takes. Logged-in users still
-  get the 405. `MethodNotAllowedException` gains a `requiresAuth` property
+  pages once the table is full, in two set-based statements, so a cache
+  already far over the cap is trimmed in one request instead of a statement
+  per row. An index on `created_at` serves both that eviction and the TTL
+  prune, and each `put()` now runs in one transaction. A `max_pages` below
+  1 is refused, since it would evict every page as it is written.
+- A guest gets the login redirect on an `#[Auth]` route whatever the
+  request: the wrong verb used to answer 405 with an `Allow` header, and a
+  POST without a CSRF token answered 403, and both confirmed to a guest
+  that the route existed. The login gate now runs before the CSRF check,
+  reversing the documented order. Logged-in users still get the 405 and
+  the 403. `MethodNotAllowedException` gains a `requiresAuth` property
   (constructor default `false`, so existing code keeps working).
 - Two more default response headers: `Referrer-Policy:
   strict-origin-when-cross-origin` (pinned, so a token-carrying URL such as

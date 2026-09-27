@@ -64,6 +64,9 @@ $app->runDeferred();
    `fastcgi_finish_request()` has closed the connection by then, so a
    slow side effect (the skeleton's password-reset mail) adds nothing to
    the response time. A failing task is logged and the rest still run.
+   Work still queued when the script ends (a front controller that never
+   calls `runDeferred()`) runs from a shutdown function instead of being
+   dropped.
 
 ```
 skeleton/public/index.php
@@ -75,7 +78,7 @@ App::handle($request) ───────────────────�
    ├─ cachedProcess() ── page-cache lookup / tap / purge / store
    │      └─ process() ── routing + security + invocation
    │            ├─ Router::match()  → RouteMatch | null (404) | 405 throw
-   │            ├─ CSRF lanes, then #[Auth] login gate
+   │            ├─ #[Auth] login gate, then CSRF lanes
    │            ├─ $scope = clone $container; bind Request + Session
    │            ├─ RouteMatch::invoke($scope)
    │            │      └─ Container::make() autowires the controller
@@ -97,6 +100,9 @@ Both lanes live in `App::process()`, before the controller is
 constructed:
 
 ```php
+if ($match->requiresAuth && !$this->authSessionValid($active)) {
+    return Response::redirect('/auth/login');
+}
 if (!in_array($request->method, ['GET', 'HEAD'], true)) {
     $tokenOk = $active->validateCsrf($request->postStr('_token') ?: null);
     if ($match->requiresAuth) {
@@ -104,9 +110,6 @@ if (!in_array($request->method, ['GET', 'HEAD'], true)) {
     } elseif (!$tokenOk && !$this->sameOriginProof($request)) {
         return new Response('Cross-site request rejected', 403);
     }
-}
-if ($match->requiresAuth && $active->get('user_id') === null) {
-    return Response::redirect('/auth/login');
 }
 ```
 
@@ -123,10 +126,12 @@ if ($match->requiresAuth && $active->get('user_id') === null) {
   against the request's own `Host` header. A request carrying none of
   those headers is accepted, a documented accepted risk (legacy and
   privacy-hardened clients share that exact signature).
-- **The `#[Auth]` login gate.** After the lanes: an `#[Auth]` route
-  with no `user_id` in the session redirects to `/auth/login`. Note
-  the order. CSRF runs first, so a tokenless unauthenticated POST to
-  an `#[Auth]` route gets the 403, not the redirect.
+- **The `#[Auth]` login gate.** Before the lanes: an `#[Auth]` route
+  without a valid logged-in session redirects to `/auth/login`. Note
+  the order. The gate runs first, so a guest gets the same redirect on a
+  gated route whether or not the request carries a token, and with the
+  wrong verb too; no status or message tells a guest the route exists.
+  A logged-in user still needs the token, so the lanes lose nothing.
 
 `#[Auth]` is detected by `Router::match()` and carried on
 `RouteMatch::$requiresAuth`. It counts on the controller class, any parent

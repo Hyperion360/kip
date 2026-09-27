@@ -196,6 +196,51 @@ final class AppTest extends TestCase
         $this->assertSame('POST', $res->headers['Allow']);
     }
 
+    public function test_a_failing_deferred_task_is_logged_and_the_rest_still_run(): void
+    {
+        $app = $this->app('prod');
+        $ran = [];
+        $app->defer(static function (): void { throw new \RuntimeException('boom'); });
+        $app->defer(static function () use (&$ran): void { $ran[] = 'second'; });
+        $app->runDeferred();
+        $this->assertSame(['second'], $ran, 'a throwing task must not stop the ones queued after it');
+        $app->runDeferred();
+        $this->assertSame(['second'], $ran, 'the queue is cleared once run');
+    }
+
+    /** A front controller that never calls runDeferred() still gets its work done at shutdown. */
+    public function test_deferred_work_runs_at_shutdown_when_runDeferred_is_never_called(): void
+    {
+        $marker = tempnam(sys_get_temp_dir(), 'kip-defer-');
+        unlink($marker);
+        $script = sprintf('require %s; $app = new Kip\\App([]); $app->defer(static function (): void { touch(%s); });',
+            var_export(dirname(__DIR__) . '/vendor/autoload.php', true), var_export($marker, true));
+        exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($script) . ' 2>&1', $out, $code);
+        $this->assertSame(0, $code, implode("\n", $out));
+        $this->assertFileExists($marker);
+        unlink($marker);
+    }
+
+    /** A deferred send must not keep the visitor's session locked (an existence oracle). */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+    #[\PHPUnit\Framework\Attributes\PreserveGlobalState(false)]
+    public function test_deferred_work_runs_with_the_session_released(): void
+    {
+        session_start();
+        $app = $this->app('prod');
+        $status = null;
+        $app->defer(static function () use (&$status): void { $status = session_status(); });
+        $app->runDeferred();
+        $this->assertSame(PHP_SESSION_NONE, $status);
+    }
+
+    public function test_guest_post_without_token_on_a_gated_route_redirects_rather_than_403(): void
+    {
+        $res = $this->app('prod')->handle(new Request('POST', '/secret-form/save', [], [], []));
+        $this->assertSame(302, $res->status);
+        $this->assertSame('/auth/login', $res->headers['Location']);
+    }
+
     public function test_authed_route_still_requires_token(): void // origin proof must NOT unlock #[Auth] routes
     {
         $app = $this->app('prod');

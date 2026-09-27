@@ -34,7 +34,8 @@ final class PostsController
                 FROM posts p
                 WHERE p.id = ?", [$id]);
         if ($post === null) return new Response('Post not found', 404);
-        $comments = json_decode($post['comments_json'], true);
+        // SUBSTITUTE: one comment with invalid UTF-8 would otherwise make json_decode() return null.
+        $comments = json_decode($post['comments_json'], true, flags: JSON_INVALID_UTF8_SUBSTITUTE);
         usort($comments, fn ($a, $b) => [$a['created_at'], $a['id']] <=> [$b['created_at'], $b['id']]);
         return $this->view->render('posts/show', [
             'title' => $post['title'],

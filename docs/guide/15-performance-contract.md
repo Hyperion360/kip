@@ -41,12 +41,20 @@ $sql = "SELECT p.*,
         WHERE p.id = ?";
 $post = $db->one($sql, [$id]);
 if ($post === null) return new Kip\Http\Response('Post not found', 404);
-$comments = json_decode($post['comments_json'], true);
+$comments = json_decode($post['comments_json'], true, flags: JSON_INVALID_UTF8_SUBSTITUTE);
 usort($comments, fn ($a, $b) => [$a['created_at'], $a['id']] <=> [$b['created_at'], $b['id']]);
 ```
 
-Sort in PHP rather than trusting aggregate order. A post with no comments
-yields an empty array, not NULL. Prefer this to `GROUP_CONCAT` with a
+`json_group_array()` and `json_object()` are built into SQLite 3.38 and
+later; older builds have them only when compiled with the JSON1 extension,
+and otherwise fail the query with `no such function`. Sort in PHP rather
+than trusting aggregate order. A post with no comments
+yields an empty array, not NULL. Decode with `JSON_INVALID_UTF8_SUBSTITUTE`:
+Kip does not validate the encoding of request input, SQLite's
+`json_object()` copies invalid bytes into the JSON as they are, and a plain
+`json_decode()` of that text returns `null`. Without the flag, one comment
+posted with a stray byte makes the post's page fail for every visitor; with
+it, the bad bytes render as U+FFFD and the page still loads. Prefer this to `GROUP_CONCAT` with a
 separator: any separator you choose can appear in text a user typed, and one
 comment containing it splits into extra fields and corrupts the rows after
 it. JSON encoding has no such character.

@@ -62,6 +62,28 @@ final class PageCacheTest extends TestCase
         $this->assertNotNull($cache->get('/posts', 'junk=5'), 'the newest stays');
     }
 
+    /** An upgrade or a lowered max_pages can leave the cache far over the cap: one put() trims it in a few statements. */
+    public function test_a_cache_far_over_the_cap_is_trimmed_in_a_bounded_number_of_statements(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db, ttlSeconds: 3600, maxPages: 3);
+        $db->query("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 500)
+                    INSERT INTO pages (key, body, headers, etag, created_at) SELECT 'k' || i, 'b', '{}', 'e', ? FROM n", [time()]);
+        $statements = 0;
+        $db->onQuery(function () use (&$statements): void { $statements++; });
+        $cache->put('/new', '', new Response('fresh'), ['posts']);
+        $db->onQuery(static fn () => null);
+        $this->assertSame(3, (int) $db->one('SELECT COUNT(*) c FROM pages')['c']);
+        $this->assertNotNull($cache->get('/new', ''), 'the page just written survives');
+        $this->assertLessThan(15, $statements, 'eviction is set-based, not a statement per evicted row');
+    }
+
+    public function test_a_row_cap_below_one_is_refused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new PageCache(new Database('sqlite::memory:'), ttlSeconds: 3600, maxPages: 0);
+    }
+
     public function test_only_status_200_is_stored(): void
     {
         $this->cache->put('/gone', '', new Response('nope', 404), []);

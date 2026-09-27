@@ -172,6 +172,72 @@ final class AuthTest extends TestCase
         $this->assertFalse($other->sessionValid(), 'a session from before the rewrite ends');
     }
 
+    /** A password change that lands between the verify and the rehash write must win. */
+    public function test_rehash_does_not_overwrite_a_password_changed_meanwhile(): void
+    {
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)',
+            ['race@b.c', password_hash('old-pass', PASSWORD_BCRYPT, ['cost' => 4])]);
+        $reset = password_hash('new-pass', PASSWORD_DEFAULT);
+        $raced = false;
+        $this->db->onQuery(function (string $sql) use (&$raced, $reset): void {
+            if (!$raced && str_starts_with($sql, 'UPDATE users SET password_hash = ? WHERE id = ? AND')) {
+                $raced = true;   // a reset completes just before the rehash write runs
+                $this->db->query('UPDATE users SET password_hash = ? WHERE id = 1', [$reset]);
+            }
+        });
+        $this->assertTrue($this->auth->attempt('race@b.c', 'old-pass'));
+        $this->db->onQuery(static fn () => null);
+
+        $this->assertTrue($raced);
+        $this->assertSame($reset, $this->db->one('SELECT password_hash FROM users WHERE id = 1')['password_hash'], 'the reset stands');
+        $this->assertFalse($this->auth->sessionValid(), 'and this login does not carry an epoch for the old password');
+    }
+
+    /** Two logins racing on the same outdated hash (a double submit): both sessions stay valid. */
+    public function test_concurrent_rehash_with_the_same_password_keeps_both_sessions_valid(): void
+    {
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)',
+            ['twice@b.c', password_hash('same-pass', PASSWORD_BCRYPT, ['cost' => 4])]);
+        $winner = password_hash('same-pass', PASSWORD_DEFAULT);   // the other login's rehash, fresh salt
+        $raced = false;
+        $this->db->onQuery(function (string $sql) use (&$raced, $winner): void {
+            if (!$raced && str_starts_with($sql, 'UPDATE users SET password_hash = ? WHERE id = ? AND')) {
+                $raced = true;
+                $this->db->query('UPDATE users SET password_hash = ? WHERE id = 1', [$winner]);
+            }
+        });
+        $this->assertTrue($this->auth->attempt('twice@b.c', 'same-pass'));
+        $this->db->onQuery(static fn () => null);
+
+        $this->assertTrue($raced);
+        $this->assertSame($winner, $this->db->one('SELECT password_hash FROM users WHERE id = 1')['password_hash']);
+        $this->assertTrue($this->auth->sessionValid(), 'the losing login takes the winning hash epoch');
+    }
+
+    /** bcrypt reads only 72 bytes: an argon2 hash of a longer password is kept, not weakened. */
+    public function test_an_argon2_hash_of_a_password_over_72_bytes_is_not_rewritten_to_bcrypt(): void
+    {
+        if (!defined('PASSWORD_ARGON2ID')) {
+            $this->markTestSkipped('this PHP build has no argon2 support');
+        }
+        $long = str_repeat('a', 72) . 'tail-that-bcrypt-would-drop';
+        $argon = password_hash($long, PASSWORD_ARGON2ID);
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)', ['long@b.c', $argon]);
+        $this->assertTrue($this->auth->attempt('long@b.c', $long));
+        $this->assertSame($argon, $this->db->one('SELECT password_hash FROM users WHERE email = ?', ['long@b.c'])['password_hash']);
+    }
+
+    /** An app may log a user in inside its own transaction: attempt() must not open a second one. */
+    public function test_attempt_works_inside_a_callers_transaction(): void
+    {
+        $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)',
+            ['tx@b.c', password_hash('right-pass', PASSWORD_BCRYPT, ['cost' => 4])]);   // outdated: forces the rehash write
+        $this->db->begin();
+        $this->assertTrue($this->auth->attempt('tx@b.c', 'right-pass'));
+        $this->db->commit();
+        $this->assertTrue($this->auth->sessionValid());
+    }
+
     public function test_other_bcrypt_prefixes_are_rewritten_as_2y(): void
     {
         $y = password_hash('right-pass', PASSWORD_BCRYPT, ['cost' => 4]);

@@ -37,14 +37,24 @@ final class QueryBudgetTest extends TestCase
         $this->db->query("INSERT INTO comments (post_id, author, body, created_at) VALUES (1, 'Bo', 'second', '2026-09-02T10:00:00+00:00')");
     }
 
-    /** @return array{0: \Kip\Http\Response, 1: int} */
+    /**
+     * Render $path, count its queries, and fail if any of them plans as a table scan or a
+     * sort. The plans come from the SQL the controller actually ran, captured by the tap.
+     *
+     * @return array{0: \Kip\Http\Response, 1: int}
+     */
     private function render(string $path): array
     {
-        $queries = 0;
-        $this->db->onQuery(function () use (&$queries): void { $queries++; });
+        $sql = [];
+        $this->db->onQuery(function (string $q) use (&$sql): void { $sql[] = $q; });
         $res = (new TestClient($this->app))->get($path);
         $this->db->onQuery(static fn () => null);
-        return [$res, $queries];
+        foreach ($sql as $q) {
+            $plan = implode("\n", array_column($this->db->all('EXPLAIN QUERY PLAN ' . $q, array_fill(0, substr_count($q, '?'), 1)), 'detail'));
+            $this->assertStringNotContainsString('TEMP B-TREE', $plan, $q);
+            $this->assertDoesNotMatchRegularExpression('/^SCAN \w+$/m', $plan, "a full scan: {$q}");
+        }
+        return [$res, count($sql)];
     }
 
     public function test_post_page_with_comments_is_one_query(): void
@@ -67,13 +77,26 @@ final class QueryBudgetTest extends TestCase
         $this->assertLessThanOrEqual(1, $queries);
     }
 
+    /**
+     * Request input is not UTF-8 validated, so a comment can carry invalid bytes.
+     * SQLite's json_object() passes them through, and a plain json_decode() of the
+     * aggregate then returns null: one bad comment turned the post page into a 500.
+     */
+    public function test_a_comment_with_invalid_utf8_does_not_break_the_post_page(): void
+    {
+        $this->db->query("INSERT INTO comments (post_id, author, body, created_at) VALUES (1, ?, 'fourth', '2026-09-05T10:00:00+00:00')",
+            ["Dee \xff\xfe"]);
+        [$res, $queries] = $this->render('/posts/show/1');
+        $this->assertSame(200, $res->status, $res->body);
+        $this->assertLessThanOrEqual(1, $queries);
+        $this->assertStringContainsString('fourth', $res->body, 'the comment still shows');
+        $this->assertStringContainsString('third', $res->body, 'and so do the others');
+    }
+
     public function test_listing_is_one_query_and_uses_an_index_not_a_sort(): void
     {
         [$res, $queries] = $this->render('/posts');
         $this->assertSame(200, $res->status, $res->body);
-        $this->assertLessThanOrEqual(1, $queries);
-        $plan = implode("\n", array_column($this->db->all(
-            'EXPLAIN QUERY PLAN SELECT * FROM posts ORDER BY created_at DESC, id DESC LIMIT 21 OFFSET 0'), 'detail'));
-        $this->assertStringNotContainsString('TEMP B-TREE', $plan);
+        $this->assertLessThanOrEqual(1, $queries); // render() also fails it on a scan or a sort
     }
 }
