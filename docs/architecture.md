@@ -29,6 +29,10 @@ $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
 $app = new Kip\App($config, Kip\Session::lazy(new Kip\SessionStarter($https)));
 $app->handle(Kip\Http\Request::fromGlobals(trustedProxy: $config['trusted_proxy']))->send();
 ob_end_flush();
+// Work queued with App::defer() runs after the response is out. Under PHP-FPM the
+// connection closes first, so the client never waits on it.
+if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+$app->runDeferred();
 ```
 
 1. **`Request::fromGlobals()`** builds an immutable snapshot: method,
@@ -55,6 +59,11 @@ ob_end_flush();
 6. **`Response::send()`** emits status, headers, body. The defaults
    (`Content-Type`, `nosniff`, `X-Frame-Options: SAMEORIGIN`) merge
    into every response, redirects and 304s included.
+7. **`App::runDeferred()`** runs whatever the request queued with
+   `App::defer()`, after the response is sent. Under PHP-FPM,
+   `fastcgi_finish_request()` has closed the connection by then, so a
+   slow side effect (the skeleton's password-reset mail) adds nothing to
+   the response time. A failing task is logged and the rest still run.
 
 ```
 skeleton/public/index.php

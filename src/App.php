@@ -14,6 +14,8 @@ final class App
     private array $sessionStore = [];
     private ?RequestLog $requestLog = null;
     private ?\Kip\Cache\PageCache $pageCache = null;
+    /** @var list<callable(): void> work queued by defer(), run after the response is sent */
+    private array $deferred = [];
 
     /** @param array<string, mixed> $config */
     public function __construct(private array $config, ?Session $session = null)
@@ -85,6 +87,36 @@ final class App
         $auditPath = preg_replace('#^(/auth/reset/)[0-9a-f]{' . Auth::RESET_TOKEN_HEX . '}$#', '$1<redacted>', $request->path);
         $this->requestLog?->log($request, $response->status, $active->peek('user_id'), (hrtime(true) - $start) / 1e6, $auditPath);
         return $response;
+    }
+
+    /**
+     * Queue work to run after the response has been sent, so its duration never shows
+     * in the response time. Use it for side effects whose cost would reveal something,
+     * such as mail that is only sent when an account exists. The front controller calls
+     * runDeferred() after send(); under PHP-FPM, fastcgi_finish_request() closes the
+     * connection first, so the client never waits on this work.
+     *
+     * @param callable(): void $task
+     */
+    public function defer(callable $task): void
+    {
+        $this->deferred[] = $task;
+    }
+
+    /**
+     * Run and clear the deferred queue. A failing task is logged and the rest still run:
+     * the response is already gone, so there is no one left to report an error to.
+     */
+    public function runDeferred(): void
+    {
+        while ($this->deferred !== []) {
+            $task = array_shift($this->deferred);
+            try {
+                $task();
+            } catch (\Throwable $e) {
+                error_log('Deferred task failed: ' . $e->getMessage());
+            }
+        }
     }
 
     /** Read-only config access for app code (base_url etc.). */

@@ -98,6 +98,17 @@
   full hash into that cell's `title` attribute, so it was in the page source
   and in the hover tooltip. The title is now masked the same way. Present
   since v0.3.0.
+- **Security: password-reset timing no longer reveals which emails are
+  registered.** The skeleton's `remind()` sent the reset email inside the
+  request, and only for existing accounts, so a known email answered
+  slower (5.0s against 0.02s against a stalled SMTP relay, and roughly
+  100 to 500ms against a healthy one). New `App::defer(callable)` queues
+  work that `App::runDeferred()` runs after the response is sent; the
+  skeleton's front controller calls `fastcgi_finish_request()` first, so
+  under PHP-FPM the client never waits on it. `remind()` now defers the
+  send. Apps built from the skeleton should copy both the `remind()`
+  change and the three lines added to `public/index.php`. `TestClient`
+  runs deferred work after each request, as production does.
 - Two declared return types made true: `Database::lastInsertId()` casts
   PDO's `string|false`, and `View::render()` casts `ob_get_clean()`'s
   `string|false`. Both previously relied on coercive mode to turn a

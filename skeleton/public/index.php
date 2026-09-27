@@ -13,3 +13,7 @@ $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
 $app = new Kip\App($config, Kip\Session::lazy(new Kip\SessionStarter($https)));
 $app->handle(Kip\Http\Request::fromGlobals(trustedProxy: $config['trusted_proxy']))->send();
 ob_end_flush();
+// Work queued with App::defer() runs after the response is out. Under PHP-FPM the
+// connection closes first, so the client never waits on it.
+if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+$app->runDeferred();

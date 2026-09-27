@@ -52,7 +52,9 @@ final class TestClient
         // This keeps the page cache honest: fresh clients are cookieless guests
         // (cacheable), stateful clients are BYPASS.
         $cookies = $this->store === [] ? [] : ['kip_test_session' => '1'];
-        return $this->app->handle(new Request($method, $path, $get, $post, $cookies, '127.0.0.1', $headers, $files), $this->session);
+        $response = $this->app->handle(new Request($method, $path, $get, $post, $cookies, '127.0.0.1', $headers, $files), $this->session);
+        $this->app->runDeferred(); // as the front controller does after send()
+        return $response;
     }
 
     /** Log in without a password round-trip: seed the session like Auth::attempt() does,
