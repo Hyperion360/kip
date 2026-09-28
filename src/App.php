@@ -270,6 +270,12 @@ final class App
      */
     private static function entityTagList(string $inm): array
     {
+        // Four backslashes = one literal backslash: PHP single-quoting halves '\\\\'
+        // to '\\', and the regex engine reads '\\' as one backslash. [^"\\\\] is
+        // "any char except quote and backslash"; the \\\\. alternative consumes an
+        // escaped char, which is what keeps a tag like "a\"b" (or a quoted comma)
+        // inside one member instead of truncating it. Halving either pair, or
+        // dropping the arm, breaks member extraction and with it every 304 on a list.
         preg_match_all('~\*|(?:W/)?"(?:[^"\\\\]|\\\\.)*"~', $inm, $m);
         $members = [];
         foreach ($m[0] as $tag) {
