@@ -32,14 +32,14 @@ final class DevErrorPage
   body { margin: 0; font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: #1a1a1a; background: #faf9f7; }
   main { max-width: 50rem; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
   .status { margin: 0; font-size: .8125rem; font-weight: 600; letter-spacing: .08em; color: #b3261e; }
-  h1 { font-size: 1.375rem; margin: .35rem 0 1.25rem; }
+  h1 { font-size: 1.375rem; margin: .35rem 0 1.25rem; text-wrap: balance; }
   h1 code { font-size: 1em; }
   .message { margin: 0; font-size: 1.0625rem; background: #fff; border: 1px solid #e5e1da; border-left: 3px solid #b3261e; padding: .8rem 1rem; overflow-wrap: anywhere; }
   .meta { margin-top: 1.5rem; font-size: .875rem; color: #55524c; }
   .meta div { margin-top: .35rem; }
   code { font: .9375em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   pre { margin-top: 1.5rem; padding: 1rem; background: #21201c; color: #ece7de; border-radius: 4px; overflow-x: auto; font: .8125rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-  footer { margin-top: 2rem; font-size: .8125rem; color: #857f74; }
+  footer { margin-top: 2rem; font-size: .8125rem; color: #6f6a5f; }
 </style>
 </head>
 <body>
