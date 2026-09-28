@@ -16,8 +16,9 @@
 //                              docs/guide/README.md, matches the actual
 //                              recursive *.php count under src/. Incidental
 //                              digit mentions that are not src/ claims sit in
-//                              the COUNT_CLAIM_EXCEPTIONS ledger, whose entries
-//                              fail once the sentence they excuse is gone.
+//                              the COUNT_CLAIM_EXCEPTIONS ledger; each entry
+//                              pins the literal substring it excuses and
+//                              fails once that sentence is gone.
 //   3. Referenced src paths, every literal `src/.../*.php` mention in the doc
 //                              set points to an existing file.
 //   4. CLI chapter commands, every `bin/kip <command>` invocation in
@@ -176,13 +177,18 @@ const WORD_NUMBERS = [
 
 /**
  * Digit "<N> files" / "N-file" mentions that are NOT src/ count claims, one
- * entry per (file, number) with the reason. An entry fails as stale once its
- * number no longer appears in the file, so the ledger cannot outlive the
- * sentence it excuses.
+ * entry per (file, number). Each entry pins the literal substring that must
+ * still appear in the file beside the claim, plus the reason. The entry
+ * applies only when both the number claim and the pinned substring occur in
+ * the same file; otherwise it fails as stale, so an unrelated sentence with
+ * the same number cannot keep the ledger alive.
  */
 const COUNT_CLAIM_EXCEPTIONS = [
     'docs/guide/11-testing.md' => [
-        4 => 'a static-analysis example about the blog app, not an src/ count claim',
+        4 => [
+            'match' => '(4 files, 145 lines)',
+            'reason' => 'a static-analysis example about the blog app, not an src/ count claim',
+        ],
     ],
 ];
 
@@ -210,7 +216,10 @@ function checkSrcFileCount(string $repoRoot, array $mdFiles): array
         preg_match_all('/\b(\d+)(?:\s+files|-file)\b/', $text, $m, PREG_SET_ORDER);
         foreach ($m as $match) {
             $claimed = (int) $match[1];
-            $excused = isset(COUNT_CLAIM_EXCEPTIONS[$relPath][$claimed]);
+            // The ledger shields the claim only when the pinned substring sits
+            // in the same file: same number alone proves nothing.
+            $excused = isset(COUNT_CLAIM_EXCEPTIONS[$relPath][$claimed])
+                && str_contains($text, COUNT_CLAIM_EXCEPTIONS[$relPath][$claimed]['match']);
             if ($excused) {
                 $seenExceptions[$relPath][$claimed] = true;
             } elseif ($claimed !== $actual) {
@@ -258,15 +267,16 @@ function checkSrcFileCount(string $repoRoot, array $mdFiles): array
         }
     }
 
-    // A ledger entry whose number no longer appears in its file is stale: the
-    // exception cannot outlive the sentence it excuses.
+    // A ledger entry whose pinned substring no longer sits beside its number
+    // claim is stale: the exception cannot outlive the sentence it excuses.
     foreach (COUNT_CLAIM_EXCEPTIONS as $excFile => $numbers) {
-        foreach (array_keys($numbers) as $n) {
+        foreach ($numbers as $n => $exc) {
             if (!isset($seenExceptions[$excFile][(int) $n])) {
                 $details[] = sprintf(
-                    'exception for %s number %d no longer matches any claim; update or remove it',
+                    'exception for %s number %d no longer matches any claim; expected the substring "%s"; update or remove it',
                     $excFile,
-                    $n
+                    $n,
+                    $exc['match']
                 );
             }
         }
