@@ -8,8 +8,14 @@ final class Migrator
 {
     public const LEDGER_TABLE = '_migrations';
 
+    /** @var list<string> every migrations directory, normalized at the boundary so consumers never cast */
+    private array $dir;
+
     /** @param string|list<string> $dir one migrations directory, or several merged into ONE global ledger */
-    public function __construct(private Database $db, private string|array $dir) {}
+    public function __construct(private Database $db, string|array $dir)
+    {
+        $this->dir = is_array($dir) ? $dir : [$dir];
+    }
 
     /** @return string[] names of migrations run */
     public function migrate(): array
@@ -79,7 +85,7 @@ final class Migrator
         // reported an unreadable directory as empty unless given GLOB_ERR, whose handling
         // of a missing directory differs between C libraries.
         $map = [];
-        foreach ((array) $this->dir as $dir) {
+        foreach ($this->dir as $dir) {
             if (!file_exists($dir) && !is_link($dir)) continue; // a dangling link is broken config, not absence
             error_clear_last();
             $entries = is_dir($dir) ? @scandir($dir) : false;
@@ -121,10 +127,10 @@ final class Migrator
         return $map;
     }
 
-    /** Every migration directory in one label, so no message interpolates the now-array property (review P2-3). */
+    /** Every migration directory in one label, so no message interpolates the array property (review P2-3). */
     private function dirsLabel(): string
     {
-        return implode(', ', (array) $this->dir);
+        return implode(', ', $this->dir);
     }
 
     private function apply(string $file, string $direction): void
