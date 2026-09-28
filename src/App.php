@@ -211,11 +211,20 @@ final class App
         }
         $etag = $response->headers['ETag'] ?? '"' . hash('sha256', $response->body) . '"';
         $response = $response->withHeader('ETag', $etag);
+        // RFC 9110 §13.1.2: If-None-Match is a comma-separated list of validators,
+        // or the wildcard *. The weak prefix strips per member (review D5d: weak
+        // validators compare by value for GET). A validator is always present here,
+        // so * matches whatever this response carries.
+        $match = false;
         $inm = $request->header('if-none-match');
-        if ($inm !== null && str_starts_with($inm, 'W/')) {
-            $inm = substr($inm, 2); // review D5d: weak validators compare by value for GET
+        if ($inm !== null) {
+            foreach (explode(',', $inm) as $member) {
+                $member = trim($member);
+                if (str_starts_with($member, 'W/')) $member = substr($member, 2);
+                if ($member === '*' || $member === $etag) { $match = true; break; }
+            }
         }
-        if ($inm === $etag) {
+        if ($match) {
             // RFC 9110 §15.4.5: a 304 carries the cache-relevant headers the 200 would
             // have sent. Field names are case-insensitive (RFC 9110 5.1), so keys are
             // scanned, not two spellings enumerated.

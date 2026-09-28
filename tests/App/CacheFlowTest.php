@@ -124,6 +124,28 @@ final class CacheFlowTest extends TestCase
         $this->assertSame(304, $res->status);
     }
 
+    public function test_if_none_match_list_containing_the_etag_matches(): void // RFC 9110 §13.1.2
+    {
+        $this->get('/posts');
+        $etag = $this->get('/posts')->headers['ETag'];
+        $res = $this->get('/posts', ['if-none-match' => '"stale-one", ' . $etag . ', "stale-two"']);
+        $this->assertSame(304, $res->status);
+    }
+
+    public function test_if_none_match_wildcard_matches_any_validator(): void // RFC 9110 §13.1.2
+    {
+        $this->get('/posts');
+        $res = $this->get('/posts', ['if-none-match' => '*']);
+        $this->assertSame(304, $res->status);
+    }
+
+    public function test_if_none_match_list_without_the_etag_does_not_match(): void
+    {
+        $this->get('/posts');
+        $res = $this->get('/posts', ['if-none-match' => '"one", W/"two"']);
+        $this->assertSame(200, $res->status);
+    }
+
     public function test_304_carries_the_cache_relevant_headers_of_the_200(): void // RFC 9110 §15.4.5
     {
         $app = new App([
