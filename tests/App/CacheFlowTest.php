@@ -32,7 +32,8 @@ class CacheHeaderPageController
     {
         return (new \Kip\Http\Response('ch'))
             ->withHeader('Cache-Control', 'max-age=60')
-            ->withHeader('Vary', 'Accept-Encoding');
+            ->withHeader('Vary', 'Accept-Encoding')
+            ->withHeader('Content-Location', '/canonical');
     }
 }
 
@@ -204,4 +205,48 @@ final class CacheFlowTest extends TestCase
         $res2 = $app->handle(new Request('GET', '/cookie-case-page', [], [], []));
         $this->assertSame('MISS', $res2->headers['X-Kip-Cache']); // never stored, never HIT
     }
+    public function test_deferred_writes_purge_cached_pages(): void
+    {
+        $this->get('/posts');
+        $this->get('/posts');
+        $this->app->defer(function (): void {
+            $this->db->query("UPDATE posts SET title = 'changed' WHERE id = 1");
+        });
+        $this->app->runDeferred();
+        $this->assertSame('MISS', $this->get('/posts')->headers['X-Kip-Cache']); // deferred writes invalidate like in-request ones
+    }
+
+    public function test_lowercase_app_etag_and_quoted_commas_survive_comparison(): void
+    {
+        $first = $this->get('/etag-page');
+        $this->assertSame('"a,b"', $first->headers['etag']); // the app's own tag, not the body hash
+        $res = $this->get('/etag-page', ['if-none-match' => '"zz", "a,b"']);
+        $this->assertSame(304, $res->status);
+    }
+
+    public function test_a_weak_response_etag_matches_a_plain_member(): void
+    {
+        $this->get('/weak-etag-page');
+        $res = $this->get('/weak-etag-page', ['if-none-match' => '"v1"']);
+        $this->assertSame(304, $res->status); // weak comparison: both sides drop W/
+    }
+
+    public function test_304_carries_content_location(): void
+    {
+        // The cache-header fixture lives in this file's namespace, so a second App
+        // instance resolves it (same pattern as the header-copy pin above). Vary
+        // refuses storage; the conditional still applies on the MISS path.
+        $app = new App([
+            'env' => 'dev',
+            'controller_namespace' => 'Kip\\Tests\\App\\',
+            'db' => ['dsn' => 'sqlite::memory:'],
+            'cache_db' => ['dsn' => 'sqlite::memory:', 'ttl_seconds' => 3600],
+            'views' => dirname(__DIR__) . '/Fixtures/views',
+        ]);
+        $etag = $app->handle(new Request('GET', '/cache-header-page', [], [], []))->headers['ETag'];
+        $res = $app->handle(new Request('GET', '/cache-header-page', [], [], [], '', ['if-none-match' => $etag]));
+        $this->assertSame(304, $res->status);
+        $this->assertSame('/canonical', $res->headers['Content-Location']);
+    }
+
 }
