@@ -130,7 +130,8 @@ final class App
         // Release the session lock first. With PHP's file handler the session stays
         // locked until the script ends, so a deferred send (only made for an existing
         // account) would stall the visitor's next request and reveal the account.
-        if ($this->deferred !== [] && session_status() === PHP_SESSION_ACTIVE) session_write_close();
+        // One session per request, worker loops included: close it even when nothing was deferred.
+        if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
         while ($this->deferred !== []) {
             $task = array_shift($this->deferred);
             try {

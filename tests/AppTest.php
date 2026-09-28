@@ -35,6 +35,11 @@ class TxWriteController // performs and commits its own write
     }
 }
 class FormController { #[\Kip\Routing\Post] public function save(): string { return 'saved'; } }
+class RecallController // touches the session during the request (starts a lazy one)
+{
+    public function __construct(private \Kip\Session $session) {}
+    public function index(): string { return (string) ($this->session->get('visits', 0) + 1); }
+}
 class SecretController { #[\Kip\Routing\Auth] public function index(): string { return 'top secret'; } }
 class SecretFormController { #[\Kip\Routing\Auth] #[\Kip\Routing\Post] public function save(): string { return 'saved'; } }
 class GateController { #[\Kip\Routing\Auth] #[\Kip\Routing\Post] public function go(): string { return 'gone'; } } // T2 fix-round pin fixture
@@ -337,6 +342,20 @@ final class AppTest extends TestCase
         $app->defer(static function () use (&$status): void { $status = session_status(); });
         $app->runDeferred();
         $this->assertSame(PHP_SESSION_NONE, $status);
+    }
+
+    /** A request that touched the session but queued nothing must not leave it open. */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+    #[\PHPUnit\Framework\Attributes\PreserveGlobalState(false)]
+    public function test_runDeferred_closes_the_session_even_with_an_empty_queue(): void
+    {
+        $app = $this->app('prod');
+        $s = \Kip\Session::lazy(new \Kip\SessionStarter());
+        $res = $app->handle(new Request('GET', '/recall', [], [], []), $s); // the action reads the session, starting it
+        $this->assertSame(200, $res->status);
+        $this->assertSame(PHP_SESSION_ACTIVE, session_status()); // the request really did open it
+        $app->runDeferred(); // nothing was deferred
+        $this->assertNotSame(PHP_SESSION_ACTIVE, session_status()); // one session per request, queue or no queue
     }
 
     public function test_guest_post_without_token_on_a_gated_route_redirects_rather_than_403(): void
