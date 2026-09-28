@@ -73,6 +73,12 @@ final class Database
      */
     public function begin(): void
     {
+        // A driver-side implicit commit (the MySQL DDL class) already ended the
+        // transaction; forget the depth so this begin() starts a real one
+        // instead of a bare SAVEPOINT. Unreachable on SQLite, defensive.
+        if ($this->txDepth > 0 && !$this->pdo->inTransaction()) {
+            $this->txDepth = 0;
+        }
         if ($this->txDepth === 0) {
             $this->pdo->beginTransaction();
         } else {
@@ -95,6 +101,11 @@ final class Database
         }
     }
 
+    /**
+     * After ROLLBACK TO SAVEPOINT the savepoint stays defined, so a later
+     * begin() at the same depth legally redefines it; depth counts nesting
+     * levels, not live savepoint names.
+     */
     public function rollBack(): void
     {
         if (!$this->pdo->inTransaction()) {
