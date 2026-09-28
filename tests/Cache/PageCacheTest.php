@@ -225,4 +225,20 @@ final class PageCacheTest extends TestCase
         $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM pages')['c']);
     }
 
+    public function test_a_lowercase_app_etag_is_the_stored_validator_exactly_once(): void
+    {
+        // Field names are case-insensitive: the stored tag must be the app's own,
+        // whichever way it spells the header, and the HIT must carry one validator.
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db);
+        $cache->put('/e', '', new Response('b', 200, ['etag' => '"app-v1"']), []);
+        $hit = $cache->get('/e', '');
+        $this->assertSame('"app-v1"', $hit->headers['ETag']);
+        $this->assertStringNotContainsString('sha256', json_encode($hit->headers), 'the body hash must not appear anywhere on the HIT');
+        $row = $db->one('SELECT etag FROM pages');
+        $this->assertSame('"app-v1"', $row['etag']);
+        $stored = json_decode($db->one('SELECT headers FROM pages')['headers'], true);
+        $this->assertArrayNotHasKey('etag', $stored, 'the validator lives in its column, not duplicated in headers');
+    }
+
 }

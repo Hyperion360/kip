@@ -38,9 +38,17 @@ final class PageCache
         if (($version['v'] ?? null) !== (string) self::FORMAT_VERSION) {
             // Rows written under older storing rules must not outlive them: clear once.
             // A fresh database clears nothing (the tables were just created empty).
-            $this->db->query('DELETE FROM pages');
-            $this->db->query('DELETE FROM page_tags');
-            $this->db->query('INSERT OR REPLACE INTO cache_meta (k, v) VALUES (?, ?)', ['format', self::FORMAT_VERSION]);
+            // One transaction, like every other multi-write this class performs.
+            $this->db->begin();
+            try {
+                $this->db->query('DELETE FROM pages');
+                $this->db->query('DELETE FROM page_tags');
+                $this->db->query('INSERT OR REPLACE INTO cache_meta (k, v) VALUES (?, ?)', ['format', self::FORMAT_VERSION]);
+                $this->db->commit();
+            } catch (\Throwable $e) {
+                $this->db->rollBack();
+                throw $e;
+            }
         }
     }
 
@@ -97,7 +105,14 @@ final class PageCache
         $key = $this->key($path, $query);
         // The app's own validator, else a body hash: the stored tag must be the
         // same one the MISS path emitted, so revalidation compares like with like.
-        $etag = $response->headers['ETag'] ?? '"' . hash('sha256', $response->body) . '"';
+        // Field names are case-insensitive (RFC 9110 5.1), so a scan, not a
+        // single-key lookup: an app spelling the header etag must not get its
+        // tag replaced by the body hash (App::conditional scans the same way).
+        $etag = null;
+        foreach ($response->headers as $n => $v) {
+            if (strcasecmp((string) $n, 'ETag') === 0) { $etag = (string) $v; break; }
+        }
+        $etag ??= '"' . hash('sha256', $response->body) . '"';
         $defaults = Response::defaultHeaders();
         $stored = [];
         foreach ($response->headers as $n => $v) {
@@ -106,6 +121,9 @@ final class PageCache
             // app that deliberately sets a header to exactly the default value also
             // loses it on the next default change, until the page is re-cached.
             if (($defaults[$n] ?? null) === $v) continue;
+            // The validator lives in the etag column; a stored copy under any
+            // spelling would put two validators on a HIT.
+            if (strcasecmp((string) $n, 'ETag') === 0) continue;
             $stored[$n] = $v;
         }
         $this->db->query('INSERT OR REPLACE INTO pages (key, body, headers, etag, created_at) VALUES (?, ?, ?, ?, ?)',
