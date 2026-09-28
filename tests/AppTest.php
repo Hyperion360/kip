@@ -4,6 +4,8 @@ use Kip\App;
 use Kip\Http\Request;
 use PHPUnit\Framework\TestCase;
 
+require_once __DIR__ . '/Fixtures/AppFeatures/Billing/BillingController.php';
+
 // Fixture controllers for the kernel test, resolved via the App's namespace option.
 class HomeController { public function index(): string { return 'welcome'; } }
 class BoomController { public function index(): string { throw new \RuntimeException('secret detail'); } }
@@ -486,6 +488,101 @@ final class AppTest extends TestCase
         } catch (\InvalidArgumentException $e) {
             $this->assertStringContainsString('cache_db.ttl_seconds', $e->getMessage());
             $this->assertStringContainsString('string', $e->getMessage()); // the received type
+        }
+    }
+
+    /** @return string a temp app dir with views/ and Features/Billing/views/invoice.php in place */
+    private function featureAppDir(): string
+    {
+        $base = sys_get_temp_dir() . '/kip-app-feat-' . bin2hex(random_bytes(6));
+        mkdir($base . '/views', 0777, true);
+        mkdir($base . '/Features/Billing/views', 0777, true);
+        file_put_contents($base . '/Features/Billing/views/invoice.php', 'feature invoice <?= $this->e($id) ?>');
+        return $base;
+    }
+
+    /** @return list<string> every file and directory under $dir, deepest first, for unlink/rmdir in order */
+    private static function rmList(string $dir): array
+    {
+        $out = [];
+        $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($it as $f) $out[] = $f->getPathname();
+        $out[] = $dir;
+        return $out;
+    }
+
+    /** Feature folders (ch. 3): a Features dir with the convention layout routes and renders with zero config. */
+    public function test_a_feature_folder_renders_end_to_end(): void
+    {
+        $base = $this->featureAppDir();
+        try {
+            $app = new App([
+                'env' => 'prod',
+                'app_dir' => $base,
+                'controller_namespace' => 'Kip\\Tests\\None\\',   // no plain controller: only the feature form can resolve
+                'log_db' => ['dsn' => 'sqlite::memory:'],
+            ]);
+            $res = $app->handle(new Request('GET', '/billing/invoice/42', [], [], []));
+            $this->assertSame(200, $res->status);
+            $this->assertSame('feature invoice 42', $res->body);
+        } finally {
+            foreach (self::rmList($base) as $p) @unlink($p) ?: @rmdir($p);
+        }
+    }
+
+    /** Review P1-2: an explicit feature_namespace => null must stay OFF even though the folder exists; ?? would turn it back on. */
+    public function test_an_explicit_null_feature_namespace_disables_the_feature_form(): void
+    {
+        $base = $this->featureAppDir();
+        try {
+            $app = new App([
+                'env' => 'prod',
+                'app_dir' => $base,
+                'controller_namespace' => 'Kip\\Tests\\None\\',
+                'feature_namespace' => null,
+                'log_db' => ['dsn' => 'sqlite::memory:'],
+            ]);
+            $this->assertSame(404, $app->handle(new Request('GET', '/billing/invoice/42', [], [], []))->status);
+        } finally {
+            foreach (self::rmList($base) as $p) @unlink($p) ?: @rmdir($p);
+        }
+    }
+
+    /** Review P2-2: no Features directory means no feature resolution at all; layered apps behave unchanged. */
+    public function test_an_app_without_a_features_dir_behaves_unchanged(): void
+    {
+        $base = sys_get_temp_dir() . '/kip-app-layered-' . bin2hex(random_bytes(6));
+        mkdir($base . '/views', 0777, true);
+        try {
+            $app = new App([
+                'env' => 'prod',
+                'app_dir' => $base,
+                'controller_namespace' => 'Kip\\Tests\\',
+                'log_db' => ['dsn' => 'sqlite::memory:'],
+            ]);
+            $this->assertSame(404, $app->handle(new Request('GET', '/billing', [], [], []))->status); // App\Features\Billing\BillingController is loaded, but not routable
+            $this->assertSame(200, $app->handle(new Request('GET', '/', [], [], []))->status);         // plain resolution still serves
+        } finally {
+            foreach (self::rmList($base) as $p) @unlink($p) ?: @rmdir($p);
+        }
+    }
+
+    /** Edge case from the plan: a features_dir pointing at a missing directory is empty resolution, never an error. */
+    public function test_a_features_dir_pointing_at_a_missing_directory_stays_quiet(): void
+    {
+        $base = sys_get_temp_dir() . '/kip-app-missing-' . bin2hex(random_bytes(6));
+        mkdir($base . '/views', 0777, true);
+        try {
+            $app = new App([
+                'env' => 'prod',
+                'app_dir' => $base,
+                'features_dir' => $base . '/Features',            // configured, but absent on disk
+                'controller_namespace' => 'Kip\\Tests\\None\\',
+                'log_db' => ['dsn' => 'sqlite::memory:'],
+            ]);
+            $this->assertSame(404, $app->handle(new Request('GET', '/billing', [], [], []))->status);
+        } finally {
+            foreach (self::rmList($base) as $p) @unlink($p) ?: @rmdir($p);
         }
     }
 }
