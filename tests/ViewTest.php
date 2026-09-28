@@ -119,4 +119,93 @@ final class ViewTest extends TestCase
             rmdir($dir);
         }
     }
+
+    /** @return array{0: string, 1: string} [app views dir, features dir], with a Billing feature template in place */
+    private function featureDirs(): array
+    {
+        $base = sys_get_temp_dir() . '/kip-feat-' . bin2hex(random_bytes(6));
+        $views = $base . '/views';
+        $features = $base . '/Features';
+        mkdir($views . '/billing', 0777, true);
+        mkdir($features . '/Billing/views', 0777, true);
+        file_put_contents($features . '/Billing/views/invoice.php', 'feature invoice');
+        return [$views, $features];
+    }
+
+    public function test_feature_folder_template_resolves(): void
+    {
+        [$views, $features] = $this->featureDirs();
+        $v = new View($views, $features);
+        $this->assertSame('feature invoice', $v->render('billing/invoice'));
+    }
+
+    public function test_app_root_wins_when_the_template_exists_in_both_roots(): void
+    {
+        [$views, $features] = $this->featureDirs();
+        file_put_contents($views . '/billing/invoice.php', 'app invoice');
+        $v = new View($views, $features);
+        $this->assertSame('app invoice', $v->render('billing/invoice'));
+    }
+
+    public function test_feature_folder_segment_is_studly_cased(): void
+    {
+        [$views, $features] = $this->featureDirs();
+        mkdir($features . '/ReadingLists/views', 0777, true);
+        file_put_contents($features . '/ReadingLists/views/index.php', 'reading lists');
+        $v = new View($views, $features);
+        $this->assertSame('reading lists', $v->render('reading-lists/index'));
+    }
+
+    public function test_missing_template_message_names_both_paths(): void
+    {
+        [$views, $features] = $this->featureDirs();
+        $v = new View($views, $features);
+        try {
+            $v->render('billing/ghost');
+            $this->fail('expected TemplateNotFoundException');
+        } catch (\Kip\TemplateNotFoundException $e) {
+            $this->assertStringContainsString("{$views}/billing/ghost.php", $e->getMessage());
+            $this->assertStringContainsString("{$features}/Billing/views/ghost.php", $e->getMessage());
+        }
+    }
+
+    public function test_empty_features_dir_keeps_the_single_root_error_byte_identical(): void
+    {
+        [$views] = $this->featureDirs();
+        $v = new View($views);
+        try {
+            $v->render('billing/ghost');
+            $this->fail('expected TemplateNotFoundException');
+        } catch (\Kip\TemplateNotFoundException $e) {
+            $this->assertSame(
+                "Template \"billing/ghost\" not found in {$views} (looked for billing/ghost.php)",
+                $e->getMessage()
+            );
+        }
+    }
+
+    public function test_template_name_without_a_separator_never_touches_the_features_root(): void
+    {
+        [$views, $features] = $this->featureDirs();
+        file_put_contents($features . '/Billing/views/invoice.php', 'should not matter'); // feature dir exists
+        $v = new View($views, $features);
+        try {
+            $v->render('ghost');
+            $this->fail('expected TemplateNotFoundException');
+        } catch (\Kip\TemplateNotFoundException $e) {
+            $this->assertSame(
+                "Template \"ghost\" not found in {$views} (looked for ghost.php)",
+                $e->getMessage()
+            );
+        }
+    }
+
+    public function test_layouts_resolve_from_the_app_root_only(): void
+    {
+        [$views, $features] = $this->featureDirs();
+        file_put_contents($views . '/layout.php', '<main><?= $content ?></main>');
+        file_put_contents($features . '/Billing/views/page.php', '<?php $this->layout("layout"); ?>feature page');
+        $v = new View($views, $features);
+        $this->assertSame('<main>feature page</main>', $v->render('billing/page'));
+    }
 }

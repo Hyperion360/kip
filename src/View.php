@@ -7,7 +7,7 @@ final class View
 {
     private ?string $layout = null;
 
-    public function __construct(private string $dir) {}
+    public function __construct(private string $dir, private string $featuresDir = '') {}
 
     public function e(mixed $value): string
     {
@@ -33,14 +33,31 @@ final class View
         $this->layout = null;
         $__kip_ob = ob_get_level();
         try {
-            if (!is_file($this->dir . "/{$__kip_template}.php")) {
-                throw new TemplateNotFoundException(
-                    "Template \"{$__kip_template}\" not found in {$this->dir} (looked for {$__kip_template}.php)"
-                );
+            // Feature folders (ch. 3): after the app root misses, a template whose first
+            // segment names a feature resolves at {featuresDir}/{Studly}/views/{rest}.php,
+            // studly-cased with the Router's separator rules. The app root wins, mirroring
+            // the Router's plain-namespaces-first precedence, so code and template can
+            // never flip independently. Layouts stay app-root-only: the shared kernel
+            // owns them.
+            $__kip_feature = null;
+            if ($this->featuresDir !== '' && str_contains($__kip_template, '/')) {
+                $__kip_head = strstr($__kip_template, '/', true);
+                $__kip_studly = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $__kip_head)));
+                $__kip_rest = substr($__kip_template, strlen($__kip_head) + 1);
+                $__kip_feature = $this->featuresDir . "/{$__kip_studly}/views/{$__kip_rest}.php";
+            }
+            $__kip_file = $this->dir . "/{$__kip_template}.php";
+            if (!is_file($__kip_file)) {
+                $__kip_file = $__kip_feature !== null && is_file($__kip_feature) ? $__kip_feature : null;
+            }
+            if ($__kip_file === null) {
+                throw new TemplateNotFoundException($__kip_feature === null
+                    ? "Template \"{$__kip_template}\" not found in {$this->dir} (looked for {$__kip_template}.php)"
+                    : "Template \"{$__kip_template}\" not found (looked for {$this->dir}/{$__kip_template}.php and {$__kip_feature})");
             }
             extract($__kip_data, EXTR_SKIP);
             ob_start();
-            require $this->dir . "/{$__kip_template}.php";
+            require $__kip_file;
             $__kip_content = ob_get_clean();
             if ($this->layout !== null) {
                 $__kip_wrap = $this->layout;
