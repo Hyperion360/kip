@@ -216,7 +216,17 @@ final class App
             $inm = substr($inm, 2); // review D5d: weak validators compare by value for GET
         }
         if ($inm === $etag) {
-            return new Response('', 304, ['ETag' => $etag, 'X-Kip-Cache' => $response->headers['X-Kip-Cache'] ?? 'HIT']);
+            // RFC 9110 §15.4.5: a 304 carries the cache-relevant headers the 200 would
+            // have sent. Field names are case-insensitive (RFC 9110 5.1), so keys are
+            // scanned, not two spellings enumerated.
+            $keep = ['etag', 'x-kip-cache', 'cache-control', 'expires', 'vary'];
+            $headers = [];
+            foreach ($response->headers as $n => $v) {
+                if (in_array(strtolower((string) $n), $keep, true)) $headers[(string) $n] = $v;
+            }
+            $headers['ETag'] = $etag;
+            $headers['X-Kip-Cache'] ??= 'HIT';
+            return new Response('', 304, $headers);
         }
         return $response;
     }

@@ -25,6 +25,17 @@ class CookieCasePageController
     }
 }
 
+// Fixture carrying its own cache directives, for the 304 header-copy pin.
+class CacheHeaderPageController
+{
+    public function index(): \Kip\Http\Response
+    {
+        return (new \Kip\Http\Response('ch'))
+            ->withHeader('Cache-Control', 'max-age=60')
+            ->withHeader('Vary', 'Accept-Encoding');
+    }
+}
+
 final class CacheFlowTest extends TestCase
 {
     private App $app;
@@ -111,6 +122,23 @@ final class CacheFlowTest extends TestCase
         $etag = $this->get('/posts')->headers['ETag'];
         $res = $this->get('/posts', ['if-none-match' => 'W/' . $etag]);
         $this->assertSame(304, $res->status);
+    }
+
+    public function test_304_carries_the_cache_relevant_headers_of_the_200(): void // RFC 9110 §15.4.5
+    {
+        $app = new App([
+            'env' => 'dev',
+            'controller_namespace' => 'Kip\\Tests\\App\\',
+            'db' => ['dsn' => 'sqlite::memory:'],
+            'cache_db' => ['dsn' => 'sqlite::memory:', 'ttl_seconds' => 3600],
+            'views' => dirname(__DIR__) . '/Fixtures/views',
+        ]);
+        $etag = $app->handle(new Request('GET', '/cache-header-page', [], [], []))->headers['ETag'];
+        $res = $app->handle(new Request('GET', '/cache-header-page', [], [], [], '', ['if-none-match' => $etag]));
+        $this->assertSame(304, $res->status);
+        $this->assertSame($etag, $res->headers['ETag']);
+        $this->assertSame('max-age=60', $res->headers['Cache-Control']);
+        $this->assertSame('Accept-Encoding', $res->headers['Vary']);
     }
 
     public function test_session_touching_pages_are_never_cached(): void // review D5f
