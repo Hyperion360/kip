@@ -1,9 +1,10 @@
 #!/usr/bin/env php
 <?php // bin/kip
-require __DIR__ . '/../vendor/autoload.php';
-$config = require __DIR__ . '/../config.php';
 
 try {
+    require __DIR__ . '/../vendor/autoload.php';
+    $config = require __DIR__ . '/../config.php';
+
     match ($argv[1] ?? 'help') {
     'migrate' => (function () use ($config) {
         $db = new Kip\Database($config['db']['dsn']);

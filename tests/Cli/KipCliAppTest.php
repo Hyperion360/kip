@@ -145,6 +145,18 @@ final class KipCliAppTest extends TestCase
         $this->assertStringNotContainsString('Stack trace', $out);
     }
 
+    public function test_a_throwing_config_php_follows_the_failure_contract_too(): void
+    {
+        // config.php is loaded inside the try, so a throw during its require
+        // reaches the catch arm like any arm-level error: kip: prefix, exit 1,
+        // no trace. Same contract as the DSN test above, earlier in the boot.
+        file_put_contents($this->cliApp . '/config.php', "<?php throw new RuntimeException('config boom');\n");
+        [$out, $code] = $this->cli(['migrate']);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringStartsWith('kip: ', $out);
+        $this->assertStringNotContainsString('Stack trace', $out);
+    }
+
     public function test_failure_output_lands_on_stderr_not_stdout(): void
     {
         // Guide ch. 8 owns the contract: failures print "kip: <error>" on STDERR,
