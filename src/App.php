@@ -156,7 +156,8 @@ final class App
         }
 
         $cacheable = in_array($request->method, ['GET', 'HEAD'], true)
-            && $request->cookies === [];              // any cookie (session esp.) → personal → bypass
+            && $request->cookies === []                    // any cookie (session esp.) → personal → bypass
+            && $request->header('authorization') === null; // never served from or stored in a shared cache (RFC 9111)
 
         $query = http_build_query($request->get);
         if ($cacheable && ($hit = $this->pageCache->get($request->path, $query)) !== null) {

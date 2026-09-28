@@ -80,6 +80,21 @@ final class CacheFlowTest extends TestCase
         $this->assertSame('BYPASS', $res->headers['X-Kip-Cache']);
     }
 
+    public function test_request_with_authorization_header_bypasses_cache(): void // RFC 9111 shared-cache rule
+    {
+        $res = $this->get('/posts', ['authorization' => 'Bearer token']);
+        $this->assertSame('BYPASS', $res->headers['X-Kip-Cache']);
+        $this->assertSame('MISS', $this->get('/posts')->headers['X-Kip-Cache'], 'the authorized request stored no row');
+        $this->assertSame('HIT', $this->get('/posts')->headers['X-Kip-Cache'], 'the same path without the header caches normally');
+    }
+
+    public function test_warmed_page_is_not_served_to_a_request_with_authorization_header(): void
+    {
+        $this->get('/posts'); // warm the cache
+        $res = $this->get('/posts', ['authorization' => 'Bearer token']);
+        $this->assertSame('BYPASS', $res->headers['X-Kip-Cache']);
+    }
+
     public function test_etag_conditional_get_returns_304(): void
     {
         $this->get('/posts'); // warm (review D5b: no dead variable)
