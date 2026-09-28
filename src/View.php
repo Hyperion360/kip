@@ -3,6 +3,8 @@
 declare(strict_types=1);
 namespace Kip;
 
+use Kip\Routing\Router;
+
 final class View
 {
     private ?string $layout = null;
@@ -35,14 +37,14 @@ final class View
         try {
             // Feature folders (ch. 3): after the app root misses, a template whose first
             // segment names a feature resolves at {featuresDir}/{Studly}/views/{rest}.php,
-            // studly-cased with the Router's separator rules. The app root wins, mirroring
-            // the Router's plain-namespaces-first precedence, so code and template can
-            // never flip independently. Layouts stay app-root-only: the shared kernel
-            // owns them.
+            // studly-cased by the Router's own rule (Router::studly, the single
+            // implementation). The app root wins, mirroring the Router's
+            // plain-namespaces-first precedence, so code and template can never flip
+            // independently. Layouts stay app-root-only: the shared kernel owns them.
             $__kip_feature = null;
             if ($this->featuresDir !== '' && str_contains($__kip_template, '/')) {
                 $__kip_head = strstr($__kip_template, '/', true);
-                $__kip_studly = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $__kip_head)));
+                $__kip_studly = Router::studly($__kip_head);
                 $__kip_rest = substr($__kip_template, strlen($__kip_head) + 1);
                 $__kip_feature = $this->featuresDir . "/{$__kip_studly}/views/{$__kip_rest}.php";
             }
