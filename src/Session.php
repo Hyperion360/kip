@@ -51,10 +51,21 @@ final class Session
     public function get(string $key, mixed $default = null): mixed { return $this->data()[$key] ?? $default; }
     public function set(string $key, mixed $value): void { $this->data()[$key] = $value; }
     public function forget(string $key): void { unset($this->data()[$key]); }
-    public function csrfToken(): string { return $this->data()['_csrf'] ??= bin2hex(random_bytes(32)); }
+    public function csrfToken(): string
+    {
+        // The store is app-authored: a stored _csrf that is not a usable string is
+        // replaced, never returned and never allowed to break the return type.
+        $stored = $this->data()['_csrf'] ?? null;
+        if (!is_string($stored) || $stored === '') $stored = $this->data()['_csrf'] = bin2hex(random_bytes(32));
+        return $stored;
+    }
+
     public function validateCsrf(?string $token): bool
     {
-        return is_string($token) && $token !== '' && hash_equals($this->data()['_csrf'] ?? '', $token);
+        $stored = $this->data()['_csrf'] ?? null;
+        // Fail closed on unusable stored state instead of raising: a malformed token
+        // simply does not validate, the same way an absent one does not.
+        return is_string($token) && $token !== '' && is_string($stored) && $stored !== '' && hash_equals($stored, $token);
     }
     public function rotateCsrf(): void { $this->data()['_csrf'] = bin2hex(random_bytes(32)); }
 
