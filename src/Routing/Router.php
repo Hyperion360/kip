@@ -8,6 +8,17 @@ use Kip\Http\Request;
 final class Router
 {
     /**
+     * URL segment → Studly word ('my-billing'/'my_billing' → 'MyBilling'). THE one
+     * implementation of the separator rule: the View studly-cases feature template
+     * segments with it too, so a controller and its template folder can never resolve
+     * under two different spellings.
+     */
+    public static function studly(string $segment): string
+    {
+        return str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $segment)));
+    }
+
+    /**
      * @param string|list<string> $namespace one prefix, or several tried in order
      * @param ?string $featureNamespace feature-folder prefix (e.g. App\Features\), or null to disable the feature form
      */
@@ -38,7 +49,7 @@ final class Router
         // studly-case to PostsController, giving one page several URLs.
         if (!preg_match('/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/', $name)) return null;
 
-        $studly = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
+        $studly = self::studly($name);
         $class = null;
         foreach ((array) $this->namespace as $ns) {   // first listed namespace shadows later ones
             $candidate = $ns . $studly . $this->suffix;
