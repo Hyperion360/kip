@@ -38,7 +38,7 @@ final class App
                 $config['log_db']['dsn'],
                 $config['log_db']['user'] ?? null,
                 $config['log_db']['pass'] ?? null
-            ), (int) ($config['log_db']['retention_days'] ?? 30));
+            ), self::intConfig($config['log_db']['retention_days'] ?? 30, 'log_db.retention_days'));
             $this->container->instance(RequestLog::class, $this->requestLog); // tests read it from here
         }
         if (isset($config['cache_db']['dsn'])) {
@@ -50,14 +50,14 @@ final class App
                     $config['cache_db']['user'] ?? null,
                     $config['cache_db']['pass'] ?? null
                 ),
-                (int) ($config['cache_db']['ttl_seconds'] ?? 3600),
-                (int) ($config['cache_db']['max_pages'] ?? \Kip\Cache\PageCache::DEFAULT_MAX_PAGES)
+                self::intConfig($config['cache_db']['ttl_seconds'] ?? 3600, 'cache_db.ttl_seconds'),
+                self::intConfig($config['cache_db']['max_pages'] ?? \Kip\Cache\PageCache::DEFAULT_MAX_PAGES, 'cache_db.max_pages')
             );
         }
         if (isset($config['uploads']['dir'])) {
             $this->container->instance(Storage::class, new Storage(
                 $config['uploads']['dir'],
-                (int) ($config['uploads']['max_bytes'] ?? Storage::DEFAULT_MAX_BYTES),
+                self::intConfig($config['uploads']['max_bytes'] ?? Storage::DEFAULT_MAX_BYTES, 'uploads.max_bytes'),
                 $config['uploads']['ext'] ?? null,
             ));
         }
@@ -70,6 +70,25 @@ final class App
         }
         $this->router = new Router($namespaces);
         $this->session = $session ?? new Session($this->sessionStore);
+    }
+
+    /**
+     * Config integers accept ints and numeric strings ('30'); anything else is a
+     * boot-time error naming the key, matching the behavior before the casts existed.
+     */
+    private static function intConfig(mixed $value, string $key): int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+        if (is_string($value) && is_numeric(trim($value))) {
+            return (int) trim($value);
+        }
+        throw new \InvalidArgumentException(sprintf(
+            'config key "%s" must be an int or a numeric string, got %s',
+            $key,
+            get_debug_type($value)
+        ));
     }
 
     // review D13-A: every request is timed and audited to a separate logs.sqlite.

@@ -467,5 +467,25 @@ final class AppTest extends TestCase
             'views' => sys_get_temp_dir(),
         ]);
         $this->assertInstanceOf(App::class, $app); // no TypeError at construction
+        $this->assertInstanceOf(
+            App::class,
+            new App(['cache_db' => ['dsn' => 'sqlite::memory:', 'ttl_seconds' => 3600], 'views' => sys_get_temp_dir()]) // the int form too
+        );
+    }
+
+    public function test_non_numeric_config_integers_are_a_boot_error_naming_the_key(): void
+    {
+        // A cast would turn 'hour' into 0, a plausible TTL. Boot states the key
+        // and the received type instead.
+        try {
+            new App([
+                'cache_db' => ['dsn' => 'sqlite::memory:', 'ttl_seconds' => 'hour'],
+                'views' => sys_get_temp_dir(),
+            ]);
+            $this->fail('expected InvalidArgumentException for cache_db.ttl_seconds');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('cache_db.ttl_seconds', $e->getMessage());
+            $this->assertStringContainsString('string', $e->getMessage()); // the received type
+        }
     }
 }
