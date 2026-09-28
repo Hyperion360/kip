@@ -24,6 +24,12 @@ the entire implementation, about 40 lines.
 - Anything after the second segment becomes positional string arguments to
   the method: `/posts/show/42` calls `PostsController::show('42')`.
 
+A controller can also live in a feature folder
+(`app/Features/<Name>/<Name>Controller.php`), resolved by the same convention
+after every plain namespace; the plain one wins when both exist. See
+[Feature folders](03-controllers.md#feature-folders) in
+[chapter 3](03-controllers.md).
+
 ## Lowercase-canonical URLs
 
 Route matching is **case-sensitive lowercase-only**. There's no

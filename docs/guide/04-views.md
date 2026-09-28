@@ -19,6 +19,13 @@ public function index(): string
 available inside it (`extract($data, EXTR_SKIP)`), so
 `['posts' => $posts]` becomes a `$posts` variable in the template.
 
+When the app has a `Features` directory, a template not found under the app
+root resolves next from the feature's own views (`billing/invoice` also
+looks in `app/Features/Billing/views/invoice.php`). The app root always
+wins, and layouts always come from the app root. See
+[Feature folders](03-controllers.md#feature-folders) in
+[chapter 3](03-controllers.md).
+
 ## Escaping, `e()`
 
 **Nothing is auto-escaped.** Kip does not compile templates or wrap output
@@ -105,7 +112,7 @@ stray caller data with the same key name.
 
 Rendering a template or layout that doesn't exist throws
 `Kip\TemplateNotFoundException` (`src/TemplateNotFoundException.php`, a
-`RuntimeException`) with a message naming the template and the directory
+`RuntimeException`) with a message naming the template and every directory
 searched, not a blank page or a PHP warning. In `prod` mode this becomes
 the generic 500 page (see [chapter 6](06-security.md)); in `dev` mode
 you'll see the exception and a stack trace directly.

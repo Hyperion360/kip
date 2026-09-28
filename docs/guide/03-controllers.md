@@ -121,6 +121,70 @@ anything sensitive (credentials, the CSRF `_token`) so a value can never
 be smuggled in via the URL. `PostsController::store()` uses `str()` for the
 post title; `AuthController::attempt()` uses `postStr()` for the password.
 
+## Feature folders
+
+The layered layout you have seen so far (controllers in `app/src/Controllers`,
+templates in `app/views`, migrations in `app/migrations`) is the default and
+the tutorial stays layered. An app can also group a feature's code in one
+place: create `app/Features/Billing/` with the convention layout below and
+its routes, templates and migrations all resolve with zero configuration:
+
+```
+app/Features/Billing/
+    BillingController.php
+    views/invoice.php
+    migrations/008_billing.php
+```
+
+The URL segment studly-cases into both the folder and the class name:
+`/billing/invoice/42` resolves to
+`App\Features\Billing\BillingController::invoice('42')`, and
+`/reading-lists` to `App\Features\ReadingLists\ReadingListsController`.
+`$view->render('billing/invoice')` looks in `app/views/billing/invoice.php`
+first, then `app/Features/Billing/views/invoice.php`. Layouts always resolve
+from the app root: the shared kernel owns them, a feature template wraps
+itself in the app's layout like any other template.
+
+`bin/kip migrate` reads `app/migrations/` plus every
+`app/Features/*/migrations/` directory as ONE ledger. The `NNN` prefixes
+define one global order across all of them, and a migration name may exist in
+only one directory (`008_billing.php` cannot sit in two features). See
+[chapter 5](05-database-and-migrations.md) and [chapter 8](08-cli.md).
+
+**Resolution order and precedence.** Plain controller namespaces win over
+feature folders: the router tries `controller_namespace` (and the built-in
+admin namespace when the admin panel is on) first, the feature form only when
+none of them matched. Code and templates resolve in the same order, app root
+first, so a layered app adopting folders gradually can never end up with the
+controller coming from one place and the template from the other. Do not keep
+a same-named plain controller and feature controller; if you do, the plain
+one wins and the feature one is dead code. A feature folder cannot override
+the built-in admin panel either: it resolves after `Kip\Admin\Controllers\`,
+so only a plain `App\Controllers\AdminController` can shadow `/admin` (the
+existing rule, [chapter 12](12-admin-panel.md)).
+
+**The PSR-4 line.** The apps map `App\` to `app/src/`, so without help
+`App\Features\` classes would autoload from `app/src/Features/`. New apps
+ship with the longer prefix; an existing app adds it to `composer.json`:
+
+```json
+"autoload": { "psr-4": { "App\\Features\\": "app/Features/", "App\\": "app/src/" } }
+```
+
+**Deleting a feature.** Remove the directory and the feature is gone: its
+routes 404, its templates stop resolving, its migrations stop being listed.
+The ledger keys on migration names, not paths, so already-recorded migrations
+stay recorded (they simply never run again). Roll the feature's batch back
+before deleting the folder if you also want its tables dropped.
+
+**Layered stays the default.** An app without an `app/Features` directory
+resolves nothing from `App\Features`: no route, template or migration
+behavior changes. Two `config.php` keys adjust the wiring once the folder
+exists: `features_dir` points the template fallback at a different features
+root, and `feature_namespace => null` turns the feature routing form off
+(keep it null to serve a folder's templates without making its controller
+routable).
+
 ## How it works
 
 Every request gets a fresh `Container` scope (`$scope = clone

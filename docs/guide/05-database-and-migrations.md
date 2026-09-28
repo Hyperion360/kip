@@ -117,6 +117,11 @@ directory exists but cannot be read, when two migrations share a name
 not a regular file (a directory, or a symlink whose target is gone). A
 missing migrations directory is not an error: there is nothing to run.
 
+Feature folder migrations (`app/Features/<Name>/migrations/`, see
+[chapter 3](03-controllers.md)) join the same ledger: one global sort across
+every directory, so `NNN` numbers are unique app-wide and a migration name
+may exist in only one directory. `bin/kip migrate` reads them all.
+
 ### Running them
 
 ```bash
