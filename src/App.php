@@ -103,6 +103,16 @@ final class App
         ));
     }
 
+    /**
+     * The container's Database, or null when none is bound (or its construction
+     * failed): caching, the transaction unwind, and auth validation all degrade
+     * to no-ops without one rather than breaking the request path.
+     */
+    private function dbOrNull(): ?Database
+    {
+        try { return $this->container->make(Database::class); } catch (\Throwable) { return null; }
+    }
+
     // review D13-A: every request is timed and audited to a separate logs.sqlite.
     // logging wraps process() so it covers error responses too.
     public function handle(Request $request, ?Session $session = null): Response
@@ -168,8 +178,7 @@ final class App
         // fails is unwound to its entry depth, never leaked into later tasks or the
         // next request on a persistent App. Deferred writes also join the cache
         // contract: their tables purge cached pages, like in-request writes do.
-        $db = null;
-        try { $db = $this->container->make(Database::class); } catch (\Throwable) {}
+        $db = $this->dbOrNull();
         $writes = [];
         $db?->onQuery(function (string $sql) use (&$writes): void {
             if (!\Kip\Cache\TableTagger::isWrite($sql)) return;
@@ -218,8 +227,7 @@ final class App
         // Tap the DB for EVERY request: reads become tags (miss path), writes always purge.
         $reads = [];
         $writes = [];
-        $db = null;
-        try { $db = $this->container->make(Database::class); } catch (\Throwable) {}
+        $db = $this->dbOrNull();
         $db?->onQuery(function (string $sql) use (&$reads, &$writes): void {
             foreach (\Kip\Cache\TableTagger::tables($sql) as $t) {
                 \Kip\Cache\TableTagger::isWrite($sql) ? $writes[] = $t : $reads[] = $t;
@@ -317,8 +325,7 @@ final class App
         // A controller that opened a transaction and then failed must not leak it
         // into the next request on a persistent App: snapshot the depth at entry
         // and unwind to it on the way out.
-        $db = null;
-        try { $db = $this->container->make(Database::class); } catch (\Throwable) {}
+        $db = $this->dbOrNull();
         $depth = $db?->transactionDepth() ?? 0;
         try {
             $match = $this->router->match($request);
@@ -366,11 +373,8 @@ final class App
     private function authSessionValid(Session $active): bool
     {
         if ($active->get('user_id') === null) return false;
-        try {
-            $db = $this->container->make(Database::class);
-        } catch (\Throwable) {
-            return true;
-        }
+        $db = $this->dbOrNull();
+        if ($db === null) return true;
         return (new Auth($db, $active))->sessionValid();
     }
 
