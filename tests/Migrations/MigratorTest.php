@@ -203,4 +203,126 @@ final class MigratorTest extends TestCase
             rmdir($dir);
         }
     }
+
+    /** @return array{0: string, 1: string} [app migrations dir, feature migrations dir] */
+    private function twoMigrationDirs(string $appDir, string $featureDir): array
+    {
+        mkdir($appDir, 0777, true);
+        mkdir($featureDir, 0777, true);
+        $widget = static fn(string $table): string => <<<PHP
+        <?php
+        return new class extends Kip\Migrations\Migration {
+            public function up(Kip\Database \$db): void { \$db->query('CREATE TABLE {$table} (id INTEGER PRIMARY KEY)'); }
+            public function down(Kip\Database \$db): void { \$db->query('DROP TABLE {$table}'); }
+        };
+        PHP;
+        file_put_contents($appDir . '/002_create_gadgets.php', $widget('gadgets'));
+        file_put_contents($featureDir . '/001_create_widgets.php', $widget('widgets'));
+        file_put_contents($featureDir . '/003_create_sprockets.php', $widget('sprockets'));
+        return [$appDir, $featureDir];
+    }
+
+    /** The NNN prefixes define one global order across directories, feature folders included (ch. 3). */
+    public function test_migrations_across_directories_run_in_one_global_order(): void
+    {
+        $base = sys_get_temp_dir() . '/kip-mig-two-' . bin2hex(random_bytes(6));
+        [$app, $feature] = $this->twoMigrationDirs($base . '/app/migrations', $base . '/Features/Billing/migrations');
+        $db = new \Kip\Database('sqlite::memory:');
+
+        try {
+            $ran = (new Migrator($db, [$app, $feature]))->migrate();
+            $this->assertSame(['001_create_widgets', '002_create_gadgets', '003_create_sprockets'], $ran);
+            foreach (['widgets', 'gadgets', 'sprockets'] as $t) {
+                $this->assertNotNull($db->one("SELECT name FROM sqlite_master WHERE name = '{$t}'"));
+            }
+        } finally {
+            foreach ([$app . '/002_create_gadgets.php', $feature . '/001_create_widgets.php', $feature . '/003_create_sprockets.php'] as $f) @unlink($f);
+            @rmdir($app); @rmdir($feature); @rmdir($base . '/app'); @rmdir($base . '/Features/Billing'); @rmdir($base . '/Features'); @rmdir($base);
+        }
+    }
+
+    /** One ledger keys on names, not paths, so the same name in two directories is refused (ch. 3). */
+    public function test_same_migration_name_in_two_directories_throws(): void
+    {
+        $base = sys_get_temp_dir() . '/kip-mig-dup-' . bin2hex(random_bytes(6));
+        [$app, $feature] = $this->twoMigrationDirs($base . '/app/migrations', $base . '/Features/Billing/migrations');
+        copy($feature . '/001_create_widgets.php', $app . '/001_create_widgets.php');
+
+        try {
+            $migrator = new Migrator(new \Kip\Database('sqlite::memory:'), [$app, $feature]);
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('Migration name collision: 001_create_widgets');
+            $migrator->migrate();
+        } finally {
+            @unlink($app . '/001_create_widgets.php');
+            foreach ([$app . '/002_create_gadgets.php', $feature . '/001_create_widgets.php', $feature . '/003_create_sprockets.php'] as $f) @unlink($f);
+            @rmdir($app); @rmdir($feature); @rmdir($base . '/app'); @rmdir($base . '/Features/Billing'); @rmdir($base . '/Features'); @rmdir($base);
+        }
+    }
+
+    public function test_a_missing_directory_in_the_array_is_skipped(): void
+    {
+        $base = sys_get_temp_dir() . '/kip-mig-skip-' . bin2hex(random_bytes(6));
+        [$app] = $this->twoMigrationDirs($base . '/app/migrations', $base . '/app/Features/Billing/migrations');
+        $db = new \Kip\Database('sqlite::memory:');
+
+        try {
+            // The Billing folder was deleted; a different feature's absence must not error
+            // (delete-a-folder story, ch. 3).
+            $this->assertSame(
+                ['002_create_gadgets'],
+                (new Migrator($db, [$app, $base . '/app/Features/Gone/migrations']))->migrate()
+            );
+        } finally {
+            @unlink($app . '/002_create_gadgets.php');
+            @rmdir($app); @rmdir($base . '/app'); @rmdir($base);
+        }
+    }
+
+    public function test_rollback_finds_files_across_directories(): void
+    {
+        $base = sys_get_temp_dir() . '/kip-mig-rb-' . bin2hex(random_bytes(6));
+        [$app, $feature] = $this->twoMigrationDirs($base . '/app/migrations', $base . '/Features/Billing/migrations');
+        $db = new \Kip\Database('sqlite::memory:');
+        $m = new Migrator($db, [$app, $feature]);
+
+        try {
+            $m->migrate();
+            $this->assertSame(
+                ['003_create_sprockets', '002_create_gadgets', '001_create_widgets'],
+                $m->rollback()
+            );
+            foreach (['widgets', 'gadgets', 'sprockets'] as $t) {
+                $this->assertNull($db->one("SELECT name FROM sqlite_master WHERE name = '{$t}'"));
+            }
+        } finally {
+            foreach ([$app . '/002_create_gadgets.php', $feature . '/001_create_widgets.php', $feature . '/003_create_sprockets.php'] as $f) @unlink($f);
+            @rmdir($app); @rmdir($feature); @rmdir($base . '/app'); @rmdir($base . '/Features/Billing'); @rmdir($base . '/Features'); @rmdir($base);
+        }
+    }
+
+    /** Review P2-3: the rollback not-found message must name every directory, never interpolate the array property. */
+    public function test_rollback_not_found_message_names_each_directory(): void
+    {
+        $base = sys_get_temp_dir() . '/kip-mig-msg-' . bin2hex(random_bytes(6));
+        [$app, $feature] = $this->twoMigrationDirs($base . '/app/migrations', $base . '/Features/Billing/migrations');
+        $db = new \Kip\Database('sqlite::memory:');
+        $m = new Migrator($db, [$app, $feature]);
+
+        try {
+            $m->migrate();
+            unlink($feature . '/001_create_widgets.php'); // the folder was deleted after the batch ran
+            try {
+                $m->rollback();
+                $this->fail('expected RuntimeException for the vanished migration file');
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('001_create_widgets', $e->getMessage());
+                $this->assertStringContainsString($app, $e->getMessage());
+                $this->assertStringContainsString($feature, $e->getMessage());
+            }
+        } finally {
+            foreach ([$app . '/002_create_gadgets.php', $feature . '/003_create_sprockets.php'] as $f) @unlink($f);
+            @rmdir($app); @rmdir($feature); @rmdir($base . '/app'); @rmdir($base . '/Features/Billing'); @rmdir($base . '/Features'); @rmdir($base);
+        }
+    }
 }

@@ -136,4 +136,45 @@ final class RouterTest extends TestCase
         // The canonical spellings still resolve: '/' and '/posts' (action index by default).
         $this->assertNotNull($this->router()->match(new Request('GET', '/posts', [], [], [])));
     }
+
+    public function test_feature_folder_controller_resolves(): void
+    {
+        $r = new Router(namespace: 'Kip\\Tests\\Routing\\None\\', featureNamespace: 'Kip\\Tests\\Routing\\Features\\');
+        $m = $r->match(new Request('GET', '/billing', [], [], []));
+        $this->assertSame('Kip\\Tests\\Routing\\Features\\Billing\\BillingController', $m->class);
+        $this->assertSame('feature billing home', $m->invoke(new Container()));
+    }
+
+    public function test_feature_folder_controller_receives_action_and_args(): void
+    {
+        $r = new Router(namespace: 'Kip\\Tests\\Routing\\None\\', featureNamespace: 'Kip\\Tests\\Routing\\Features\\');
+        $m = $r->match(new Request('GET', '/billing/invoice/42', [], [], []));
+        $this->assertSame('feature invoice:42', $m->invoke(new Container()));
+    }
+
+    /** Review P2-1: plain namespaces win over feature folders, mirroring the View's app-root-first fallback. */
+    public function test_a_plain_controller_wins_over_a_same_named_feature_controller(): void
+    {
+        $r = new Router(namespace: 'Kip\\Tests\\Routing\\', featureNamespace: 'Kip\\Tests\\Routing\\Features\\');
+        $m = $r->match(new Request('GET', '/billing', [], [], []));
+        $this->assertSame('Kip\\Tests\\Routing\\BillingController', $m->class);
+        $this->assertSame('plain billing', $m->invoke(new Container()));
+        // Plain resolution is unchanged when the feature form is on:
+        $this->assertSame('Kip\\Tests\\Routing\\PostsController', $r->match(new Request('GET', '/posts', [], [], []))->class);
+    }
+
+    public function test_null_feature_namespace_disables_the_feature_form(): void
+    {
+        $r = new Router(namespace: 'Kip\\Tests\\Routing\\None\\', featureNamespace: null);
+        $this->assertNull($r->match(new Request('GET', '/billing', [], [], [])));
+    }
+
+    public function test_feature_class_name_case_guard_rejects_a_word_split(): void
+    {
+        $r = new Router(namespace: 'Kip\\Tests\\Routing\\None\\', featureNamespace: 'Kip\\Tests\\Routing\\Features\\');
+        $this->assertNotNull($r->match(new Request('GET', '/billing', [], [], []))); // loads the feature class first
+        // class_exists() ignores case, so /bil-ling (BilLing\BilLingController) would find
+        // Billing\BillingController: the declared-name guard applies to the feature form too.
+        $this->assertNull($r->match(new Request('GET', '/bil-ling', [], [], [])));
+    }
 }

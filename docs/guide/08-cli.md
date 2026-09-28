@@ -28,7 +28,10 @@ normally.
 
 Runs pending migrations (see [chapter 5](05-database-and-migrations.md).
 both `.php` and `.sql` migration files count) and, as a side effect,
-prunes the audit log to its configured retention first.
+prunes the audit log to its configured retention first. Migration files
+are read from the app's `migrations/` directory and from every
+`app/Features/<Name>/migrations` directory ([chapter 3](03-controllers.md)),
+one global ledger across them all.
 
 ```
 $ php bin/kip migrate

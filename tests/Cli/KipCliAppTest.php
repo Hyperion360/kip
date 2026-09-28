@@ -53,6 +53,31 @@ final class KipCliAppTest extends TestCase
         $this->assertStringContainsString('Nothing to migrate.', $out);
     }
 
+    /**
+     * Task 5b (review P1-1): the apps map App\ to app/src/, so App\Features\ classes
+     * must autoload from app/Features/, the same longest-prefix line the apps'
+     * composer.json carries. The harness's hand-rolled autoloader is first-match-wins,
+     * so this pins that its map got the longer prefix too. Layered App\ classes keep
+     * resolving from app/src/.
+     */
+    public function test_feature_controllers_autoload_from_the_app_features_root(): void
+    {
+        mkdir($this->cliApp . '/app/Features/Billing', 0777, true);
+        file_put_contents($this->cliApp . '/app/Features/Billing/BillingController.php',
+            '<?php namespace App\Features\Billing; final class BillingController { const OK = "feature-loaded"; }');
+        $classes = var_export(['App\\Features\\Billing\\BillingController', 'App\\Controllers\\HomeController'], true);
+        $script = sprintf(
+            'require %s; $ok = 0; foreach (%s as $c) { if (!class_exists($c)) { echo "missing: $c\n"; $ok = 1; } } exit($ok);',
+            var_export($this->cliApp . '/vendor/autoload.php', true),
+            $classes
+        );
+        // The harness ships no HomeController file; place one so the shorter App\ prefix is exercised too.
+        file_put_contents($this->cliApp . '/app/src/Controllers/HomeController.php',
+            '<?php namespace App\Controllers; final class HomeController {}');
+        exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($script) . ' 2>&1', $lines, $code);
+        $this->assertSame(0, $code, implode("\n", $lines));
+    }
+
     public function test_rollback_reverses_the_batch(): void
     {
         $this->cli(['migrate']);
@@ -60,6 +85,29 @@ final class KipCliAppTest extends TestCase
         $this->assertSame(0, $code, $out);
         $this->assertStringContainsString('Rolled back: 007_index_login_attempts_by_time, 006_add_login_attempts_kind, 005_add_password_resets_token_index, 004_create_password_resets, 003_add_users_is_admin, 002_create_login_attempts, 001_create_users', $out);
         $this->assertSame(0, (int) $this->pdo()->query('SELECT COUNT(*) FROM _migrations')->fetchColumn());
+    }
+
+    /** Feature folders (ch. 3): a migration inside app/Features/<Name>/migrations applies and rolls back via the CLI. */
+    public function test_migrate_applies_and_rolls_back_a_feature_folder_migration(): void
+    {
+        mkdir($this->cliApp . '/app/Features/Billing/migrations', 0777, true);
+        file_put_contents($this->cliApp . '/app/Features/Billing/migrations/008_billing.php', <<<'PHP'
+        <?php
+        return new class extends Kip\Migrations\Migration {
+            public function up(Kip\Database $db): void { $db->query('CREATE TABLE billing_invoices (id INTEGER PRIMARY KEY)'); }
+            public function down(Kip\Database $db): void { $db->query('DROP TABLE billing_invoices'); }
+        };
+        PHP);
+
+        [$out, $code] = $this->cli(['migrate']);
+        $this->assertSame(0, $code, $out);
+        $this->assertStringContainsString('007_index_login_attempts_by_time, 008_billing', $out); // one global order: the feature file runs after the app's 007
+        $this->assertNotFalse($this->pdo()->query("SELECT name FROM sqlite_master WHERE name = 'billing_invoices'")->fetchColumn());
+
+        [$out, $code] = $this->cli(['rollback']);
+        $this->assertSame(0, $code, $out);
+        $this->assertStringContainsString('Rolled back: 008_billing', $out); // newest first
+        $this->assertFalse((bool) $this->pdo()->query("SELECT name FROM sqlite_master WHERE name = 'billing_invoices'")->fetchColumn());
     }
 
     public function test_user_create_prompts_and_hashes_password(): void
@@ -182,4 +230,22 @@ final class KipCliAppTest extends TestCase
             @unlink($outFile);
         }
     }
+    public function test_a_feature_migrations_entry_that_is_a_file_fails_loudly(): void
+    {
+        mkdir($this->cliApp . '/app/Features/Junk', 0777, true);
+        file_put_contents($this->cliApp . '/app/Features/Junk/migrations', 'not a directory');
+        [$out, $code] = $this->cli(['migrate']);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringContainsString('kip: ', $out);
+        $this->assertStringNotContainsString('Nothing to migrate', $out); // not a silent skip
+    }
+
+    public function test_logs_command_ignores_a_broken_features_layout(): void
+    {
+        mkdir($this->cliApp . '/app/Features/Junk', 0777, true);
+        file_put_contents($this->cliApp . '/app/Features/Junk/migrations', 'not a directory');
+        [$out, $code] = $this->cli(['logs']);
+        $this->assertSame(0, $code, $out); // discovery is lazy: non-migration arms never list Features
+    }
+
 }

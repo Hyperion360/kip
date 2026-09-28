@@ -25,7 +25,12 @@ final class App
     {
         $this->container = new Container();
         $this->container->instance(self::class, $this);
-        $this->container->instance(View::class, new View($config['views'] ?? ($config['app_dir'] ?? '.') . '/views'));
+        // Feature folders (ch. 3): one detection drives both View and Router: an
+        // explicit features_dir config wins, else app_dir/Features when it exists,
+        // else '' (layered app, nothing changes).
+        $appDir = $config['app_dir'] ?? '.';
+        $featuresDir = $config['features_dir'] ?? (is_dir($appDir . '/Features') ? $appDir . '/Features' : '');
+        $this->container->instance(View::class, new View($config['views'] ?? $appDir . '/views', $featuresDir));
         if (isset($config['db']['dsn'])) {
             $this->container->instance(Database::class, new Database(
                 $config['db']['dsn'],
@@ -68,7 +73,14 @@ final class App
         if (($config['admin']['enabled'] ?? false) && isset($config['db']['dsn'])) {
             $namespaces[] = 'Kip\\Admin\\Controllers\\';   // app namespace first: an app can shadow /admin
         }
-        $this->router = new Router($namespaces);
+        // The feature form stays OFF until the Features directory exists (review P2-2):
+        // a layered app resolves nothing from App\Features, so it behaves byte-identically.
+        // array_key_exists, never ??, so an explicit feature_namespace => null keeps the
+        // form off (review P1-2).
+        $featureNamespace = $featuresDir !== '' && is_dir($featuresDir)
+            ? (array_key_exists('feature_namespace', $config) ? $config['feature_namespace'] : 'App\\Features\\')
+            : null;
+        $this->router = new Router($namespaces, featureNamespace: $featureNamespace);
         $this->session = $session ?? new Session($this->sessionStore);
     }
 

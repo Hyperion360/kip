@@ -14,6 +14,12 @@ class PostsController
     public function rank(string $slug, int $position): string { return "rank:$slug:$position"; }
 }
 
+/** Same-named plain fixture for the feature-folder precedence test (review P2-1): the plain one wins. */
+class BillingController
+{
+    public function index(): string { return 'plain billing'; }
+}
+
 final class HomeController
 {
     public function index(): string { return 'home'; }
