@@ -46,7 +46,7 @@ final class PostsController
 }
 ```
 
-No route registration, no annotations, no configuration: `/posts/index` now
+No route registration, no annotations, no configuration: `/posts` now
 renders `app/views/posts/index.php`. Start from the included skeleton and the
 dev server is three commands away:
 
