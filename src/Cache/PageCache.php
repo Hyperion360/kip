@@ -79,7 +79,9 @@ final class PageCache
     private function store(string $path, string $query, Response $response, array $tables): void
     {
         $key = $this->key($path, $query);
-        $etag = '"' . hash('sha256', $response->body) . '"';
+        // The app's own validator, else a body hash: the stored tag must be the
+        // same one the MISS path emitted, so revalidation compares like with like.
+        $etag = $response->headers['ETag'] ?? '"' . hash('sha256', $response->body) . '"';
         $defaults = Response::defaultHeaders();
         $stored = [];
         foreach ($response->headers as $n => $v) {
