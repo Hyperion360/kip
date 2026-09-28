@@ -6,6 +6,16 @@ namespace Kip;
 final class DevErrorPage
 {
     /**
+     * The one escaping policy for every dynamic value on the page: quotes for
+     * attribute contexts, and ENT_SUBSTITUTE with an explicit charset so invalid
+     * UTF-8 (exception text can carry it) becomes U+FFFD instead of an empty string.
+     */
+    private static function esc(string $s): string
+    {
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    /**
      * The dev-mode 500 page: a styled, self-contained HTML document carrying the
      * exception, where it was thrown, the request that triggered it, and the stack
      * trace. One inline stylesheet, no external requests, no scripting, so it renders
@@ -14,13 +24,11 @@ final class DevErrorPage
      */
     public function render(\Throwable $e, string $method, string $path): string
     {
-        // ENT_SUBSTITUTE + an explicit charset: invalid UTF-8 in any value is
-        // replaced with U+FFFD instead of returning an empty string.
-        $class   = htmlspecialchars($e::class, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $message = htmlspecialchars($e->getMessage(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $where   = htmlspecialchars($e->getFile() . ':' . $e->getLine(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $trace   = htmlspecialchars($e->getTraceAsString(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $request = htmlspecialchars($method . ' ' . $path, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $class   = self::esc($e::class);
+        $message = self::esc($e->getMessage());
+        $where   = self::esc($e->getFile() . ':' . $e->getLine());
+        $trace   = self::esc($e->getTraceAsString());
+        $request = self::esc($method . ' ' . $path);
         return <<<HTML
 <!DOCTYPE html>
 <html lang="en">
