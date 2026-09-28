@@ -14,11 +14,13 @@ final class DevErrorPage
      */
     public function render(\Throwable $e, string $method, string $path): string
     {
-        $class   = htmlspecialchars($e::class, ENT_QUOTES);
-        $message = htmlspecialchars($e->getMessage(), ENT_QUOTES);
-        $where   = htmlspecialchars($e->getFile() . ':' . $e->getLine(), ENT_QUOTES);
-        $trace   = htmlspecialchars($e->getTraceAsString(), ENT_QUOTES);
-        $request = htmlspecialchars($method . ' ' . $path, ENT_QUOTES);
+        // ENT_SUBSTITUTE + an explicit charset: invalid UTF-8 in any value is
+        // replaced with U+FFFD instead of returning an empty string.
+        $class   = htmlspecialchars($e::class, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $message = htmlspecialchars($e->getMessage(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $where   = htmlspecialchars($e->getFile() . ':' . $e->getLine(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $trace   = htmlspecialchars($e->getTraceAsString(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $request = htmlspecialchars($method . ' ' . $path, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         return <<<HTML
 <!DOCTYPE html>
 <html lang="en">
