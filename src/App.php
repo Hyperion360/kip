@@ -242,6 +242,12 @@ final class App
 
     private function process(Request $request, Session $active): Response
     {
+        // A controller that opened a transaction and then failed must not leak it
+        // into the next request on a persistent App: snapshot the depth at entry
+        // and unwind to it on the way out.
+        $db = null;
+        try { $db = $this->container->make(Database::class); } catch (\Throwable) {}
+        $depth = $db?->transactionDepth() ?? 0;
         try {
             $match = $this->router->match($request);
             if ($match === null) return new Response('Page not found', 404);
@@ -274,6 +280,8 @@ final class App
             return (new Response('Method not allowed', 405))->withHeader('Allow', $e->getMessage()); // review 9A
         } catch (\Throwable $e) {
             return $this->errorResponse($e, $request);
+        } finally {
+            if ($db !== null && $db->transactionDepth() > $depth) $db->rollBackToDepth($depth);
         }
     }
 

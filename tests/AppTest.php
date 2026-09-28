@@ -13,6 +13,27 @@ class EchoController // proves the controller sees the CURRENT request's scope (
     public function index(): string { return $this->request->path; }
     public function again(string $arg = ''): string { return $this->request->path; } // /echo/index/<arg> is not a canonical spelling
 }
+class TxLeakController // opens a transaction, writes, then throws
+{
+    public function __construct(private \Kip\Database $db) {}
+    public function index(): string
+    {
+        $this->db->begin();
+        $this->db->query("INSERT INTO tx_probe (v) VALUES ('leaked')");
+        throw new \RuntimeException('mid-transaction failure');
+    }
+}
+class TxWriteController // performs and commits its own write
+{
+    public function __construct(private \Kip\Database $db) {}
+    public function index(): string
+    {
+        $this->db->begin();
+        $this->db->query("INSERT INTO tx_probe (v) VALUES ('committed')");
+        $this->db->commit();
+        return 'written';
+    }
+}
 class FormController { #[\Kip\Routing\Post] public function save(): string { return 'saved'; } }
 class SecretController { #[\Kip\Routing\Auth] public function index(): string { return 'top secret'; } }
 class SecretFormController { #[\Kip\Routing\Auth] #[\Kip\Routing\Post] public function save(): string { return 'saved'; } }
@@ -27,6 +48,17 @@ final class AppTest extends TestCase
             'controller_namespace' => 'Kip\\Tests\\',
             'views' => sys_get_temp_dir(),
             'log_db' => ['dsn' => 'sqlite::memory:'],
+        ]);
+    }
+
+    /** App with a container Database, for fixture controllers that transact. */
+    private function dbApp(): App
+    {
+        return new App([
+            'env' => 'prod',
+            'db' => ['dsn' => 'sqlite::memory:'],
+            'controller_namespace' => 'Kip\\Tests\\',
+            'views' => sys_get_temp_dir(),
         ]);
     }
 
@@ -87,6 +119,34 @@ final class AppTest extends TestCase
         $second = $app->handle(new Request('GET', '/echo/again/other', [], [], []));
         $this->assertSame('/echo', $first->body);
         $this->assertSame('/echo/again/other', $second->body); // stale scope would repeat the first path
+    }
+
+    public function test_a_controller_transaction_that_throws_is_unwound(): void // worker-safety: one request must not leave a transaction open
+    {
+        $app = $this->dbApp();
+        $db = $app->container->make(\Kip\Database::class);
+        $db->query('CREATE TABLE tx_probe (id INTEGER PRIMARY KEY, v TEXT)');
+
+        $res = $app->handle(new Request('GET', '/tx-leak', [], [], []));
+
+        $this->assertSame(500, $res->status); // the error response is still rendered
+        $this->assertSame(0, $db->transactionDepth()); // no open transaction survives the request
+        $this->assertNull($db->one("SELECT id FROM tx_probe WHERE v = 'leaked'")); // the failed action's write is gone
+    }
+
+    public function test_a_request_after_a_failed_transaction_writes_normally(): void // same App, next request
+    {
+        $app = $this->dbApp();
+        $db = $app->container->make(\Kip\Database::class);
+        $db->query('CREATE TABLE tx_probe (id INTEGER PRIMARY KEY, v TEXT)');
+
+        $this->assertSame(500, $app->handle(new Request('GET', '/tx-leak', [], [], []))->status);
+        $ok = $app->handle(new Request('GET', '/tx-write', [], [], []));
+
+        $this->assertSame(200, $ok->status);
+        $this->assertNotNull($db->one("SELECT id FROM tx_probe WHERE v = 'committed'")); // own write committed
+        $this->assertSame(0, $db->transactionDepth());
+        $this->assertNull($db->one("SELECT id FROM tx_probe WHERE v = 'leaked'")); // exactly one row: the follow-up's own
     }
 
     public function test_verb_mismatch_returns_405_with_allow_header(): void // review 9A

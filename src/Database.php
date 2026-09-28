@@ -118,6 +118,15 @@ final class Database
         }
     }
 
+    /** Current nesting depth: 0 = no framework transaction open. */
+    public function transactionDepth(): int { return $this->txDepth; }
+
+    /** Unwind nested transactions (savepoint per level) until depth == $depth. */
+    public function rollBackToDepth(int $depth): void
+    {
+        while ($this->txDepth > $depth) $this->rollBack();
+    }
+
     /** Multi-statement execution (SQL-file migrations). Tapped like query() so cache tagging stays honest. */
     public function exec(string $sql): void
     {
