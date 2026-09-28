@@ -53,6 +53,31 @@ final class KipCliAppTest extends TestCase
         $this->assertStringContainsString('Nothing to migrate.', $out);
     }
 
+    /**
+     * Task 5b (review P1-1): the apps map App\ to app/src/, so App\Features\ classes
+     * must autoload from app/Features/, the same longest-prefix line the apps'
+     * composer.json carries. The harness's hand-rolled autoloader is first-match-wins,
+     * so this pins that its map got the longer prefix too. Layered App\ classes keep
+     * resolving from app/src/.
+     */
+    public function test_feature_controllers_autoload_from_the_app_features_root(): void
+    {
+        mkdir($this->cliApp . '/app/Features/Billing', 0777, true);
+        file_put_contents($this->cliApp . '/app/Features/Billing/BillingController.php',
+            '<?php namespace App\Features\Billing; final class BillingController { const OK = "feature-loaded"; }');
+        $classes = var_export(['App\\Features\\Billing\\BillingController', 'App\\Controllers\\HomeController'], true);
+        $script = sprintf(
+            'require %s; $ok = 0; foreach (%s as $c) { if (!class_exists($c)) { echo "missing: $c\n"; $ok = 1; } } exit($ok);',
+            var_export($this->cliApp . '/vendor/autoload.php', true),
+            $classes
+        );
+        // The harness ships no HomeController file; place one so the shorter App\ prefix is exercised too.
+        file_put_contents($this->cliApp . '/app/src/Controllers/HomeController.php',
+            '<?php namespace App\Controllers; final class HomeController {}');
+        exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($script) . ' 2>&1', $lines, $code);
+        $this->assertSame(0, $code, implode("\n", $lines));
+    }
+
     public function test_rollback_reverses_the_batch(): void
     {
         $this->cli(['migrate']);

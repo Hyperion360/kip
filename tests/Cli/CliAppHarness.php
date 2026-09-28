@@ -31,9 +31,10 @@ trait CliAppHarness
         }
         $src = var_export($this->cliRepo . '/src/', true);
         file_put_contents($this->cliApp . '/vendor/autoload.php',
-            '<?php // hand-rolled PSR-4 autoloader: Kip\ -> framework checkout, App\ -> this app
+            '<?php // hand-rolled PSR-4 autoloader: Kip\ -> framework checkout, App\Features\ -> app/Features, App\ -> app/src.
+// First match wins in this loop, so the longer App\Features\ prefix MUST come before App\.
 spl_autoload_register(static function (string $class): void {
-    $map = ["Kip\\\\" => ' . $src . ', "App\\\\" => __DIR__ . "/../app/src/"];
+    $map = ["Kip\\\\" => ' . $src . ', "App\\\\Features\\\\" => __DIR__ . "/../app/Features/", "App\\\\" => __DIR__ . "/../app/src/"];
     foreach ($map as $prefix => $dir) {
         if (str_starts_with($class, $prefix)) {
             $file = $dir . str_replace("\\\\", "/", substr($class, strlen($prefix))) . ".php";
