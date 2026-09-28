@@ -6,37 +6,43 @@ try {
     $config = require __DIR__ . '/../config.php';
 
     // Feature folders (ch. 3): migrations live in the app directory AND in every
-    // app/Features/<Name>/migrations, discovered by scandir() over the Features
-    // directory plus is_dir() per entry. Never glob(): it reads app_dir as pattern
-    // text, so a metacharacter path silently lists nothing.
-    $migration_dirs = [$config['app_dir'] . '/migrations'];
-    $features_dir = $config['app_dir'] . '/Features';
-    if (is_dir($features_dir)) {
-        $feature_entries = scandir($features_dir);
-        if ($feature_entries === false) {
+    // app/Features/<Name>/migrations. Discovered LAZILY, only in the migration
+    // commands, so a broken Features layout never breaks logs/backup/help. scandir()
+    // over the Features directory, never glob() (it reads app_dir as pattern text,
+    // so a metacharacter path silently lists nothing). Anything that EXISTS under a
+    // feature is passed through: Migrator::files() fails loudly on a migrations
+    // path that is not a readable directory, instead of quietly skipping it.
+    $migration_dirs = static function () use ($config): array {
+        $dirs = [$config['app_dir'] . '/migrations'];
+        $features_dir = $config['app_dir'] . '/Features';
+        if (!is_dir($features_dir) && !is_link($features_dir) && !file_exists($features_dir)) return $dirs;
+        $entries = scandir($features_dir);
+        if ($entries === false) {
             throw new RuntimeException("Cannot list {$features_dir}: refusing to migrate a partial inventory as a complete batch.");
         }
-        foreach ($feature_entries as $entry) {
+        foreach ($entries as $entry) {
             if ($entry[0] === '.') continue;
-            if (is_dir($features_dir . '/' . $entry . '/migrations')) $migration_dirs[] = $features_dir . '/' . $entry . '/migrations';
+            $m = $features_dir . '/' . $entry . '/migrations';
+            if (is_dir($m) || is_link($m) || file_exists($m)) $dirs[] = $m;
         }
-    }
+        return $dirs;
+    };
 
     match ($argv[1] ?? 'help') {
     'migrate' => (function () use ($config, $migration_dirs) {
         $db = new Kip\Database($config['db']['dsn']);
         $log = new Kip\RequestLog(new Kip\Database($config['log_db']['dsn']), $config['log_db']['retention_days'] ?? 30);
         $log->pruneToRetention();
-        $ran = (new Kip\Migrations\Migrator($db, $migration_dirs))->migrate();
+        $ran = (new Kip\Migrations\Migrator($db, $migration_dirs()))->migrate();
         echo $ran ? 'Ran: ' . implode(', ', $ran) . "\n" : "Nothing to migrate.\n";
     })(),
     'rollback' => (function () use ($config, $migration_dirs) { // review 4A
         $db = new Kip\Database($config['db']['dsn']);
-        $undone = (new Kip\Migrations\Migrator($db, $migration_dirs))->rollback();
+        $undone = (new Kip\Migrations\Migrator($db, $migration_dirs()))->rollback();
         echo $undone ? 'Rolled back: ' . implode(', ', $undone) . "\n" : "Nothing to roll back.\n";
     })(),
     'serve' => (function () use ($config, $migration_dirs) {
-        $ran = (new Kip\Migrations\Migrator(new Kip\Database($config['db']['dsn']), $migration_dirs))->migrate();
+        $ran = (new Kip\Migrations\Migrator(new Kip\Database($config['db']['dsn']), $migration_dirs()))->migrate();
         if ($ran) echo 'Auto-migrated: ' . implode(', ', $ran) . "\n";
         passthru('KIP_ENV=dev php -S localhost:8080 -t ' . escapeshellarg(__DIR__ . '/../public'));
     })(),

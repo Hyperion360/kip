@@ -230,4 +230,22 @@ final class KipCliAppTest extends TestCase
             @unlink($outFile);
         }
     }
+    public function test_a_feature_migrations_entry_that_is_a_file_fails_loudly(): void
+    {
+        mkdir($this->cliApp . '/app/Features/Junk', 0777, true);
+        file_put_contents($this->cliApp . '/app/Features/Junk/migrations', 'not a directory');
+        [$out, $code] = $this->cli(['migrate']);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringContainsString('kip: ', $out);
+        $this->assertStringNotContainsString('Nothing to migrate', $out); // not a silent skip
+    }
+
+    public function test_logs_command_ignores_a_broken_features_layout(): void
+    {
+        mkdir($this->cliApp . '/app/Features/Junk', 0777, true);
+        file_put_contents($this->cliApp . '/app/Features/Junk/migrations', 'not a directory');
+        [$out, $code] = $this->cli(['logs']);
+        $this->assertSame(0, $code, $out); // discovery is lazy: non-migration arms never list Features
+    }
+
 }

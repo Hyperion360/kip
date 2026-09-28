@@ -143,13 +143,23 @@ The URL segment studly-cases into both the folder and the class name:
 `$view->render('billing/invoice')` looks in `app/views/billing/invoice.php`
 first, then `app/Features/Billing/views/invoice.php`. Layouts always resolve
 from the app root: the shared kernel owns them, a feature template wraps
-itself in the app's layout like any other template.
+itself in the app's layout like any other template. The template name's first
+segment follows the same studly convention as the folder itself
+(`render('billing/invoice')` finds `app/Features/Billing/views/invoice.php`),
+and template names are app-authored, so the router's URL validation rules do
+not apply to them.
 
 `bin/kip migrate` reads `app/migrations/` plus every
-`app/Features/*/migrations/` directory as ONE ledger. The `NNN` prefixes
-define one global order across all of them, and a migration name may exist in
-only one directory (`008_billing.php` cannot sit in two features). See
-[chapter 5](05-database-and-migrations.md) and [chapter 8](08-cli.md).
+`app/Features/*/migrations/` directory as ONE ledger. A migration name may
+exist in only one directory (`008_billing.php` cannot sit in two features),
+and the run order is the sorted full filename across all directories, so keep
+`NNN` prefixes unique per app the way a single directory always implied: two
+migrations sharing a prefix order by their full names, deterministic but
+probably not what you meant. A `migrations` entry inside a feature that is
+not a readable directory fails the command loudly; discovery happens only in
+the migration commands, so a broken Features layout never breaks `logs` or
+`backup`. See [chapter 5](05-database-and-migrations.md) and
+[chapter 8](08-cli.md).
 
 **Resolution order and precedence.** Plain controller namespaces win over
 feature folders: the router tries `controller_namespace` (and the built-in
@@ -170,6 +180,10 @@ ship with the longer prefix; an existing app adds it to `composer.json`:
 ```json
 "autoload": { "psr-4": { "App\\Features\\": "app/Features/", "App\\": "app/src/" } }
 ```
+
+then run `composer dump-autoload`; editing `composer.json` alone does not
+update the generated autoloader, and feature controllers stay unresolved
+until it runs.
 
 **Deleting a feature.** Remove the directory and the feature is gone: its
 routes 404, its templates stop resolving, its migrations stop being listed.
