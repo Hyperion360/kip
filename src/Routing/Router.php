@@ -7,10 +7,14 @@ use Kip\Http\Request;
 
 final class Router
 {
-    /** @param string|list<string> $namespace one prefix, or several tried in order */
+    /**
+     * @param string|list<string> $namespace one prefix, or several tried in order
+     * @param ?string $featureNamespace feature-folder prefix (e.g. App\Features\), or null to disable the feature form
+     */
     public function __construct(
         private string|array $namespace = 'App\\Controllers\\',
         private string $suffix = 'Controller',
+        private ?string $featureNamespace = null,
     ) {}
 
     public function match(Request $request): ?RouteMatch
@@ -41,6 +45,14 @@ final class Router
             // class_exists() ignores case, so /po-sts (PoStsController) would find
             // PostsController: require the declared name to match exactly.
             if (class_exists($candidate) && (new \ReflectionClass($candidate))->getName() === $candidate) { $class = $candidate; break; }
+        }
+        // Feature folders come AFTER every plain namespace (review P2-1): a layered app
+        // adopting folders gradually keeps code and templates resolving app-root-first,
+        // so the two can never flip independently. A same-named plain controller wins;
+        // apps must not keep both, the docs say so.
+        if ($class === null && $this->featureNamespace !== null) {
+            $candidate = $this->featureNamespace . $studly . '\\' . $studly . $this->suffix;
+            if (class_exists($candidate) && (new \ReflectionClass($candidate))->getName() === $candidate) $class = $candidate;
         }
         if ($class === null) return null;
         if (!method_exists($class, $action)) return null;
