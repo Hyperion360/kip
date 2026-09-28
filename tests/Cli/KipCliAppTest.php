@@ -62,6 +62,29 @@ final class KipCliAppTest extends TestCase
         $this->assertSame(0, (int) $this->pdo()->query('SELECT COUNT(*) FROM _migrations')->fetchColumn());
     }
 
+    /** Feature folders (ch. 3): a migration inside app/Features/<Name>/migrations applies and rolls back via the CLI. */
+    public function test_migrate_applies_and_rolls_back_a_feature_folder_migration(): void
+    {
+        mkdir($this->cliApp . '/app/Features/Billing/migrations', 0777, true);
+        file_put_contents($this->cliApp . '/app/Features/Billing/migrations/008_billing.php', <<<'PHP'
+        <?php
+        return new class extends Kip\Migrations\Migration {
+            public function up(Kip\Database $db): void { $db->query('CREATE TABLE billing_invoices (id INTEGER PRIMARY KEY)'); }
+            public function down(Kip\Database $db): void { $db->query('DROP TABLE billing_invoices'); }
+        };
+        PHP);
+
+        [$out, $code] = $this->cli(['migrate']);
+        $this->assertSame(0, $code, $out);
+        $this->assertStringContainsString('007_index_login_attempts_by_time, 008_billing', $out); // one global order: the feature file runs after the app's 007
+        $this->assertNotFalse($this->pdo()->query("SELECT name FROM sqlite_master WHERE name = 'billing_invoices'")->fetchColumn());
+
+        [$out, $code] = $this->cli(['rollback']);
+        $this->assertSame(0, $code, $out);
+        $this->assertStringContainsString('Rolled back: 008_billing', $out); // newest first
+        $this->assertFalse((bool) $this->pdo()->query("SELECT name FROM sqlite_master WHERE name = 'billing_invoices'")->fetchColumn());
+    }
+
     public function test_user_create_prompts_and_hashes_password(): void
     {
         $this->cli(['migrate']);

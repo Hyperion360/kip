@@ -5,21 +5,38 @@ try {
     require __DIR__ . '/../vendor/autoload.php';
     $config = require __DIR__ . '/../config.php';
 
+    // Feature folders (ch. 3): migrations live in the app directory AND in every
+    // app/Features/<Name>/migrations, discovered by scandir() over the Features
+    // directory plus is_dir() per entry. Never glob(): it reads app_dir as pattern
+    // text, so a metacharacter path silently lists nothing.
+    $migration_dirs = [$config['app_dir'] . '/migrations'];
+    $features_dir = $config['app_dir'] . '/Features';
+    if (is_dir($features_dir)) {
+        $feature_entries = scandir($features_dir);
+        if ($feature_entries === false) {
+            throw new RuntimeException("Cannot list {$features_dir}: refusing to migrate a partial inventory as a complete batch.");
+        }
+        foreach ($feature_entries as $entry) {
+            if ($entry[0] === '.') continue;
+            if (is_dir($features_dir . '/' . $entry . '/migrations')) $migration_dirs[] = $features_dir . '/' . $entry . '/migrations';
+        }
+    }
+
     match ($argv[1] ?? 'help') {
-    'migrate' => (function () use ($config) {
+    'migrate' => (function () use ($config, $migration_dirs) {
         $db = new Kip\Database($config['db']['dsn']);
         $log = new Kip\RequestLog(new Kip\Database($config['log_db']['dsn']), $config['log_db']['retention_days'] ?? 30);
         $log->pruneToRetention();
-        $ran = (new Kip\Migrations\Migrator($db, $config['app_dir'] . '/migrations'))->migrate();
+        $ran = (new Kip\Migrations\Migrator($db, $migration_dirs))->migrate();
         echo $ran ? 'Ran: ' . implode(', ', $ran) . "\n" : "Nothing to migrate.\n";
     })(),
-    'rollback' => (function () use ($config) { // review 4A
+    'rollback' => (function () use ($config, $migration_dirs) { // review 4A
         $db = new Kip\Database($config['db']['dsn']);
-        $undone = (new Kip\Migrations\Migrator($db, $config['app_dir'] . '/migrations'))->rollback();
+        $undone = (new Kip\Migrations\Migrator($db, $migration_dirs))->rollback();
         echo $undone ? 'Rolled back: ' . implode(', ', $undone) . "\n" : "Nothing to roll back.\n";
     })(),
-    'serve' => (function () use ($config) {
-        $ran = (new Kip\Migrations\Migrator(new Kip\Database($config['db']['dsn']), $config['app_dir'] . '/migrations'))->migrate();
+    'serve' => (function () use ($config, $migration_dirs) {
+        $ran = (new Kip\Migrations\Migrator(new Kip\Database($config['db']['dsn']), $migration_dirs))->migrate();
         if ($ran) echo 'Auto-migrated: ' . implode(', ', $ran) . "\n";
         passthru('KIP_ENV=dev php -S localhost:8080 -t ' . escapeshellarg(__DIR__ . '/../public'));
     })(),
