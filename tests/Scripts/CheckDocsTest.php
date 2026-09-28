@@ -83,7 +83,7 @@ final class CheckDocsTest extends TestCase
         $this->assertStringStartsWith('FAIL', $this->countClaimLine($out));
         $this->assertStringContainsString('docs/guide/x.md claims "3 files" but src/ contains 2 PHP file(s)', $out);
         $this->assertStringContainsString(
-            'exception for docs/guide/11-testing.md number 4 no longer matches any claim',
+            'exception for docs/guide/11-testing.md number 4 no longer matches any claim; expected the substring "(4 files, 145 lines)"',
             $out
         );
     }
@@ -92,16 +92,37 @@ final class CheckDocsTest extends TestCase
     {
         // "4-file" (the hyphen singular, as in the versioning page's "35-file
         // core") is a claim shape the digit pass must match, and the ledger must
-        // excuse it without failing the run; everything else in the fixture is
-        // consistent, so the script exits zero.
+        // excuse it without failing the run. The shield applies because the
+        // pinned substring occurs in the same file; everything else in the
+        // fixture is consistent, so the script exits zero.
         [$out, $code] = $this->runCheckDocs(2, [
             'docs/guide/README.md' => "Kip is two files.\n",
-            'docs/guide/11-testing.md' => "Consider a 4-file example.\n",
+            'docs/guide/11-testing.md' => "Measured on the blog example (4 files, 145 lines); consider a 4-file example.\n",
             'docs/guide/08-cli.md' => "# CLI\nNo invocations.\n",
         ]);
         $this->assertSame(0, $code, $out);
         $line = $this->countClaimLine($out);
         $this->assertStringStartsWith('PASS', $line);
         $this->assertStringContainsString('exception(s) applied: 1', $line);
+    }
+
+    public function test_an_unrelated_sentence_with_the_same_number_cannot_keep_the_ledger_alive(): void
+    {
+        // The ledger entry is keyed by (file, number) but pins the sentence it
+        // excuses: a later, unrelated "4 files" sentence in the same file is a
+        // plain claim again (mismatched here, src/ has 2) and the entry reads
+        // as stale.
+        [$out, $code] = $this->runCheckDocs(2, [
+            'docs/guide/README.md' => "Kip is two files.\n",
+            'docs/guide/11-testing.md' => "Some other tool reports on 4 files.\n",
+            'docs/guide/08-cli.md' => "# CLI\nNo invocations.\n",
+        ]);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringStartsWith('FAIL', $this->countClaimLine($out));
+        $this->assertStringContainsString('docs/guide/11-testing.md claims "4 files" but src/ contains 2 PHP file(s)', $out);
+        $this->assertStringContainsString(
+            'exception for docs/guide/11-testing.md number 4 no longer matches any claim; expected the substring "(4 files, 145 lines)"',
+            $out
+        );
     }
 }

@@ -38,7 +38,7 @@ final class App
                 $config['log_db']['dsn'],
                 $config['log_db']['user'] ?? null,
                 $config['log_db']['pass'] ?? null
-            ), (int) ($config['log_db']['retention_days'] ?? 30));
+            ), self::intConfig($config['log_db']['retention_days'] ?? 30, 'log_db.retention_days'));
             $this->container->instance(RequestLog::class, $this->requestLog); // tests read it from here
         }
         if (isset($config['cache_db']['dsn'])) {
@@ -50,14 +50,14 @@ final class App
                     $config['cache_db']['user'] ?? null,
                     $config['cache_db']['pass'] ?? null
                 ),
-                (int) ($config['cache_db']['ttl_seconds'] ?? 3600),
-                (int) ($config['cache_db']['max_pages'] ?? \Kip\Cache\PageCache::DEFAULT_MAX_PAGES)
+                self::intConfig($config['cache_db']['ttl_seconds'] ?? 3600, 'cache_db.ttl_seconds'),
+                self::intConfig($config['cache_db']['max_pages'] ?? \Kip\Cache\PageCache::DEFAULT_MAX_PAGES, 'cache_db.max_pages')
             );
         }
         if (isset($config['uploads']['dir'])) {
             $this->container->instance(Storage::class, new Storage(
                 $config['uploads']['dir'],
-                (int) ($config['uploads']['max_bytes'] ?? Storage::DEFAULT_MAX_BYTES),
+                self::intConfig($config['uploads']['max_bytes'] ?? Storage::DEFAULT_MAX_BYTES, 'uploads.max_bytes'),
                 $config['uploads']['ext'] ?? null,
             ));
         }
@@ -70,6 +70,25 @@ final class App
         }
         $this->router = new Router($namespaces);
         $this->session = $session ?? new Session($this->sessionStore);
+    }
+
+    /**
+     * Config integers accept ints and numeric strings ('30'); anything else is a
+     * boot-time error naming the key, matching the behavior before the casts existed.
+     */
+    private static function intConfig(mixed $value, string $key): int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+        if (is_string($value) && is_numeric(trim($value))) {
+            return (int) trim($value);
+        }
+        throw new \InvalidArgumentException(sprintf(
+            'config key "%s" must be an int or a numeric string, got %s',
+            $key,
+            get_debug_type($value)
+        ));
     }
 
     // review D13-A: every request is timed and audited to a separate logs.sqlite.
@@ -130,7 +149,8 @@ final class App
         // Release the session lock first. With PHP's file handler the session stays
         // locked until the script ends, so a deferred send (only made for an existing
         // account) would stall the visitor's next request and reveal the account.
-        if ($this->deferred !== [] && session_status() === PHP_SESSION_ACTIVE) session_write_close();
+        // One session per request, worker loops included: close it even when nothing was deferred.
+        if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
         while ($this->deferred !== []) {
             $task = array_shift($this->deferred);
             try {
@@ -156,7 +176,8 @@ final class App
         }
 
         $cacheable = in_array($request->method, ['GET', 'HEAD'], true)
-            && $request->cookies === [];              // any cookie (session esp.) → personal → bypass
+            && $request->cookies === []                    // any cookie (session esp.) → personal → bypass
+            && $request->header('authorization') === null; // never served from or stored in a shared cache (RFC 9111)
 
         $query = http_build_query($request->get);
         if ($cacheable && ($hit = $this->pageCache->get($request->path, $query)) !== null) {
@@ -210,18 +231,43 @@ final class App
         }
         $etag = $response->headers['ETag'] ?? '"' . hash('sha256', $response->body) . '"';
         $response = $response->withHeader('ETag', $etag);
+        // RFC 9110 §13.1.2: If-None-Match is a comma-separated list of validators,
+        // or the wildcard *. The weak prefix strips per member (review D5d: weak
+        // validators compare by value for GET). A validator is always present here,
+        // so * matches whatever this response carries.
+        $match = false;
         $inm = $request->header('if-none-match');
-        if ($inm !== null && str_starts_with($inm, 'W/')) {
-            $inm = substr($inm, 2); // review D5d: weak validators compare by value for GET
+        if ($inm !== null) {
+            foreach (explode(',', $inm) as $member) {
+                $member = trim($member);
+                if (str_starts_with($member, 'W/')) $member = substr($member, 2);
+                if ($member === '*' || $member === $etag) { $match = true; break; }
+            }
         }
-        if ($inm === $etag) {
-            return new Response('', 304, ['ETag' => $etag, 'X-Kip-Cache' => $response->headers['X-Kip-Cache'] ?? 'HIT']);
+        if ($match) {
+            // RFC 9110 §15.4.5: a 304 carries the cache-relevant headers the 200 would
+            // have sent. Field names are case-insensitive (RFC 9110 5.1), so keys are
+            // scanned, not two spellings enumerated.
+            $keep = ['etag', 'x-kip-cache', 'cache-control', 'expires', 'vary'];
+            $headers = [];
+            foreach ($response->headers as $n => $v) {
+                if (in_array(strtolower((string) $n), $keep, true)) $headers[(string) $n] = $v;
+            }
+            $headers['ETag'] = $etag;
+            $headers['X-Kip-Cache'] ??= 'HIT';
+            return new Response('', 304, $headers);
         }
         return $response;
     }
 
     private function process(Request $request, Session $active): Response
     {
+        // A controller that opened a transaction and then failed must not leak it
+        // into the next request on a persistent App: snapshot the depth at entry
+        // and unwind to it on the way out.
+        $db = null;
+        try { $db = $this->container->make(Database::class); } catch (\Throwable) {}
+        $depth = $db?->transactionDepth() ?? 0;
         try {
             $match = $this->router->match($request);
             if ($match === null) return new Response('Page not found', 404);
@@ -254,6 +300,8 @@ final class App
             return (new Response('Method not allowed', 405))->withHeader('Allow', $e->getMessage()); // review 9A
         } catch (\Throwable $e) {
             return $this->errorResponse($e, $request);
+        } finally {
+            if ($db !== null && $db->transactionDepth() > $depth) $db->rollBackToDepth($depth);
         }
     }
 

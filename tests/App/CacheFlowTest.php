@@ -25,6 +25,17 @@ class CookieCasePageController
     }
 }
 
+// Fixture carrying its own cache directives, for the 304 header-copy pin.
+class CacheHeaderPageController
+{
+    public function index(): \Kip\Http\Response
+    {
+        return (new \Kip\Http\Response('ch'))
+            ->withHeader('Cache-Control', 'max-age=60')
+            ->withHeader('Vary', 'Accept-Encoding');
+    }
+}
+
 final class CacheFlowTest extends TestCase
 {
     private App $app;
@@ -80,6 +91,21 @@ final class CacheFlowTest extends TestCase
         $this->assertSame('BYPASS', $res->headers['X-Kip-Cache']);
     }
 
+    public function test_request_with_authorization_header_bypasses_cache(): void // RFC 9111 shared-cache rule
+    {
+        $res = $this->get('/posts', ['authorization' => 'Bearer token']);
+        $this->assertSame('BYPASS', $res->headers['X-Kip-Cache']);
+        $this->assertSame('MISS', $this->get('/posts')->headers['X-Kip-Cache'], 'the authorized request stored no row');
+        $this->assertSame('HIT', $this->get('/posts')->headers['X-Kip-Cache'], 'the same path without the header caches normally');
+    }
+
+    public function test_warmed_page_is_not_served_to_a_request_with_authorization_header(): void
+    {
+        $this->get('/posts'); // warm the cache
+        $res = $this->get('/posts', ['authorization' => 'Bearer token']);
+        $this->assertSame('BYPASS', $res->headers['X-Kip-Cache']);
+    }
+
     public function test_etag_conditional_get_returns_304(): void
     {
         $this->get('/posts'); // warm (review D5b: no dead variable)
@@ -96,6 +122,45 @@ final class CacheFlowTest extends TestCase
         $etag = $this->get('/posts')->headers['ETag'];
         $res = $this->get('/posts', ['if-none-match' => 'W/' . $etag]);
         $this->assertSame(304, $res->status);
+    }
+
+    public function test_if_none_match_list_containing_the_etag_matches(): void // RFC 9110 §13.1.2
+    {
+        $this->get('/posts');
+        $etag = $this->get('/posts')->headers['ETag'];
+        $res = $this->get('/posts', ['if-none-match' => '"stale-one", ' . $etag . ', "stale-two"']);
+        $this->assertSame(304, $res->status);
+    }
+
+    public function test_if_none_match_wildcard_matches_any_validator(): void // RFC 9110 §13.1.2
+    {
+        $this->get('/posts');
+        $res = $this->get('/posts', ['if-none-match' => '*']);
+        $this->assertSame(304, $res->status);
+    }
+
+    public function test_if_none_match_list_without_the_etag_does_not_match(): void
+    {
+        $this->get('/posts');
+        $res = $this->get('/posts', ['if-none-match' => '"one", W/"two"']);
+        $this->assertSame(200, $res->status);
+    }
+
+    public function test_304_carries_the_cache_relevant_headers_of_the_200(): void // RFC 9110 §15.4.5
+    {
+        $app = new App([
+            'env' => 'dev',
+            'controller_namespace' => 'Kip\\Tests\\App\\',
+            'db' => ['dsn' => 'sqlite::memory:'],
+            'cache_db' => ['dsn' => 'sqlite::memory:', 'ttl_seconds' => 3600],
+            'views' => dirname(__DIR__) . '/Fixtures/views',
+        ]);
+        $etag = $app->handle(new Request('GET', '/cache-header-page', [], [], []))->headers['ETag'];
+        $res = $app->handle(new Request('GET', '/cache-header-page', [], [], [], '', ['if-none-match' => $etag]));
+        $this->assertSame(304, $res->status);
+        $this->assertSame($etag, $res->headers['ETag']);
+        $this->assertSame('max-age=60', $res->headers['Cache-Control']);
+        $this->assertSame('Accept-Encoding', $res->headers['Vary']);
     }
 
     public function test_session_touching_pages_are_never_cached(): void // review D5f

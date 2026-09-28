@@ -160,4 +160,21 @@ final class DatabaseTest extends TestCase
         $this->db->commit();
         $this->assertSame(2, (int) $this->db->one('SELECT COUNT(*) c FROM t')['c']);
     }
+
+    public function test_begin_reconciles_depth_when_the_driver_already_ended_the_transaction(): void
+    {
+        // Driver seam: a SQL-level ROLLBACK through exec() ends the transaction
+        // at the driver level while txDepth still counts it, the state a
+        // driver-side implicit commit leaves behind. SQLite has no implicit
+        // commits, so the seam stands in for one.
+        $this->db->begin();
+        $this->db->exec('ROLLBACK');
+        $this->assertSame(1, $this->db->transactionDepth()); // the framework still counts a level
+
+        $this->db->begin(); // must start a real transaction, not a bare SAVEPOINT
+        $this->db->query('INSERT INTO t (name) VALUES (?)', ['after']);
+        $this->db->commit();
+        $this->assertSame(0, $this->db->transactionDepth());
+        $this->assertSame([['name' => 'after']], $this->db->all('SELECT name FROM t'));
+    }
 }

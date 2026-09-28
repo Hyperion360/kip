@@ -28,4 +28,15 @@ final class DevErrorPageTest extends TestCase
         $this->assertStringContainsString('&quot; onclick=&quot;x', $html);
         $this->assertStringContainsString('/x?a=&lt;b&gt;', $html);
     }
+
+    public function test_invalid_utf8_is_substituted_not_erased(): void
+    {
+        // Without ENT_SUBSTITUTE, htmlspecialchars() returns an empty string
+        // for invalid UTF-8 input. The escaped value must keep its readable
+        // part and carry U+FFFD in place of the invalid byte.
+        $e = new \RuntimeException("boom \xB1\x31");
+        $html = (new DevErrorPage())->render($e, 'GET', '/x');
+        $this->assertStringContainsString('boom', $html);
+        $this->assertStringContainsString("\u{FFFD}1", $html);
+    }
 }

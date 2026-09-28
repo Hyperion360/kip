@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Review batch, external pass. Requests carrying an `Authorization` header
+  are never served from or stored in the page cache (RFC 9111 shared-cache
+  rule). An ETag an app sets on a response is kept through the cache
+  roundtrip instead of being replaced by the body hash on HIT. A 304 now
+  carries the 200's `Cache-Control`, `Expires` and `Vary` when present
+  (RFC 9110), and `If-None-Match` accepts comma lists and the `*` wildcard.
+  A controller that opens a transaction and then fails no longer leaks it
+  into the next request on a persistent App. `runDeferred()` closes the
+  session even with an empty queue. `begin()` reconciles its depth after a
+  driver-side implicit commit. `bin/kip` covers autoload and config loading
+  under the same `kip:` failure contract. Config integers accept ints and
+  numeric strings and fail loudly otherwise, naming the key. The dev error
+  page substitutes invalid UTF-8 instead of erasing the message. CI runs
+  PHP 8.3, 8.4 and 8.5.
 - A `.csv` upload whose content libmagic reports as plain text is accepted.
   libmagic's CSV rule varies across PHP builds (the same two-line CSV came
   back `text/csv` on 8.4 and `text/plain` on 8.3 in CI), so the strict

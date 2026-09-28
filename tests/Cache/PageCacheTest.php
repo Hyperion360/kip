@@ -24,6 +24,18 @@ final class PageCacheTest extends TestCase
         $this->assertSame('HIT', $hit->headers['X-Kip-Cache']);
     }
 
+    public function test_an_app_set_etag_is_kept_through_the_store_and_hit_roundtrip(): void
+    {
+        // The MISS path already emits the app's tag; the HIT must revalidate
+        // against the same validator, not a body hash computed at store time.
+        $tag = '"app-v1"';
+        $this->cache->put('/x', '', (new Response('body'))->withHeader('ETag', $tag), []);
+        $hit = $this->cache->get('/x', '');
+        $this->assertNotNull($hit);
+        $this->assertSame($tag, $hit->headers['ETag']);
+        $this->assertNotSame('"' . hash('sha256', 'body') . '"', $hit->headers['ETag']);
+    }
+
     public function test_query_string_is_part_of_the_key(): void
     {
         $this->cache->put('/posts', 'page=1', new Response('p1'), ['posts']);
