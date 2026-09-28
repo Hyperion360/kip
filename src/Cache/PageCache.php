@@ -10,6 +10,9 @@ use Kip\Http\Response;
 final class PageCache
 {
     public const DEFAULT_MAX_PAGES = 10000;
+    /** Bumped whenever the rules deciding what may be stored change; rows written
+     *  under older rules are cleared once on first open (see the constructor). */
+    private const FORMAT_VERSION = 2;
 
     /** @param int $maxPages row cap: every distinct query string is its own row, so without one junk queries fill the disk */
     public function __construct(private Database $db, private int $ttlSeconds = 3600, private int $maxPages = self::DEFAULT_MAX_PAGES)
@@ -30,6 +33,15 @@ final class PageCache
         // page_tags' key leads with tag, so every delete by page key (prune, eviction,
         // purge) scanned the whole table without this one.
         $this->db->query('CREATE INDEX IF NOT EXISTS idx_page_tags_key ON page_tags (key)');
+        $this->db->query('CREATE TABLE IF NOT EXISTS cache_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
+        $version = $this->db->one('SELECT v FROM cache_meta WHERE k = ?', ['format']);
+        if (($version['v'] ?? null) !== (string) self::FORMAT_VERSION) {
+            // Rows written under older storing rules must not outlive them: clear once.
+            // A fresh database clears nothing (the tables were just created empty).
+            $this->db->query('DELETE FROM pages');
+            $this->db->query('DELETE FROM page_tags');
+            $this->db->query('INSERT OR REPLACE INTO cache_meta (k, v) VALUES (?, ?)', ['format', self::FORMAT_VERSION]);
+        }
     }
 
     private function key(string $path, string $query): string
@@ -64,6 +76,10 @@ final class PageCache
             // the directive (comma lists included). Cast, not trust: the
             // array<string,string> docblock is a contract PHP does not enforce.
             if (strcasecmp((string) $n, 'X-Robots-Tag') === 0 && stripos((string) $v, 'noindex') !== false) return;
+            // The cache key is path plus query string; a Vary header declares a
+            // representation variance this key does not model, so the row is
+            // refused rather than shared across the varied requests.
+            if (strcasecmp((string) $n, 'Vary') === 0) return;
         }
         $this->db->begin(); // one transaction: a write plus its prune is one sync, not one per statement
         try {

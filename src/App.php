@@ -163,15 +163,34 @@ final class App
         // account) would stall the visitor's next request and reveal the account.
         // One session per request, worker loops included: close it even when nothing was deferred.
         if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
+        // Deferred work runs after process() has unwound controller transactions, so
+        // it carries the same guarantee per task: a task that opens a transaction and
+        // fails is unwound to its entry depth, never leaked into later tasks or the
+        // next request on a persistent App. Deferred writes also join the cache
+        // contract: their tables purge cached pages, like in-request writes do.
+        $db = null;
+        try { $db = $this->container->make(Database::class); } catch (\Throwable) {}
+        $writes = [];
+        $db?->onQuery(function (string $sql) use (&$writes): void {
+            if (!\Kip\Cache\TableTagger::isWrite($sql)) return;
+            foreach (\Kip\Cache\TableTagger::tables($sql) as $t) $writes[] = $t;
+        });
         while ($this->deferred !== []) {
             $task = array_shift($this->deferred);
+            $depth = $db?->transactionDepth() ?? 0;
             try {
                 $task();
             } catch (\Throwable $e) {
                 // Where it failed, not the full trace: trace arguments would copy a mail
                 // recipient or message into the log.
                 error_log(sprintf('Deferred task failed: %s: %s at %s:%d', $e::class, $e->getMessage(), $e->getFile(), $e->getLine()));
+            } finally {
+                if ($db !== null && $db->transactionDepth() > $depth) $db->rollBackToDepth($depth);
             }
+        }
+        $db?->onQuery(fn () => null); // detach: the closure holds task-local refs
+        if ($writes !== []) {
+            $this->pageCache?->purgeByTables(array_unique($writes));
         }
     }
 
@@ -235,13 +254,35 @@ final class App
         return $this->conditional($request, $response->withHeader('X-Kip-Cache', 'MISS'));
     }
 
+    /**
+     * The members of an If-None-Match list, weak-normalized: quoted tags keep
+     * embedded commas, a W/ prefix drops, and * passes through (RFC 9110 §8.8.3).
+     *
+     * @return list<string>
+     */
+    private static function entityTagList(string $inm): array
+    {
+        preg_match_all('~\*|(?:W/)?"(?:[^"\\\\]|\\\\.)*"~', $inm, $m);
+        $members = [];
+        foreach ($m[0] as $tag) {
+            $members[] = str_starts_with($tag, 'W/') ? substr($tag, 2) : $tag;
+        }
+        return $members;
+    }
+
     /** ETag/304: answer conditional GETs without a body (RFC 9110 §13). */
     private function conditional(Request $request, Response $response): Response
     {
         if ($response->status !== 200) {
             return $response; // review D5c: no validators on error responses
         }
-        $etag = $response->headers['ETag'] ?? '"' . hash('sha256', $response->body) . '"';
+        // Field names are case-insensitive (RFC 9110 5.1): an app may spell the
+        // header etag, so a scan replaces the single-key lookup.
+        $etag = null;
+        foreach ($response->headers as $n => $v) {
+            if (strcasecmp((string) $n, 'ETag') === 0) { $etag = (string) $v; break; }
+        }
+        $etag ??= '"' . hash('sha256', $response->body) . '"';
         $response = $response->withHeader('ETag', $etag);
         // RFC 9110 §13.1.2: If-None-Match is a comma-separated list of validators,
         // or the wildcard *. The weak prefix strips per member (review D5d: weak
@@ -250,17 +291,16 @@ final class App
         $match = false;
         $inm = $request->header('if-none-match');
         if ($inm !== null) {
-            foreach (explode(',', $inm) as $member) {
-                $member = trim($member);
-                if (str_starts_with($member, 'W/')) $member = substr($member, 2);
-                if ($member === '*' || $member === $etag) { $match = true; break; }
+            $weak = str_starts_with($etag, 'W/') ? substr($etag, 2) : $etag;
+            foreach (self::entityTagList($inm) as $member) {
+                if ($member === '*' || $member === $weak) { $match = true; break; }
             }
         }
         if ($match) {
             // RFC 9110 §15.4.5: a 304 carries the cache-relevant headers the 200 would
             // have sent. Field names are case-insensitive (RFC 9110 5.1), so keys are
             // scanned, not two spellings enumerated.
-            $keep = ['etag', 'x-kip-cache', 'cache-control', 'expires', 'vary'];
+            $keep = ['etag', 'x-kip-cache', 'cache-control', 'expires', 'vary', 'content-location'];
             $headers = [];
             foreach ($response->headers as $n => $v) {
                 if (in_array(strtolower((string) $n), $keep, true)) $headers[(string) $n] = $v;

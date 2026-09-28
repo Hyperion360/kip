@@ -200,4 +200,29 @@ final class PageCacheTest extends TestCase
         $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM pages')['c'], 'neither refusal wrote a row');
     }
 
+    public function test_rows_written_under_an_older_format_version_are_cleared_once(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db);
+        $cache->put('/old-rule-page', '', new Response('stale'), []);
+        $this->assertNotNull($cache->get('/old-rule-page', ''));
+        $db->query("UPDATE cache_meta SET v = '1' WHERE k = 'format'"); // simulate pre-upgrade rows
+        $upgraded = new PageCache($db); // first open after the bump clears once
+        $this->assertNull($upgraded->get('/old-rule-page', ''));
+        $upgraded->put('/fresh', '', new Response('new'), []);
+        $again = new PageCache($db); // same version: rows survive reopening
+        $this->assertNotNull($again->get('/fresh', ''));
+    }
+
+    public function test_responses_with_vary_are_refused(): void
+    {
+        // The cache key is path plus query; Vary declares a variance that key does
+        // not model, so such responses are never stored.
+        $db = new Database('sqlite::memory:');
+        $cache = new PageCache($db);
+        $cache->put('/v', '', (new Response('x'))->withHeader('Vary', 'Accept-Language'), []);
+        $this->assertNull($cache->get('/v', ''));
+        $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM pages')['c']);
+    }
+
 }

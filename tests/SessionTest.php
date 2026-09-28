@@ -79,4 +79,15 @@ final class SessionTest extends TestCase
         $s->peek('b'); // peek is tap-free by design (direct read, no data()). Audit reads never mark a page personal
         $this->assertSame(2, $s->touchCount());
     }
+    public function test_malformed_stored_csrf_fails_closed_instead_of_raising(): void
+    {
+        $store = ['_csrf' => ['not', 'a', 'string']];
+        $s = new Session($store);
+        $this->assertFalse($s->validateCsrf('anything')); // no TypeError, just invalid
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $s->csrfToken()); // replaced, fresh
+        $store2 = ['_csrf' => 123];
+        $s2 = new Session($store2);
+        $this->assertFalse($s2->validateCsrf('123'));
+    }
+
 }

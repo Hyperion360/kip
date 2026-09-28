@@ -585,4 +585,19 @@ final class AppTest extends TestCase
             foreach (self::rmList($base) as $p) @unlink($p) ?: @rmdir($p);
         }
     }
+    public function test_a_deferred_task_that_fails_inside_a_transaction_is_unwound(): void
+    {
+        $app = $this->dbApp();
+        $db = $app->container->make(\Kip\Database::class);
+        $db->query('CREATE TABLE defer_probe (id INTEGER PRIMARY KEY, v TEXT)');
+        $app->defer(function () use ($db): void {
+            $db->begin();
+            $db->query("INSERT INTO defer_probe (v) VALUES ('leaked')");
+            throw new \RuntimeException('boom');
+        });
+        $app->runDeferred();
+        $this->assertSame(0, $db->transactionDepth()); // the failure was logged, the depth restored
+        $this->assertNull($db->one("SELECT id FROM defer_probe WHERE v = 'leaked'"));
+    }
+
 }

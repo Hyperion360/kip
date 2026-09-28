@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Cache-format versioning and consolidation hardening. Stored cache rows carry
+  a format version; when the rules that decide what may be stored change, the
+  tables clear once on first open, so rows written under older rules never
+  outlive them. Responses carrying `Vary` are not stored (the cache key is path
+  plus query; a declared variance that key cannot model is not shared). A
+  deferred task that opens a transaction and fails is unwound to its entry
+  depth, and deferred database writes purge cached pages like in-request
+  writes. A malformed stored CSRF token fails closed (invalid, not an error)
+  and `csrfToken()` replaces it. Conditional GET compares weakly on both sides
+  (a `W/` response tag matches a plain member), honors an app ETag spelled in
+  any letter case, parses `If-None-Match` lists respecting quoted commas, and
+  a 304 carries `Content-Location` alongside the cache-relevant headers.
 - Review batch, external pass. Requests carrying an `Authorization` header
   are never served from or stored in the page cache (RFC 9111 shared-cache
   rule). An ETag an app sets on a response is kept through the cache
