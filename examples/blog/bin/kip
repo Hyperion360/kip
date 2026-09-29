@@ -150,7 +150,37 @@ try {
         ]), $config['app_dir'] . '/backups', 14, $s3))->run(date('Ymd-His'));
         echo "Backup written: {$result}\n";
     })(),
-    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]]\n"),
+    'openapi' => (function () use ($config, $argv) {
+        // Mirrors App's own namespace selection (ch. 2 + ch. 3): the app
+        // namespace first, the framework admin namespace when the panel is
+        // enabled AND a database is configured, then the feature source when
+        // the Features directory exists. An explicit feature_namespace => null
+        // keeps the feature form off, the same array_key_exists rule App uses.
+        $appDir = $config['app_dir'] ?? '.';
+        $ns = $config['controller_namespace'] ?? 'App\\Controllers\\';
+        if (!str_starts_with($ns, 'App\\')) {
+            throw new RuntimeException("controller_namespace {$ns} is not App\\-rooted; kip openapi maps App\\ namespaces onto app_dir/src (PSR-4)");
+        }
+        $rel = trim(str_replace('\\', '/', substr($ns, strlen('App\\'))), '/');
+        $sources = [$ns => $appDir . '/src' . ($rel !== '' ? '/' . $rel : '')];
+        if (($config['admin']['enabled'] ?? false) && isset($config['db']['dsn'])) {
+            $sources['Kip\\Admin\\Controllers\\'] = dirname((new ReflectionClass(Kip\Admin\Controllers\AdminController::class))->getFileName());
+        }
+        $featuresDir = $config['features_dir'] ?? (is_dir($appDir . '/Features') ? $appDir . '/Features' : '');
+        $featureSources = [];
+        if ($featuresDir !== '' && is_dir($featuresDir)) {
+            $featureNs = array_key_exists('feature_namespace', $config) ? $config['feature_namespace'] : 'App\\Features\\';
+            if (is_string($featureNs)) $featureSources[$featureNs] = $featuresDir;
+        }
+        $doc = (new Kip\OpenApi($sources, (string) ($config['openapi_title'] ?? 'Kip API'), $featureSources))->generate();
+        $out = $argv[2] ?? dirname(__DIR__) . '/openapi.json';
+        $json = json_encode($doc, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+        if (@file_put_contents($out, $json) === false) {
+            throw new RuntimeException("Cannot write {$out}");
+        }
+        printf("Wrote %s (%d paths)\n", $out, count($doc['paths']));
+    })(),
+    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|openapi [file]|user:create <email> [password] [--admin]]\n"),
     };
 } catch (\Throwable $e) {
     // A failed deploy needs a stated failure, not a stack trace on stdout.

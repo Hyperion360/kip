@@ -318,4 +318,63 @@ final class KipCliAppTest extends TestCase
         $this->assertSame(0, $code, $out); // discovery is lazy: non-migration arms never list Features
     }
 
+    private function writePostsController(): void
+    {
+        file_put_contents($this->cliApp . '/app/src/Controllers/PostsController.php',
+            '<?php namespace App\Controllers; final class PostsController { public function index(): array { return []; } public function show(string $id): array { return []; } }');
+    }
+
+    /** kip openapi: the document lands at the app root by default, assembled from the app's own conventions. */
+    public function test_openapi_writes_the_document_from_app_conventions(): void
+    {
+        $this->writePostsController();
+        [$out, $code] = $this->cli(['openapi']);
+        $this->assertSame(0, $code, $out);
+        $this->assertMatchesRegularExpression('/^Wrote .+ \(\d+ paths\)$/', $out);
+        $file = $this->cliApp . '/openapi.json';
+        $this->assertFileExists($file);
+        $doc = json_decode((string) file_get_contents($file), true);
+        $this->assertIsArray($doc);
+        $this->assertSame('3.1.0', $doc['openapi']);
+        $this->assertArrayHasKey('/posts', $doc['paths']);
+        $this->assertArrayHasKey('/posts/show/{id}', $doc['paths']);
+        $this->assertSame('Posts.show', $doc['paths']['/posts/show/{id}']['get']['operationId']);
+        // admin.enabled + a db DSN are set in the copied config, so the framework
+        // admin source is documented too (the panel's own routes).
+        $this->assertArrayHasKey('/admin', $doc['paths']);
+    }
+
+    public function test_openapi_honors_the_output_path_argument(): void
+    {
+        $this->writePostsController();
+        [$out, $code] = $this->cli(['openapi', $this->cliApp . '/app/api-doc.json']);
+        $this->assertSame(0, $code, $out);
+        $this->assertFileExists($this->cliApp . '/app/api-doc.json');
+        $this->assertFileDoesNotExist($this->cliApp . '/openapi.json', 'the argument replaces the default path');
+    }
+
+    /** A namespace off the app's PSR-4 root cannot be mapped to a directory: refuse, never guess. */
+    public function test_openapi_refuses_a_non_app_controller_namespace(): void
+    {
+        $configPath = $this->cliApp . '/config.php';
+        $config = (string) file_get_contents($configPath);
+        $broken = str_replace('];', "    'controller_namespace' => 'Custom\\\\',\n];", $config);
+        $this->assertNotSame($config, $broken, 'skeleton/config.php no longer ends with ]; update the injection');
+        file_put_contents($configPath, $broken);
+        [$out, $code] = $this->cli(['openapi']);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringStartsWith('kip: ', $out);
+        $this->assertStringContainsString('App\\', $out);
+        $this->assertFileDoesNotExist($this->cliApp . '/openapi.json');
+    }
+
+    public function test_openapi_refuses_an_unwritable_output_path(): void
+    {
+        $this->writePostsController();
+        [$out, $code] = $this->cli(['openapi', '/no-such-dir/api.json']);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringStartsWith('kip: ', $out);
+        $this->assertStringContainsString('Cannot write', $out);
+    }
+
 }
