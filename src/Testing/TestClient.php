@@ -43,18 +43,35 @@ final class TestClient
     }
 
     /**
+     * POST a JSON body. Arrays encode with the same flags the kernel's #[Json]
+     * wrap uses; strings pass through raw, so a malformed payload reaches the
+     * app for its 400 path. The CSRF token is NOT merged (mirrors post()):
+     * pass ['x-csrf-token' => $client->csrfToken()] in $headers.
+     *
+     * @param array<array-key, mixed>|string $payload
+     * @param array<string, string>          $headers
+     */
+    public function postJson(string $path, array|string $payload = [], array $headers = []): Response
+    {
+        $body = is_string($payload)
+            ? $payload
+            : (string) json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        return $this->request('POST', $path, [], [], $headers + ['content-type' => 'application/json'], [], $body);
+    }
+
+    /**
      * @param array<array-key, mixed> $get
      * @param array<array-key, mixed> $post
      * @param array<string, string>   $headers
      * @param array<array-key, mixed> $files
      */
-    public function request(string $method, string $path, array $get = [], array $post = [], array $headers = [], array $files = []): Response
+    public function request(string $method, string $path, array $get = [], array $post = [], array $headers = [], array $files = [], string $body = ''): Response
     {
         // A client whose session holds state sends a cookie, like a real browser.
         // This keeps the page cache honest: fresh clients are cookieless guests
         // (cacheable), stateful clients are BYPASS.
         $cookies = $this->store === [] ? [] : ['kip_test_session' => '1'];
-        $response = $this->app->handle(new Request($method, $path, $get, $post, $cookies, '127.0.0.1', $headers, $files), $this->session);
+        $response = $this->app->handle(new Request($method, $path, $get, $post, $cookies, '127.0.0.1', $headers, $files, $body), $this->session);
         $this->app->runDeferred(); // as the front controller does after send()
         return $response;
     }

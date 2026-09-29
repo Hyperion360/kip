@@ -13,6 +13,7 @@ final class Request
      * @param array<array-key, mixed>  $cookies a name like a[b] yields an array value
      * @param array<string, string>    $headers lowercase keys, built by fromGlobals (v0.2 T2)
      * @param array<array-key, mixed>  $files   $_FILES-shaped (v0.3 T8)
+     * @param string                   $body    raw request body (JSON battery); '' when none
      */
     public function __construct(
         public readonly string $method,
@@ -23,6 +24,7 @@ final class Request
         public readonly string $ip = '',
         public readonly array $headers = [],
         public readonly array $files = [],
+        public readonly string $body = '',
     ) {
         // Stored as given: a trailing slash must reach the router and 404 there,
         // not be silently aliased onto the canonical URL. Only the empty path
@@ -57,7 +59,17 @@ final class Request
                 $headers[strtolower(str_replace('_', '-', substr($k, 5)))] = $v;
             }
         }
-        return new self($server['REQUEST_METHOD'] ?? 'GET', $path, $_GET, $_POST, $_COOKIE, $ip, $headers, $_FILES);
+        // CGI and FPM expose the content type as the bare CONTENT_TYPE key, not
+        // HTTP_CONTENT_TYPE; without this fill a JSON POST's guard would never
+        // see its media type. An HTTP_CONTENT_TYPE sweep result always wins.
+        if (!isset($headers['content-type']) && isset($server['CONTENT_TYPE']) && is_string($server['CONTENT_TYPE'])) {
+            $headers['content-type'] = $server['CONTENT_TYPE'];
+        }
+        // The raw body only exists in a web SAPI; CLI (phpunit, bin/kip) has no
+        // request body, and reading php://input there depends on stdin wiring
+        // that varies across builds. Tests inject the body explicitly.
+        $body = PHP_SAPI === 'cli' ? '' : (string) file_get_contents('php://input');
+        return new self($server['REQUEST_METHOD'] ?? 'GET', $path, $_GET, $_POST, $_COOKIE, $ip, $headers, $_FILES, $body);
     }
 
     public function input(string $key, mixed $default = null): mixed
@@ -83,6 +95,24 @@ final class Request
     {
         $v = $this->headers[strtolower($name)] ?? null;
         return is_string($v) ? $v : null;
+    }
+
+    /**
+     * The request body parsed as JSON: an array for object and array
+     * documents, null for an empty body, malformed JSON, invalid UTF-8, or a
+     * valid scalar/null document (the body contract is an object or array;
+     * decode is strict, no substitution, so a broken body can be answered
+     * with a 400 instead of silently repaired).
+     *
+     * @return array<array-key, mixed>|null
+     */
+    public function json(): ?array
+    {
+        if ($this->body === '') {
+            return null;
+        }
+        $decoded = json_decode($this->body, true);
+        return is_array($decoded) ? $decoded : null;
     }
 
     /**
