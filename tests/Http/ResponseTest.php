@@ -50,4 +50,16 @@ final class ResponseTest extends TestCase
         $this->assertSame('DENY', $r->headers['X-Frame-Options']);
         $this->assertSame('nosniff', $r->headers['X-Content-Type-Options']); // defaults merge under custom
     }
+
+    public function testRejectsHeaderInjection(): void // response splitting dies at construction, not at send
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new Response('ok'))->withHeader('X-Evil', "a\r\nSet-Cookie: session=stolen");
+    }
+
+    public function testRejectsHeaderInjectionThroughTheConstructor(): void // the header loop validates too
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new Response('ok', 200, ['X-Evil' => "a\nSet-Cookie: session=stolen"]);
+    }
 }
