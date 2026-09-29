@@ -281,6 +281,40 @@ final class CacheFlowTest extends TestCase
         $this->assertSame('"one"', $res->headers['ETag']); // first spelling in header order wins
     }
 
+    public function test_a_get_with_a_body_neither_reads_nor_writes_the_cache(): void
+    {
+        // RFC 9110 §9.3.1: a GET CAN carry a body. A body-dependent render must
+        // not be served a shared entry, and must not store one (codex fold 2:
+        // without the empty-body condition, a body-carrying GET poisons and is
+        // poisoned by the shared cache). The cache DB is a file so the stored
+        // rows can be counted directly.
+        $file = tempnam(sys_get_temp_dir(), 'kip-json-cache');
+        $app = new App([
+            'env' => 'dev',
+            'controller_namespace' => 'Kip\\Tests\\Fixtures\\Controllers\\',
+            'db' => ['dsn' => 'sqlite::memory:'],
+            'cache_db' => ['dsn' => 'sqlite:' . $file, 'ttl_seconds' => 3600],
+            'views' => dirname(__DIR__) . '/Fixtures/views',
+        ]);
+        $db = $app->container->make(Database::class);
+        $db->query('CREATE TABLE posts (id INTEGER PRIMARY KEY, title TEXT, body TEXT, created_at TEXT)');
+        $db->query('CREATE TABLE comments (id INTEGER PRIMARY KEY, post_id INTEGER, author TEXT, body TEXT, created_at TEXT)');
+        $db->query("INSERT INTO posts (title, body, created_at) VALUES ('T', 'B', '2026-01-01')");
+        $bodied = fn (string $path): Request => new Request('GET', $path, [], [], [], '', [], [], 'filter=x');
+
+        $this->assertSame('MISS', $app->handle(new Request('GET', '/posts', [], [], []))->headers['X-Kip-Cache']); // warm
+        $this->assertSame('BYPASS', $app->handle($bodied('/posts'))->headers['X-Kip-Cache'],
+            'a body-carrying GET must not be served the warmed entry');
+
+        $cache = new Database('sqlite:' . $file);
+        $this->assertCount(1, $cache->all('SELECT key FROM pages'), 'only the warm row exists');
+
+        $app->handle($bodied('/posts/show/1')); // never-warmed path
+        $this->assertCount(1, $cache->all('SELECT key FROM pages'),
+            'the body-carrying GET on a fresh path stored no entry');
+        unlink($file);
+    }
+
     public function test_304_carries_content_location(): void
     {
         // The cache-header fixture lives in this file's namespace, so a second App
