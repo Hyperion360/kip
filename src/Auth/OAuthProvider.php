@@ -130,7 +130,10 @@ final class OAuthProvider
     public function start(?int $principal = null): string
     {
         $state = bin2hex(random_bytes(32));
-        $verifier = $this->merged['pkce'] ? bin2hex(random_bytes(48)) : null; // 96 chars, inside the RFC 7636 range
+        // PKCE defaults ON for a custom provider (no preset): the challenge is
+        // one extra parameter most endpoints ignore, and a provider that cannot
+        // take it fails visibly, so 'pkce' => false is an explicit opt-out.
+        $verifier = ($this->merged['pkce'] ?? true) ? bin2hex(random_bytes(48)) : null; // 96 chars, inside the RFC 7636 range
         $params = [
             'response_type' => 'code',
             'client_id' => $this->merged['client_id'],
@@ -287,7 +290,10 @@ final class OAuthProvider
         };
     }
 
-    /** @param array<string, mixed> $data */
+    /**
+     * @param array<string, mixed> $data
+     * @return array{uid: string, email: ?string, verified: bool}
+     */
     private function oidcIdentity(array $data): array
     {
         $uid = $data['sub'] ?? null;
@@ -302,7 +308,10 @@ final class OAuthProvider
         ];
     }
 
-    /** @param array<string, mixed> $data */
+    /**
+     * @param array<string, mixed> $data
+     * @return array{uid: string, email: ?string, verified: bool}
+     */
     private function githubIdentity(#[\SensitiveParameter] string $token, array $data): array
     {
         $uid = $data['id'] ?? null;
@@ -339,7 +348,10 @@ final class OAuthProvider
         return ['uid' => (string) $uid, 'email' => $email, 'verified' => false];
     }
 
-    /** @param array<string, mixed> $data */
+    /**
+     * @param array<string, mixed> $data
+     * @return array{uid: string, email: ?string, verified: bool}
+     */
     private function msIdentity(array $data): array
     {
         $uid = $data['id'] ?? null;

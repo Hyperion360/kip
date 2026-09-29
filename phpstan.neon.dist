@@ -1,22 +1,26 @@
 # Kip static analysis contract. Run it with: composer lint
 #
 # Level 6 is the target and src/ is clean at it. Measured on this tree
-# 2026-09-29, with the three ignores below in place: level 7 is 6 errors,
-# level 8 is 14, level 9 is 106, level 10 is 109.
+# 2026-09-29, with the four ignores below in place: level 7 is 9 errors,
+# level 8 is 19, level 9 is 139, level 10 is 145.
 #
 # The findings at level 7 are annotations in this file's own vocabulary or
 # in extension stubs being more specific than the source can prove, not
-# defects: Schema::columns() declares a column shape Database::all() cannot
-# guarantee, App.php passes array<int<0,max>, string> where list<string> is
-# declared, Database::all() narrows fetchAll()'s bare array, and S3.php's
-# curl option array (a conditional array shape the curl stubs want fully
-# populated, including a non-empty-string where a plain string is built).
+# defects: Schema::columns() and ReadOnlyConnection::select() declare column
+# shapes Database::all() cannot guarantee, App.php passes
+# array<int<0,max>, string> where list<string> is declared, Database::all()
+# narrows fetchAll()'s bare array, Jobs.php calls handle() on a job object
+# only the app can type, View.php guards strstr()/strlen() the analyzer
+# cannot narrow, and the curl option arrays in S3.php and
+# Auth/OAuthProvider.php are conditional array shapes the curl stubs want
+# fully populated (including a non-empty-string where a plain string is
+# built).
 #
 # The jump at level 9 is strict-mixed rules firing on values that arrive
-# as mixed from array<array-key, mixed> surfaces: 38 argument.type, 16
-# offsetAccess, 11 cast.string, 9 cast.int. Clearing it needs real column
-# shapes throughout, which is a design change to the array-row model
-# rather than an annotation pass.
+# as mixed from array<array-key, mixed> surfaces: 44 argument-type
+# mismatches, 24 cast.string, 19 cast.int, 7 offset accesses. Clearing it
+# needs real column shapes throughout, which is a design change to the
+# array-row model rather than an annotation pass.
 parameters:
     level: 6
 
@@ -55,3 +59,11 @@ parameters:
             identifier: nullCoalesce.variable
             count: 1
             path: src/S3.php
+        -
+            # Same load-bearing guard as S3.php: the streams transport reads
+            # $http_response_header after file_get_contents(), where it stays
+            # unset after a connection failure. The analyzer models the
+            # variable as always defined and calls the coalesce dead.
+            identifier: nullCoalesce.variable
+            count: 1
+            path: src/Auth/OAuthProvider.php
