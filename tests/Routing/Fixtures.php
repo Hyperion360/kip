@@ -1,6 +1,6 @@
 <?php // tests/Routing/Fixtures.php
 namespace Kip\Tests\Routing;
-use Kip\Routing\{Post, Auth};
+use Kip\Routing\{Post, Auth, Json};
 
 class PostsController
 {
@@ -23,4 +23,18 @@ class BillingController
 final class HomeController
 {
     public function index(): string { return 'home'; }
+}
+
+final class ReportController
+{
+    #[Json]
+    public function stats(): array { return ['marked' => true]; }
+    public function plain(): string { return 'plain'; }
+}
+
+#[Json]
+final class CatalogController
+{
+    public function index(): array { return ['catalog' => true]; }
+    public function item(string $id): array { return ['id' => $id]; }
 }

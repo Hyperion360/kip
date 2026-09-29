@@ -22,7 +22,7 @@ final class AttributeAutoloadTest extends TestCase
      */
     public function test_every_route_attribute_is_autoloadable(): void
     {
-        foreach (['Get', 'Post', 'Put', 'Delete', 'Auth'] as $short) {
+        foreach (['Get', 'Post', 'Put', 'Delete', 'Auth', 'Json'] as $short) {
             $fqcn = 'Kip\\Routing\\' . $short;
             $this->assertTrue(
                 class_exists($fqcn),

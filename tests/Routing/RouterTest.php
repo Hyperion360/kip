@@ -67,6 +67,33 @@ final class RouterTest extends TestCase
         $this->assertNull($this->router()->match(new Request('GET', '/../etc/passwd', [], [], [])));
     }
 
+    /** TRUST BOUNDARY, both directions: a filter matching every attribute would set json everywhere, one matching nothing nowhere. */
+    public function test_json_attribute_flags_the_match_in_both_directions(): void
+    {
+        $r = $this->router();
+        $marked = $r->match(new Request('GET', '/report/stats', [], [], []));
+        $this->assertNotNull($marked);
+        $this->assertTrue($marked->json, 'a #[Json] action must carry the flag');
+        $plain = $r->match(new Request('GET', '/report/plain', [], [], []));
+        $this->assertNotNull($plain);
+        $this->assertFalse($plain->json, 'an action without #[Json] must not carry the flag');
+    }
+
+    public function test_class_level_json_flags_every_action(): void
+    {
+        $r = $this->router();
+        foreach (['/catalog', '/catalog/item/7'] as $path) {
+            $m = $r->match(new Request('GET', $path, [], [], []));
+            $this->assertNotNull($m, $path);
+            $this->assertTrue($m->json, "a class-level #[Json] must flag {$path}");
+        }
+    }
+
+    public function test_json_flag_defaults_false_on_older_style_matches(): void
+    {
+        $this->assertFalse($this->router()->match(new Request('GET', '/posts', [], [], []))->json);
+    }
+
     public function test_too_many_args_is_404(): void
     {
         $this->assertNull($this->router()->match(new Request('GET', '/posts/index/a/b/c', [], [], [])));

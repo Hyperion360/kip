@@ -21,6 +21,7 @@ final class RouteMatch
         private string $action,
         private array $args,
         public readonly bool $requiresAuth,
+        public readonly bool $json = false,
     ) {}
 
     public function invoke(Container $scope): mixed
