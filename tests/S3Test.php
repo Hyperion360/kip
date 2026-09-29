@@ -5,13 +5,13 @@ use Kip\S3;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The S3 uploader in three verification tiers:
+ * The S3 uploader in two verification tiers (no Docker anywhere):
  * 1. Unit: documented AWS Signature Version 4 derivation vectors, canonical
  *    path encoding, and the transport gate.
  * 2. A PHP-native stub server (tests/Fixtures/s3-stub.php) that verifies
  *    signatures with its own independently written derivation, so a bug in
- *    src/S3.php cannot cancel itself out.
- * 3. Real MinIO behind KIP_S3_MINIO=1 (opt-in, needs Docker).
+ *    src/S3.php cannot cancel itself out. Real-provider acceptance is a
+ *    one-time manual smoke test documented in guide ch. 8.
  */
 final class S3Test extends TestCase
 {
