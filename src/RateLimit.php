@@ -1,0 +1,206 @@
+<?php // src/RateLimit.php
+
+declare(strict_types=1);
+namespace Kip;
+
+use Kip\Routing\Router;
+
+/**
+ * Fixed-window rate limiting, table-backed. Config maps a route prefix (the
+ * first URL segment, canonicalized through the router's studly() rule so
+ * dashed and underscored spellings of one controller share a bucket) to a
+ * `['max' => 10, 'window' => 60]` pair; every non-GET request to a configured
+ * prefix counts one hit, enforced in App::process() BEFORE routing, so an
+ * over-limit request never reaches a controller, a session, or a transaction.
+ *
+ * One hit is one UPSERT: INSERT ... ON CONFLICT (prefix, ip, window_start)
+ * DO UPDATE SET hits = hits + 1 RETURNING hits, atomic under concurrency by
+ * construction. The hit that opens a new window also retires expired rows
+ * (one DELETE), so a configured POST-action route pays exactly one upsert in
+ * the steady state. Unconfigured apps, unconfigured prefixes, and every
+ * GET/HEAD request pay nothing: page renders keep the one-query budget.
+ */
+final class RateLimit
+{
+    /** The counting statement: one row per (prefix, ip, window), the conflict target IS the primary key. */
+    private const UPSERT = 'INSERT INTO rate_limits (prefix, ip, window_start, hits) VALUES (?, ?, ?, 1)'
+        . ' ON CONFLICT (prefix, ip, window_start) DO UPDATE SET hits = hits + 1'
+        . ' RETURNING hits';
+
+    /** Retires expired windows across every key at once; seeks idx_rate_limits_window. */
+    private const PRUNE = 'DELETE FROM rate_limits WHERE window_start < ?';
+
+    /** The router's own segment grammar (lowercase, single separators), the root spelled ''. */
+    private const SEGMENT = '/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/';
+
+    /** @var array<string, array{max: int, window: int}> studly-canonicalized prefix => limit */
+    private array $limits;
+
+    /** The largest configured window: the prune's grace period, see check(). */
+    private int $maxWindow;
+
+    /**
+     * @param array<array-key, mixed> $limits prefix => ['max' => int, 'window' => int]
+     * @throws \InvalidArgumentException on a shape that would silently protect nothing
+     * @throws \RuntimeException on a driver that cannot run the counting upsert
+     */
+    public function __construct(private Database $db, array $limits)
+    {
+        self::assertDriverSupport($db->dsn(), $db->serverVersion());
+        $parsed = [];
+        $this->maxWindow = 0;
+        foreach ($limits as $prefix => $limit) {
+            // PHP folds the array key '0' to the integer 0; the segment "0"
+            // is a legal first segment and must still configure a prefix.
+            $prefix = is_int($prefix) ? (string) $prefix : $prefix;
+            if (!($prefix === '' || preg_match(self::SEGMENT, $prefix) === 1)) {
+                throw new \InvalidArgumentException(sprintf(
+                    'config key "rate_limit.%s" is not a route prefix: use the first URL segment '
+                    . '(lowercase letters, digits, single - or _ separators) or the empty string for POST /',
+                    $prefix
+                ));
+            }
+            $canonical = Router::studly($prefix);
+            if (isset($parsed[$canonical])) {
+                throw new \InvalidArgumentException(sprintf(
+                    'config keys under "rate_limit" collide: "%s" and its alias both canonicalize to %s '
+                    . '(the router serves both spellings); configure one',
+                    $prefix, $canonical
+                ));
+            }
+            if (!is_array($limit)) {
+                throw new \InvalidArgumentException("config key \"rate_limit.{$prefix}\" must be an array with max and window");
+            }
+            $parsed[$canonical] = [
+                'max' => self::intConfig($limit['max'] ?? null, "rate_limit.{$prefix}.max", 0),
+                'window' => self::intConfig($limit['window'] ?? null, "rate_limit.{$prefix}.window", 1),
+            ];
+            $this->maxWindow = max($this->maxWindow, $parsed[$canonical]['window']);
+        }
+        $this->limits = $parsed;
+    }
+
+    /**
+     * Count one hit against the bucket the path maps to and report the verdict.
+     * Returns null when the request is allowed (or the prefix is not
+     * configured, which never touches the database), or the Retry-After
+     * seconds when it is over the limit. The optional $now is the test clock
+     * seam; production always passes nothing and reads the real clock once,
+     * immediately before the upsert.
+     */
+    public function check(string $path, string $ip, ?int $now = null): ?int
+    {
+        $prefix = self::prefixOf($path);
+        $limit = $this->limits[$prefix] ?? null;
+        if ($limit === null) return null;
+        if ($this->db->transactionDepth() > 0) {
+            // The Jobs::claim() contract: a hit inside a caller's transaction
+            // would roll back with it, and the spent quota would never count.
+            throw new \RuntimeException(sprintf(
+                'RateLimit::check() needs an autocommit connection, a transaction is open (depth %d). '
+                . 'Count a hit outside Database::begin()/commit(); inside one, a rollback would erase it.',
+                $this->db->transactionDepth()
+            ));
+        }
+        $now ??= time();
+        if ($now < 0) {
+            throw new \InvalidArgumentException('$now must be a unix timestamp, got ' . $now);
+        }
+        $windowStart = intdiv($now, $limit['window']) * $limit['window'];
+        $row = $this->db->one(self::UPSERT, [$prefix, self::ipKey($ip), $windowStart]);
+        if ($row === null) {
+            throw new \RuntimeException('the counting upsert returned no row, the hit was not recorded');
+        }
+        $hits = (int) $row['hits'];
+        if ($hits === 1) {
+            // A new window row was just created: retire expired rows. The
+            // cutoff keeps every LIVE bucket: a bucket with window W starting
+            // at S is live while S > now - W, and W <= maxWindow gives
+            // S > now - W >= now - maxWindow, so nothing at or after the
+            // cutoff is ever live. Cutting at the requester's own window
+            // start instead would delete live buckets of prefixes configured
+            // with shorter windows.
+            $this->db->query(self::PRUNE, [$now - $this->maxWindow]);
+        }
+        if ($hits > $limit['max']) {
+            return $limit['window'] - ($now - $windowStart);
+        }
+        return null;
+    }
+
+    /**
+     * The driver must run the counting upsert (ON CONFLICT ... RETURNING):
+     * SQLite 3.35+ (bundled in every PHP 8.3+ build, but a system-linked
+     * build can be older) and PostgreSQL 9.5+. Anything else fails at boot
+     * with the remedy named, never as a 500 on the first counted request.
+     */
+    public static function assertDriverSupport(string $dsn, string $serverVersion): void
+    {
+        if (str_starts_with($dsn, 'sqlite:')) {
+            if (version_compare($serverVersion, '3.35', '<')) {
+                throw new \RuntimeException(sprintf(
+                    'rate limiting needs SQLite 3.35+ for its counting upsert (RETURNING), this PHP reports SQLite %s',
+                    $serverVersion
+                ));
+            }
+            return;
+        }
+        if (str_starts_with($dsn, 'pgsql:')) {
+            if (version_compare($serverVersion, '9.5', '<')) {
+                throw new \RuntimeException(sprintf(
+                    'rate limiting needs PostgreSQL 9.5+ for its counting upsert (ON CONFLICT), this server reports %s',
+                    $serverVersion
+                ));
+            }
+            return;
+        }
+        throw new \RuntimeException(sprintf(
+            'rate limiting supports the SQLite and PostgreSQL drivers for its counting upsert, this "%s" DSN is neither',
+            strstr($dsn, ':', true) ?: $dsn
+        ));
+    }
+
+    /**
+     * The first URL segment, the router's own way: filter empty strings only
+     * (the segment "0" is legal), then canonicalize through studly() so both
+     * spellings of a dashed controller name are one prefix. The root is ''.
+     */
+    private static function prefixOf(string $path): string
+    {
+        $segments = array_values(array_filter(explode('/', $path), static fn(string $p): bool => $p !== ''));
+        return Router::studly($segments[0] ?? '');
+    }
+
+    /**
+     * One form per address: equivalent IPv6 spellings ('2001:db8::1' and the
+     * expanded form) share a bucket. A value that is not an IP at all (a
+     * broken SAPI, a test double) is the key verbatim: distinct garbage must
+     * never collapse into one bucket, and '' stays the shared no-IP bucket.
+     */
+    private static function ipKey(string $ip): string
+    {
+        return filter_var($ip, FILTER_VALIDATE_IP) === false
+            ? $ip
+            : (string) inet_ntop((string) inet_pton($ip));
+    }
+
+    /**
+     * Config integers accept ints and numeric strings ('30'); anything else,
+     * or a value below $minimum, is a boot-time error naming the key, the
+     * App::intConfig semantics.
+     */
+    private static function intConfig(mixed $value, string $key, int $minimum): int
+    {
+        $int = is_int($value) ? $value
+            : (is_string($value) && is_numeric(trim($value)) ? (int) trim($value) : null);
+        if ($int === null || $int < $minimum) {
+            throw new \InvalidArgumentException(sprintf(
+                'config key "%s" must be an int or a numeric string >= %d, got %s',
+                $key,
+                $minimum,
+                get_debug_type($value)
+            ));
+        }
+        return $int;
+    }
+}
