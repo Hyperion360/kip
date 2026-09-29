@@ -121,6 +121,15 @@ files back into place. A nightly cron entry is the whole recipe:
 15 4 * * * cd /var/www/myapp && php bin/kip backup
 ```
 
+For off-site copies, give that same cron line the five
+`KIP_BACKUP_S3_*` environment variables ([chapter 8](08-cli.md) lists
+them, plus a one-time launch check worth running against the provider
+before the cron entry goes live): `backup` then uploads each archive to
+the bucket right after writing it, as part of the same exit code, so a
+failed upload sends cron's mail instead of passing silently. The local
+archive stays the fast restore path; the bucket is the copy that
+survives the host.
+
 If the app uses the uploads battery, serve `public/uploads` with
 `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`
 at the web-server layer, defense in depth for files the extension

@@ -188,6 +188,42 @@ The `logs` and `cache` databases ride along (labeled `logs.sqlite` /
 rather not resurrect stale cache entries. Exit code **0**; exits **1**
 with an error if no SQLite database is configured.
 
+### Off-site copies: `KIP_BACKUP_S3_*`
+
+`backup` can push the archive to an S3-compatible object storage bucket
+in the same run, with no new dependency: the uploader is plain PHP
+speaking Signature Version 4 over path-style requests, using curl when
+the extension is loaded and PHP's own stream wrappers otherwise. Any
+provider endpoint that accepts those requests works. Five environment
+variables turn it on:
+
+```
+KIP_BACKUP_S3_ENDPOINT=https://s3.example.com
+KIP_BACKUP_S3_REGION=us-east-1
+KIP_BACKUP_S3_BUCKET=my-app-backups
+KIP_BACKUP_S3_KEY=your-access-key-id
+KIP_BACKUP_S3_SECRET=your-secret-access-key
+```
+
+`KIP_BACKUP_S3_PREFIX` (optional) prepends a folder to every object key,
+`myapp/prod` for example, so one bucket can hold several apps or
+environments.
+
+All-or-nothing: if any of the five is set but the others are missing,
+`backup` exits **1** before writing anything, naming the missing
+variables. A half-configured cron job fails loudly instead of quietly
+reverting to local-only backups. With none set, the command behaves
+exactly as documented above. With all five set, exit **0** means the
+archive is on disk AND in the bucket; an upload failure exits **1** with
+the HTTP status, so cron's mail tells you about it.
+
+Before the cron entry goes live, run the launch check once against the
+real provider: set the five variables in your shell, run
+`php bin/kip backup`, confirm the new object appears in the provider's
+console, then delete it. That single run proves the credentials, the
+endpoint spelling, and the bucket name against the one authority that
+matters, and everything after it is routine.
+
 ## How it works
 
 Every command constructs its own `Kip\Database`/`Kip\Migrations\Migrator`/
