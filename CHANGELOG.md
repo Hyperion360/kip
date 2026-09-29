@@ -8,6 +8,8 @@ The audit-log retention prune seeks the new requests(julianday(created_at)) expr
 An app ETag spelled in any letter case leaves the framework as one ETag field; the conditional-GET canonicalization used to append its own spelling beside the app's, sending two validators (RFC 9110 §8.8.3 allows one).
 Backup snapshots bind the `VACUUM INTO` target path as a parameter instead of a hand-quoted SQL literal.
 bin/kip reports the underlying OS reason when a Features directory cannot be listed (the Migrator idiom).
+The admin panel gains a read-only SQL browser: /admin/sql lists tables with row counts, /admin/schema/<table> shows the columns and the CREATE statement, /admin/data/<table> pages through rows with a column filter. Every browser read runs on a second database handle SQLite opens read-only (SQLITE_OPEN_READONLY on a mode=ro URI DSN, with the file path percent-encoded), so no statement it issues can write; the filter offers only the table's own columns (password_hash excluded) and a fixed operator set, with the value bound as a parameter.
+kip db runs a single read-only SELECT or PRAGMA against the app database through the same read-only handle and prints tab-separated rows; with no query it lists the tables, migration ledger included. Values print control bytes escaped, NULL prints as NULL, and anything other than SELECT or PRAGMA, a query error, or a missing database file exits 1 without ever creating the file.
 
 - Cache-format versioning and consolidation hardening. Stored cache rows carry
   a format version; when the rules that decide what may be stored change, the

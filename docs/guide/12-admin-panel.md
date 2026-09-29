@@ -5,7 +5,7 @@ every user table gets a browser, a create form, an edit form, and a
 delete button, no code generation, nothing configured per table. The
 panel reads the live SQLite schema (`sqlite_master` for the table
 list, `PRAGMA table_info` for columns) and derives the rest from
-conventions. There is no JavaScript: four plain-PHP templates plus
+conventions. There is no JavaScript: seven plain-PHP templates plus
 one inline classless stylesheet (`src/Admin/views/layout.php`), and
 no build step.
 
@@ -126,7 +126,54 @@ including the "what we will never build" context).
 No relations UI, no search, no schema editing, no bulk actions, each
 omission is a design decision, not a backlog item. The panel edits
 rows; it is not a schema designer. Schema changes stay in versioned
-migrations ([chapter 5](05-database-and-migrations.md)).
+migrations ([chapter 5](05-database-and-migrations.md)). The SQL
+browser below adds one more refusal: no free-text SQL in the panel.
+
+## The read-only SQL browser
+
+The same controller serves a second, strictly read-only section: a
+table list, a schema view per table, and a paginated data view with a
+column filter.
+
+| URL | Method | What it does |
+|---|---|---|
+| `/admin/sql` | GET | browser home: table list with row counts |
+| `/admin/schema/<table>` | GET | columns, types, defaults, the CREATE statement |
+| `/admin/data/<table>` | GET | rows, 50 per page, newest rowid first, column filter |
+
+Nothing on these pages can write, and that is not a promise kept by
+careful SQL assembly. Every browser read runs on a **second database
+handle** that SQLite itself opens read-only: the file is opened with
+the `SQLITE_OPEN_READONLY` flag on a `mode=ro` URI DSN, so the engine
+refuses writes no matter what statement reaches it. The browser needs
+a file-backed SQLite `db.dsn`; on `sqlite::memory:` or another driver
+its pages answer 501 with a message saying so, and the CRUD panel
+above is unaffected.
+
+The gate is the same: every browser action carries `#[Auth]` and
+calls the same `deny()` guard, so a guest is redirected, a non-admin
+gets 403, and an unknown table (or `sqlite_master`) is 404, exactly
+like the CRUD routes. The `_migrations` ledger is hidden from the
+browser's list (machinery, not content); `kip db` shows it, because
+an operator debugging migrations wants it visible
+([chapter 8](08-cli.md)).
+
+The data view's filter is three server-validated inputs: a column
+(one of the table's own columns from `PRAGMA table_info`, with
+`password_hash` excluded), an operator (`=`, `!=`, `>`, `<`, `>=`,
+`<=`, `LIKE`, `NOT LIKE`), and a value. The value is bound as a
+parameter, so it always matches literally: `x' OR 1=1 --` is just a
+string that matches no row. For `LIKE` you type the `%` yourself. An
+empty value means no filter. `password_hash` is not offered as a
+filter column because filtering on a hash would turn row visibility
+into a hash-extraction oracle, and the hash never reaching the
+browser is a contract this chapter states.
+
+Why no free-text WHERE box: a free-form SQL expression can read any
+column of any table through a subquery or a UNION, including
+`password_hash`, which would break that same contract. The panel
+gets a fixed filter; ad-hoc SQL belongs to `kip db` on the shell,
+where the operator already owns the machine.
 
 ## How it works
 
@@ -146,3 +193,12 @@ its own `View` rooted at `src/Admin/views`, not the app's container
 known before SQL mentions it. `browse()` selects `rowid AS __rid, *`
 ordered by rowid descending, `LIMIT 51`. The extra row is the
 "next page" probe. Output goes through `View::e()` escaping.
+
+The SQL browser reads through `ReadOnlyConnection`
+(`src/Admin/ReadOnlyConnection.php`) instead of the app's writable
+handle. It percent-encodes the file path for the URI form first:
+`#`, `%`, and `?` are legal filename bytes, and unencoded they would
+change what SQLite opens (a `#` starts a URI fragment and silently
+drops `mode=ro`). The `SQLITE_OPEN_READONLY` flag carries the
+read-only guarantee even where URI parsing fails. No PRAGMA is issued
+at open, because a journal pragma would throw on this handle.

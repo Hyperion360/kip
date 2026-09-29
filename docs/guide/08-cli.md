@@ -18,7 +18,7 @@ outcomes and their exit codes.
 
 ```
 $ php bin/kip
-Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]]
+Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|db ["SELECT ..."]]
 ```
 
 Exit code 0 -- no argument, or an unrecognized one, prints usage and exits
@@ -224,6 +224,48 @@ console, then delete it. That single run proves the credentials, the
 endpoint spelling, and the bucket name against the one authority that
 matters, and everything after it is routine.
 
+## `db ["SELECT ..."|"PRAGMA ..."]`
+
+Runs ONE read-only query against the app database and prints the rows,
+or lists the tables when no query is given:
+
+```
+$ php bin/kip db
+users
+login_attempts
+password_resets
+_migrations
+
+$ php bin/kip db "SELECT email FROM users LIMIT 2"
+email
+a@example.com
+b@example.com
+```
+
+Output is tab-separated: a header line of column names, then one line
+per row. `NULL` prints as `NULL`, and control bytes inside values
+print escaped (`\t`, `\n`, `\r`, `\0`, other controls as `\xHH`), so a
+stored value can never break the row shape or inject terminal
+controls into a log. Zero rows print `(0 rows)`. The table list keeps
+the `_migrations` ledger visible, unlike the admin panel's browser
+([chapter 12](12-admin-panel.md)): an operator debugging migrations
+wants it in the inventory.
+
+The statement must start with `SELECT` or `PRAGMA`. Anything else
+(`CREATE`, `INSERT`, `DELETE`, `ATTACH`, ...) exits **1** with a
+one-line refusal. That keyword gate is the contract, not the safety
+net: the query runs on a second database handle SQLite itself opens
+read-only (`SQLITE_OPEN_READONLY` on a `mode=ro` URI DSN, the same
+handle the admin SQL browser reads through), so the engine refuses
+writes no matter what slips past the gate. `PRAGMA user_version=5`,
+for example, starts with an allowed keyword and is still refused by
+the database.
+
+Error cases, all exit **1** under the shared `kip:` contract: a query
+error (`kip: RuntimeException: query failed: no such table: nosuch`),
+a missing database file (it is never created), and a `db.dsn` that is
+not a file-backed SQLite database.
+
 ## How it works
 
 Every command constructs its own `Kip\Database`/`Kip\Migrations\Migrator`/
@@ -231,4 +273,7 @@ Every command constructs its own `Kip\Database`/`Kip\Migrations\Migrator`/
 `Kip\App` or the container at all, since there's no HTTP request to route.
 This is why a command's behavior is easy to predict from source: each
 `match` arm is a short, self-contained closure with nothing hidden behind
-autowiring.
+autowiring. `db` is the one exception that proves the rule's reason: it
+deliberately does NOT construct a `Kip\Database`, because that would set
+`journal_mode = WAL` and create a missing file; it opens the read-only
+handle straight from the configured DSN.
