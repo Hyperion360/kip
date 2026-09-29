@@ -135,9 +135,12 @@ final class OAuthProvider
             'response_type' => 'code',
             'client_id' => $this->merged['client_id'],
             'redirect_uri' => $this->merged['redirect_uri'],
-            'scope' => $this->merged['scope'],
             'state' => $state,
         ];
+        $scope = trim((string) ($this->merged['scope'] ?? ''));
+        if ($scope !== '') {
+            $params['scope'] = $scope; // absent: a custom provider without presets uses the provider's defaults
+        }
         if ($verifier !== null) {
             $params['code_challenge'] = self::challenge($verifier);
             $params['code_challenge_method'] = 'S256';
