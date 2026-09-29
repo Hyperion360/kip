@@ -57,6 +57,5 @@ what Kip will never include and why.
   [`examples/blog`](../../examples/blog) unless a chapter says otherwise.
 - "How it works" sections at the end of most chapters cite the actual
   class and method names (`src/`). When in doubt, that source is smaller
-  and more readable than most frameworks' docs. 46 files, all of- A limitation is documented as a limitation, not glossed over. If a
-  chapter says something is an accepted risk or a known gap, that's the
+  and more readable than most frameworks' docs. 47 files, all of  chapter says something is an accepted risk or a known gap, that's the
   framework's own position on it, not a bug you found.

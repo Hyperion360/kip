@@ -5,11 +5,12 @@ single PHP script with a `match` over `$argv[1]`, no framework command
 bus, no auto-discovered command classes. `migrate`, `logs`, and
 `logs:prune` below were run directly against `examples/blog` and the
 output shown is exactly what came back (down to the real client IP,
-`::1`); `rollback`, `user:create`, `serve`, `backup`, and `queue:work`
-weren't run against the live example, running them would mutate or
-restart it, so their output is derived directly from source (or a
-throwaway copy) instead, using the tutorial's own migration names as
-placeholders.
+`::1`); `rollback`, `user:create`, `serve`, `backup`, `queue:work`, and
+the `make:` commands weren't run against the live example, running them
+would mutate or restart it, so their output is derived directly from
+source (or a throwaway copy) instead, using the tutorial's own migration
+names as placeholders; the `make:` outputs below came from a throwaway
+copy.
 
 Every command also shares one failure contract: an unexpected framework
 exception (a database that will not open, an unreadable migrations
@@ -19,8 +20,7 @@ outcomes and their exit codes.
 
 ```
 $ php bin/kip
-Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]]```
-Exit code 0 -- no argument, or an unrecognized one, prints usage and exits
+Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]]Exit code 0 -- no argument, or an unrecognized one, prints usage and exits
 normally.
 
 ## `migrate`
@@ -372,6 +372,101 @@ Exit code **0** on success. **1**, with the shared `kip: <error>`
 contract, for a `controller_namespace` that is not `App\`-rooted, a
 source directory that cannot be listed, or an output path that cannot be
 written.
+
+## `make:feature <Name>`
+
+Emits the feature-folder shape of [chapter 3](03-controllers.md): the
+feature controller, its own `views/index.php` template, an empty
+`migrations/` directory (a `.gitkeep` inside, which the migration ledger
+skips as a dotfile), and the feature's `Tests/` stub:
+
+```
+$ php bin/kip make:feature Billing
+Created: app/Features/Billing/BillingController.php
+Created: app/Features/Billing/views/index.php
+Created: app/Features/Billing/migrations/.gitkeep
+Created: app/Features/Billing/Tests/BillingControllerTest.php
+Route: /billing (BillingController::index)
+```
+
+The name may be spelled any way the URL segment allows: `billing-lists`
+and `BillingLists` both scaffold `app/Features/BillingLists/`, routable
+at `/billing-lists`. The generated controller is working code, not a
+placeholder: constructor injection, one `index()` action rendering the
+feature's template through the app layout.
+
+Every `make:` command shares one contract: it emits, never edits. If
+anything it would create already exists, or would shadow something that
+does (a plain controller of the same name, an app-root template folder
+of the same URL, the built-in admin namespace when the admin panel is
+on), it names the conflict and exits **1** before writing a single byte:
+
+```
+$ php bin/kip make:feature Billing
+kip: RuntimeException: feature folder .../app/Features/Billing already exists; kip make: never edits, delete it first or pick another name
+```
+
+When the app's `composer.json` maps the feature namespace somewhere else
+(or nowhere), the command prints a `Note:` with the fix (the psr-4 line
+plus `composer dump-autoload`, [chapter 3](03-controllers.md)) after
+emitting. The note is advisory; the files exist and lint either way.
+
+## `make:controller <Name>`
+
+The layered twin: a controller in the app's controller namespace plus
+its view template, `app/src/Controllers/<Name>Controller.php` and
+`app/views/<name>/index.php` in the default layout:
+
+```
+$ php bin/kip make:controller Posts
+Created: app/src/Controllers/PostsController.php
+Created: app/views/posts/index.php
+Route: /posts (PostsController::index)
+```
+
+The controller directory comes from the app's own `composer.json` psr-4
+mapping when one covers the configured namespace, so a relocated
+`app/src` is honored; with no `composer.json` to read, the documented
+convention ([chapter 3](03-controllers.md)) applies. The refusal
+contract includes a feature of the same name: a plain controller takes
+over its route, so the generator refuses instead of creating the shadow.
+
+## `make:migration <label> [--feature=<Name>]`
+
+Emits the next migration: `NNN_<label>.php` with empty `up()`/`down()`
+bodies ready for your DDL. The label becomes the filename lowercased,
+separators as underscores (`create invoices` and `create-invoices` both
+give `create_invoices`); anything else is refused, characters are never
+dropped silently.
+
+The number is max-plus-one across the WHOLE ledger, `app/migrations/`
+and every `app/Features/<Name>/migrations/` together, and the new
+filename must sort after every existing one, because the ledger runs in
+global filename order ([chapter 5](05-database-and-migrations.md)).
+When the existing inventory would break that order (an unpadded
+`8_old.php` sorts after `009_new.php`), the command refuses and names
+the file in the way.
+
+```
+$ php bin/kip make:migration create_plans
+Created: app/migrations/009_create_plans.php
+```
+
+`--feature=<Name>` targets the feature's own migrations folder, and so
+does running the command from inside the feature's directory. The
+number still spans both directories:
+
+```
+$ php bin/kip make:migration create_plans --feature=Billing
+Created: app/Features/Billing/migrations/010_create_plans.php
+```
+
+One guard protects the ledger's identity: a name the database has
+already recorded (its file was deleted later) is refused, because
+`migrate` would silently skip a regenerated file with that name. The
+check reads `_migrations` strictly read-only, and only when the
+configured database is a SQLite file that exists; no database file, no
+connection attempt.
 ## How it works
 
 Every command constructs its own `Kip\Database`/`Kip\Migrations\Migrator`/

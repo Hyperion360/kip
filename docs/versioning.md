@@ -15,8 +15,7 @@ read [`CHANGELOG.md`](../CHANGELOG.md). A fix release is exactly what it
 says. A release that changes behavior tells you precisely what moved:
 a renamed config key, a changed method signature, and nothing else.
 
-"No rewrites" means the 46-file core you can read in an afternoon staysadded; the existing ones keep working the way the guide says they do.
-The kernel is not going to be replaced by a new architecture wearing
+"No rewrites" means the 47-file core you can read in an afternoon staysThe kernel is not going to be replaced by a new architecture wearing
 the same package name.
 
 ## Version numbers, plainly

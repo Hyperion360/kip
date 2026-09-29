@@ -72,7 +72,12 @@ spl_autoload_register(static function (string $class): void {
         set_error_handler(static fn(): bool => true);
         try {
             $rm = static function (string $dir) use (&$rm): void {
-                foreach (glob($dir . '/*') ?: [] as $f) {
+                // scandir, never glob(): glob misses dotfiles, and a scaffolded
+                // feature ships a migrations/.gitkeep (the Migrator skips it;
+                // cleanup must not leak the temp dir over it).
+                foreach (scandir($dir) ?: [] as $entry) {
+                    if ($entry === '.' || $entry === '..') continue;
+                    $f = $dir . '/' . $entry;
                     if (is_dir($f) && !is_link($f)) $rm($f); else unlink($f);
                 }
                 rmdir($dir);
