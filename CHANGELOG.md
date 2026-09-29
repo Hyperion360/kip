@@ -9,6 +9,7 @@ An app ETag spelled in any letter case leaves the framework as one ETag field; t
 Backup snapshots bind the `VACUUM INTO` target path as a parameter instead of a hand-quoted SQL literal.
 bin/kip reports the underlying OS reason when a Features directory cannot be listed (the Migrator idiom).
 The admin panel gains a read-only audit-log viewer at `/admin/logs`: newest-first rows from the `log_db` database with method, status-class, path-prefix, and user filters, cursor-based pagination, and exactly one SELECT per view; it adds no indexes to the audit tables, and an app without `log_db` configured gets a 403 naming the key instead.
+Durable background jobs ship as a battery: `Kip\Jobs` enqueue joins the caller's transaction (a rolled-back request rolls its jobs back too), `kip queue:work --once` claims and runs one job for cron with exit codes cron can read, the loop form drains continuously, two workers can never claim the same row, a failed row keeps its error and is never retried automatically, and a done row clears its payload. The `jobs` table arrives as migration 008 in both shipped apps; guide ch. 8 documents the command and ch. 14 the mail pattern.
 
 - Cache-format versioning and consolidation hardening. Stored cache rows carry
   a format version; when the rules that decide what may be stored change, the

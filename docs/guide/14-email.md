@@ -117,11 +117,114 @@ and `App::handle()` redacts it before audit logging: a path matching
 `/auth/reset/` plus exactly 64 hex digits is persisted as
 `/auth/reset/<redacted>`. Tokens never reach the log.
 
+## Durable mail via a background job
+
+`App::defer()` moves the send past the response, but the send still
+lives inside the request's process: under `php -S` or Apache's module the
+connection stays open until it finishes, and under PHP-FPM the worker is
+held that long. A durable job moves it out of the process entirely. The
+response queues one row; a worker you run from cron or systemd sends the
+mail later ([chapter 8](08-cli.md) documents `queue:work`).
+
+The pattern, for mail that carries no secrets. The job class (yours to
+place wherever your app autoloads `App\Jobs\` from):
+
+```php
+namespace App\Jobs;
+
+final class SendMail
+{
+    public function handle(array $payload): void
+    {
+        // The runner builds the job with no arguments, so it loads its own
+        // dependencies: config, mailer, database. Nothing is injected.
+        $config = require dirname(__DIR__, 2) . '/config.php';
+        (new \Kip\Mailer($config['mail']))->send(
+            $payload['to'],
+            $payload['subject'],
+            $payload['body'],
+        );
+    }
+}
+```
+
+```php
+// in the controller, wherever the mail is decided
+$this->jobs->enqueue(\App\Jobs\SendMail::class, [
+    'to'      => $email,
+    'subject' => 'Welcome aboard',
+    'body'    => "Thanks for signing up, {$name}.\n",
+]);
+```
+
+`$this->jobs` is a `Kip\Jobs` (constructor-injected; the container
+autowires it over the bound `Kip\Database`). The INSERT joins whatever
+transaction the controller has open, so a request that rolls back takes
+its queued mail with it. The trade is operational, and it is real: no
+worker running means no mail leaves. `queue:work --once` from a
+once-per-minute cron is the smallest honest deployment.
+
+Two rules keep the pattern safe:
+
+- **A payload is plaintext database content.** It sits in the `jobs`
+  table as JSON, it survives in backups, and a failed row keeps it for
+  diagnosis. Never put a bearer secret in one, and that includes the
+  raw password-reset token, which the rest of this chapter works hard
+  to keep out of persistent storage.
+- **A job that writes content tables bypasses the page cache's
+  invalidation** (that wiring belongs to the request path in
+  `App::runDeferred()`). A job that edits rows behind cached pages
+  should purge them itself after committing:
+  `(new \Kip\Cache\PageCache($cacheDb, 3600))->purgeByTables(['posts'])`.
+
+The reset email specifically: the token is the problem, so the job
+creates it. The payload carries only the email and the requesting IP;
+`handle()` calls `Auth::createReset()` (which rotates the account's one
+live token and enforces the reset throttle, so unknown accounts cost the
+worker a no-op, exactly as they cost the request one today) and sends
+the link for the token it just created. The raw token exists in the
+email and nowhere persistent, same as the shipped flow:
+
+```php
+final class SendResetMail
+{
+    public function handle(array $payload): void
+    {
+        $config = require dirname(__DIR__, 2) . '/config.php';
+        $db = new \Kip\Database($config['db']['dsn']);
+        $store = [];
+        $token = (new \Kip\Auth($db, new \Kip\Session($store)))
+            ->createReset($payload['email'], $payload['ip']);
+        if ($token === null) return; // unknown account: same silence as the request path
+        $url = rtrim($config['base_url'], '/') . "/auth/reset/{$token}";
+        (new \Kip\Mailer($config['mail']))->send(
+            $payload['email'],
+            'Reset your password',
+            "Someone (hopefully you) asked to reset the password for this address.\n\n"
+            . "Reset link (valid 30 minutes):\n{$url}\n\nIf this wasn't you, ignore this email.",
+        );
+    }
+}
+```
+
+Swapping the skeleton's `remind()` to this shape means the request
+records its own throttle attempt (as shipped) and queues
+`SendResetMail` with `['email' => ..., 'ip' => $request->ip]`; the
+worker's `createReset()` then counts a second attempt in the same
+buckets. That is the cost of moving generation to send time; with the
+shipped 3-per-account and 10-per-IP limits over 15 minutes it leaves
+each real request one reset, which is the intent of the throttle
+anyway. The skeleton keeps `App::defer()` as shipped, because it needs
+no cron to work; the job is the shape you graduate to when the timing
+gap under `php -S` or Apache module mode matters, or when you want the
+failure to be a visible row instead of a log line.
+
 ## What isn't here
 
 - **Text-only.** Every message is `text/plain; charset=utf-8`, no
   HTML email, no attachments, no multipart.
-- **No queue, no retry.** `send()` is synchronous, bounded by the
+- **No retry, and the queue is opt-in.** `send()` is synchronous,
+  bounded by the
   5-second connect/read timeouts and a 30-second whole-conversation
   deadline. The skeleton's `remind()` wraps it in `App::defer()`, which
   runs it after the response is sent: the reset email goes only to
@@ -136,8 +239,9 @@ and `App::handle()` redacts it before audit logging: a path matching
   exists. Other
   servers (`php -S`, Apache's module) keep the connection open until the
   script ends, so the gap returns there. Do the same with any mail you
-  send only in some cases. A mail queue is the Phase-2 answer if real
-  usage demands retries.
+  send only in some cases. The durable answer is the background job
+  above; a failed job row is visible and final, nothing retries it
+  automatically in this version.
 - **No email verification.** Kip has no public registration route to
   trigger one (`Auth::register()` exists as a method; the skeleton
   ships no signup form). That's a design fact, not unfinished work.

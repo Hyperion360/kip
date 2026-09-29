@@ -5,10 +5,11 @@ single PHP script with a `match` over `$argv[1]`, no framework command
 bus, no auto-discovered command classes. `migrate`, `logs`, and
 `logs:prune` below were run directly against `examples/blog` and the
 output shown is exactly what came back (down to the real client IP,
-`::1`); `rollback`, `user:create`, `serve`, and `backup` weren't run
-against the live example, running them would mutate or restart it, so
-their output is derived directly from source (or a throwaway copy)
-instead, using the tutorial's own migration names as placeholders.
+`::1`); `rollback`, `user:create`, `serve`, `backup`, and `queue:work`
+weren't run against the live example, running them would mutate or
+restart it, so their output is derived directly from source (or a
+throwaway copy) instead, using the tutorial's own migration names as
+placeholders.
 
 Every command also shares one failure contract: an unexpected framework
 exception (a database that will not open, an unreadable migrations
@@ -18,7 +19,7 @@ outcomes and their exit codes.
 
 ```
 $ php bin/kip
-Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]]
+Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]]
 ```
 
 Exit code 0 -- no argument, or an unrecognized one, prints usage and exits
@@ -224,11 +225,85 @@ console, then delete it. That single run proves the credentials, the
 endpoint spelling, and the bucket name against the one authority that
 matters, and everything after it is routine.
 
+## `queue:work [--once]`
+
+Runs the durable-jobs worker (`Kip\Jobs`; [chapter 14](14-email.md)
+shows the mail pattern end to end). `--once` claims and executes the
+oldest pending job, then exits: exit code **0** for done or an empty
+queue, **1** when the job failed, with the error both in the row and on
+STDERR so cron's mail tells you. That is the cron shape:
+
+```
+* * * * * cd /var/www/myapp && php bin/kip queue:work --once
+```
+
+One `--once` run processes at most one job, so a once-per-minute cron
+drains at most one job per minute. When the volume needs more, run the
+command without `--once` under systemd or a supervisor: it loops, claims
+one job at a time, sleeps 1 second when the queue is empty, and keeps
+living through job failures (each failure prints
+`kip: job #<id> (<class>) failed: <error>` on STDERR, then the worker
+moves on to the next job).
+
+```
+$ php bin/kip queue:work --once
+Job #14 App\Jobs\SendMail: done
+```
+
+```
+$ php bin/kip queue:work --once
+No pending jobs.
+```
+
+A flag other than `--once` (a typo like `--onces`) is a usage error and
+exits **1**; the command refuses to guess and will not fall into the
+looping worker by accident.
+
+Queuing a job, and the job-class contract (a public
+`handle(array $payload): void` method on a class the runner can build
+with no constructor arguments), is [chapter 14](14-email.md)'s
+territory. Three properties belong here, on the operations side:
+
+- **Transactional enqueue.** `Kip\Jobs::enqueue()` is a plain INSERT
+  through your `Kip\Database`, so a job queued inside a controller's
+  transaction rolls back with it: a queued mail dies with the request
+  that failed, it does not outlive it. Workers see the row only once the
+  outermost transaction commits.
+- **Failed rows are the report.** Nothing retries a failed job in this
+  version; the row keeps the error text and stays visible
+  (`SELECT * FROM jobs WHERE status = 'failed'`). Read it, fix the
+  cause, then delete the row or re-enqueue deliberately. A later version
+  may add retry with backoff.
+- **Two workers cannot take one job.** The claim is an UPDATE that
+  rechecks `status = 'pending'`, so when two workers race, the loser's
+  UPDATE matches nothing and it re-reads the queue. Pointing several
+  cron `--once` entries at one app is safe.
+
+Honest limits, stated as limits for this version:
+
+- A worker killed mid-job (SIGTERM during a deploy, a crashed process)
+  leaves the row `running`, and nothing reaps it automatically. This is
+  durable pending storage, not exactly-once execution: inspect the row,
+  then delete it or re-enqueue by hand. Write idempotent handlers, also
+  because restoring a backup can resurrect pending rows whose effects
+  already happened.
+- A done job's payload is cleared; the row keeps the class, status, and
+  timestamps. That is logical removal, not erasure: the text lives on in
+  WAL pages and in your backups until ordinary churn overwrites them.
+  Treat payloads as plaintext database content and never queue bearer
+  secrets. Failed rows keep their payload for diagnosis (and the error
+  text can carry mail addresses from SMTP replies), so prune terminal
+  rows on the schedule your data-retention rules need:
+  `DELETE FROM jobs WHERE status IN ('done','failed') AND created_at < ...`.
+- The worker holds one SQLite connection. Restoring `data.sqlite` under
+  a live worker, replacing the file beneath its open handle, is
+  unsupported: stop the worker, restore, start it again.
+
 ## How it works
 
 Every command constructs its own `Kip\Database`/`Kip\Migrations\Migrator`/
-`Kip\RequestLog` directly from `config.php`. `bin/kip` doesn't go through
-`Kip\App` or the container at all, since there's no HTTP request to route.
-This is why a command's behavior is easy to predict from source: each
-`match` arm is a short, self-contained closure with nothing hidden behind
-autowiring.
+`Kip\RequestLog`/`Kip\Jobs` directly from `config.php`. `bin/kip` doesn't
+go through `Kip\App` or the container at all, since there's no HTTP
+request to route. This is why a command's behavior is easy to predict
+from source: each `match` arm is a short, self-contained closure with
+nothing hidden behind autowiring.

@@ -150,7 +150,39 @@ try {
         ]), $config['app_dir'] . '/backups', 14, $s3))->run(date('Ymd-His'));
         echo "Backup written: {$result}\n";
     })(),
-    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]]\n"),
+    'queue:work' => (function () use ($config, $argv) {
+        // The durable-jobs runner (Kip\Jobs, guide ch. 8). Any flag other than
+        // --once is a usage error: a typo like --onces must never fall through
+        // into the infinite worker loop by accident.
+        $rest = array_slice($argv, 2);
+        if ($rest !== array_values(array_filter($rest, static fn(string $a): bool => $a === '--once'))) {
+            fwrite(STDERR, "Usage: kip queue:work [--once]\n");
+            exit(1);
+        }
+        $once = in_array('--once', $rest, true);
+        $jobs = new Kip\Jobs(new Kip\Database($config['db']['dsn']));
+        if (!$once) echo "Working the jobs queue, Ctrl+C to stop.\n";
+        // One job per claim, marked done or failed in its own row. Storage
+        // trouble (an acknowledgment that fails) throws and lands in the
+        // shared catch below; a job's own failure stays in the row. --once is
+        // the cron/systemd shape: one job, then an exit code cron can read.
+        while (true) {
+            $row = $jobs->runNext();
+            if ($row === null) {
+                if ($once) { echo "No pending jobs.\n"; exit(0); }
+                sleep(1);
+                continue;
+            }
+            if ($row['status'] === 'failed') {
+                fwrite(STDERR, sprintf('kip: job #%d (%s) failed: %s' . \PHP_EOL, $row['id'], $row['job_class'], $row['error']));
+                if ($once) exit(1);
+            } else {
+                echo sprintf("Job #%d %s: done\n", $row['id'], $row['job_class']);
+                if ($once) exit(0);
+            }
+        }
+    })(),
+    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]]\n"),
     };
 } catch (\Throwable $e) {
     // A failed deploy needs a stated failure, not a stack trace on stdout.
