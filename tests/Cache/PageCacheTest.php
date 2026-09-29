@@ -175,11 +175,20 @@ final class PageCacheTest extends TestCase
         $cache->put('/fine', '', (new Response('y'))->withHeader('X-Robots-Tag', 'noarchive'), []);
         $this->assertNotNull($cache->get('/fine', ''));
     }
-    public function test_non_string_header_shapes_are_skipped(): void
+    public function test_non_string_header_values_never_reach_the_cache(): void
     {
-        // An app violating the documented array<string, string> contract (an int
-        // key, a non-string value) is skipped, not trusted.
-        $this->cache->put('/x', '', new Response('b', 200, [7 => 'x', 'X-Custom' => 42]), []);
+        // Response refuses a non-string header value at construction (the old
+        // contract let it through and put() skipped it), so the cache can no
+        // longer be handed one.
+        $this->expectException(\InvalidArgumentException::class);
+        new Response('b', 200, ['X-Custom' => 42]);
+    }
+
+    public function test_an_int_header_key_roundtrips_through_the_cache(): void
+    {
+        // An int key is still a legal shape (PHP casts it); json makes it a
+        // string key on store and PHP casts it back on replay.
+        $this->cache->put('/x', '', new Response('b', 200, [7 => 'x']), []);
         $hit = $this->cache->get('/x', '');
         $this->assertNotNull($hit);
         $this->assertSame('b', $hit->body);

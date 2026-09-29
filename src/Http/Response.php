@@ -26,6 +26,9 @@ final class Response
         public readonly int $status = 200,
         array $headers = [],
     ) {
+        foreach ($headers as $name => $value) {
+            self::assertHeaderSafe((string) $name, $value);
+        }
         $this->headers = [...self::DEFAULT_HEADERS, ...$headers];
     }
 
@@ -43,7 +46,16 @@ final class Response
 
     public function withHeader(string $name, string $value): self
     {
+        self::assertHeaderSafe($name, $value);
         return new self($this->body, $this->status, [...$this->headers, $name => $value]);
+    }
+
+    /** Response splitting dies here, at construction: PHP's header() would only reject the value at send time. */
+    private static function assertHeaderSafe(string $name, mixed $value): void
+    {
+        if (!is_string($value) || preg_match('/[\r\n]/', $value) === 1) {
+            throw new \InvalidArgumentException("Header {$name} must be a string without CR/LF");
+        }
     }
 
     public static function redirect(string $to, int $status = 302): self

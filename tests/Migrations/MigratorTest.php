@@ -31,6 +31,42 @@ final class MigratorTest extends TestCase
         $this->assertNotNull($this->db->one("SELECT name FROM sqlite_master WHERE name = 'widgets'"));
     }
 
+    /**
+     * A migration whose up() opens a savepoint and then throws abandons it; the
+     * catch's plain rollBack() only unwinds one level, so the depth leaked into
+     * whatever runs next. The unwind must return to the entry depth, exactly
+     * like App::process() does for controller transactions.
+     */
+    public function test_a_failed_migration_that_opened_a_savepoint_unwinds_to_entry_depth(): void
+    {
+        $dir = sys_get_temp_dir() . '/kip-mig-leak-' . bin2hex(random_bytes(6));
+        mkdir($dir, 0777, true);
+        file_put_contents($dir . '/001_boom.php', <<<'PHP'
+        <?php
+        return new class extends Kip\Migrations\Migration {
+            public function up(Kip\Database $db): void { $db->begin(); throw new RuntimeException('boom'); }
+            public function down(Kip\Database $db): void {}
+        };
+        PHP);
+        try {
+            $db = new Database('sqlite::memory:');
+            $m = new Migrator($db, $dir);
+            $entryDepth = $db->transactionDepth();
+            try {
+                $m->migrate();
+                $this->fail('expected the migration failure to surface');
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('001_boom', $e->getMessage());
+                $this->assertStringContainsString('boom', $e->getMessage());
+            }
+            $this->assertSame($entryDepth, $db->transactionDepth(), 'the savepoint the migration opened and abandoned must be unwound');
+            $this->assertNull($db->one("SELECT name FROM _migrations WHERE name = '001_boom'"), 'nothing recorded for the failed migration');
+        } finally {
+            @unlink($dir . '/001_boom.php');
+            @rmdir($dir);
+        }
+    }
+
     public function test_rollback_reverses_last_batch_only(): void // review 4A + outside voice #3
     {
         $m = new Migrator($this->db, $this->dir);
@@ -46,6 +82,42 @@ final class MigratorTest extends TestCase
         $this->assertSame(['002_create_gadgets'], $m->rollback()); // only batch 2 reversed
         $this->assertNull($this->db->one("SELECT name FROM sqlite_master WHERE name = 'gadgets'"));
         $this->assertNotNull($this->db->one("SELECT name FROM sqlite_master WHERE name = 'widgets'")); // batch 1 untouched
+    }
+
+    /**
+     * The rollback path leaks the same way when a down() opens a savepoint and
+     * throws: the catch's plain rollBack() unwinds only one level. The unwind
+     * must return to the entry depth, and the failed batch stays applied and
+     * recorded (no half-rolled-back state).
+     */
+    public function test_a_failed_down_that_opened_a_savepoint_unwinds_to_entry_depth(): void
+    {
+        $dir = sys_get_temp_dir() . '/kip-mig-rbleak-' . bin2hex(random_bytes(6));
+        mkdir($dir, 0777, true);
+        file_put_contents($dir . '/001_good_then_boom.php', <<<'PHP'
+        <?php
+        return new class extends Kip\Migrations\Migration {
+            public function up(Kip\Database $db): void { $db->query('CREATE TABLE boom_t (id INTEGER PRIMARY KEY)'); }
+            public function down(Kip\Database $db): void { $db->begin(); throw new RuntimeException('boom down'); }
+        };
+        PHP);
+        try {
+            $db = new Database('sqlite::memory:');
+            $m = new Migrator($db, $dir);
+            $m->migrate(); // batch 1 applied and recorded
+            $entryDepth = $db->transactionDepth();
+            try {
+                $m->rollback();
+                $this->fail('expected the rollback failure to surface');
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('boom down', $e->getMessage());
+            }
+            $this->assertSame($entryDepth, $db->transactionDepth(), 'the savepoint the down() opened and abandoned must be unwound');
+            $this->assertNotNull($db->one("SELECT name FROM _migrations WHERE name = '001_good_then_boom'"), 'the failed batch stays applied and recorded');
+        } finally {
+            @unlink($dir . '/001_good_then_boom.php');
+            @rmdir($dir);
+        }
     }
 
     /**

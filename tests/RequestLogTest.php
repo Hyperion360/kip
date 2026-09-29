@@ -55,4 +55,21 @@ final class RequestLogTest extends TestCase
         $log->log(new Request('GET', '/x', [], [], []), 200, null, 1.0);
         $this->addToAssertionCount(1); // reaching here IS the contract: logging never breaks the response
     }
+
+    public function testPruneUsesTheRetentionIndexAndKeepsFreshRows(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $log = new RequestLog($db);
+        $log->prune(30); // no-op on empty, proves prepare
+        $plan = $db->all('EXPLAIN QUERY PLAN DELETE FROM requests WHERE julianday(created_at) < julianday(?)', [date('c')]);
+        $detail = strtolower(implode(' ', array_merge(...array_map('array_values', $plan))));
+        $this->assertStringContainsString('using index idx_requests_retention', $detail);
+        $this->assertStringNotContainsString('scan requests', $detail);
+        // Selectivity guard (the data-loss regression codex flagged): a fresh row survives.
+        $db->query('INSERT INTO requests (created_at, method, path, status, duration_ms, ip) VALUES (?, ?, ?, ?, ?, ?)',
+            [date('c'), 'GET', '/x', 200, 1.0, '127.0.0.1']);
+        $this->assertSame(0, $log->prune(30));
+        $this->assertSame(1, (int) $db->one('SELECT COUNT(*) c FROM requests')['c']);
+        $this->assertSame(1, $log->prune(-1)); // negative window: everything is older, all rows go
+    }
 }
