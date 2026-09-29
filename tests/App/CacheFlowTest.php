@@ -219,9 +219,33 @@ final class CacheFlowTest extends TestCase
     public function test_lowercase_app_etag_and_quoted_commas_survive_comparison(): void
     {
         $first = $this->get('/etag-page');
-        $this->assertSame('"a,b"', $first->headers['etag']); // the app's own tag, not the body hash
+        $this->assertSame('"a,b"', $first->headers['ETag']); // the app's own tag, not the body hash
         $res = $this->get('/etag-page', ['if-none-match' => '"zz", "a,b"']);
         $this->assertSame(304, $res->status);
+    }
+
+    public function test_a_lowercase_app_etag_emits_exactly_one_validator_field(): void
+    {
+        // RFC 9110 §8.8.3: at most one ETag field. The framework canonicalizes the
+        // app's spelling; PHP array keys are case-sensitive, so a naive withHeader
+        // would carry both on the wire.
+        $keys = fn (\Kip\Http\Response $r) => array_keys(array_filter($r->headers,
+            fn (string $n) => strcasecmp($n, 'etag') === 0, ARRAY_FILTER_USE_KEY));
+
+        $this->assertSame(['ETag'], $keys($this->get('/etag-page'))); // the 200
+
+        // Fresh App: the UNCACHED 304 path, where the duplicate also arose (the
+        // cached 304 was always clean; PageCache strips case variants on store).
+        $app = new App([
+            'env' => 'dev',
+            'controller_namespace' => 'Kip\\Tests\\Fixtures\\Controllers\\',
+            'db' => ['dsn' => 'sqlite::memory:'],
+            'cache_db' => ['dsn' => 'sqlite::memory:', 'ttl_seconds' => 3600],
+            'views' => dirname(__DIR__) . '/Fixtures/views',
+        ]);
+        $res = $app->handle(new Request('GET', '/etag-page', [], [], [], '', ['if-none-match' => '"a,b"']));
+        $this->assertSame(304, $res->status);
+        $this->assertSame(['ETag'], $keys($res));
     }
 
     public function test_a_weak_response_etag_matches_a_plain_member(): void

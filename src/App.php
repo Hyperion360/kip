@@ -297,7 +297,14 @@ final class App
             if (strcasecmp((string) $n, 'ETag') === 0) { $etag = (string) $v; break; }
         }
         $etag ??= '"' . hash('sha256', $response->body) . '"';
-        $response = $response->withHeader('ETag', $etag);
+        // Canonicalize, not append: PHP array keys are case-sensitive, so
+        // withHeader('ETag') beside the app's lowercase spelling would send two
+        // ETag fields (RFC 9110 §8.8.3 allows at most one).
+        $kept = [];
+        foreach ($response->headers as $n => $v) {
+            if (strcasecmp((string) $n, 'ETag') !== 0) $kept[(string) $n] = $v;
+        }
+        $response = new Response($response->body, $response->status, [...$kept, 'ETag' => $etag]);
         // RFC 9110 §13.1.2: If-None-Match is a comma-separated list of validators,
         // or the wildcard *. The weak prefix strips per member (review D5d: weak
         // validators compare by value for GET). A validator is always present here,
@@ -313,8 +320,9 @@ final class App
         if ($match) {
             // RFC 9110 §15.4.5: a 304 carries the cache-relevant headers the 200 would
             // have sent. Field names are case-insensitive (RFC 9110 5.1), so keys are
-            // scanned, not two spellings enumerated.
-            $keep = ['etag', 'x-kip-cache', 'cache-control', 'expires', 'vary', 'content-location'];
+            // scanned, not two spellings enumerated. No etag arm: the single
+            // validator is set once from $etag below.
+            $keep = ['x-kip-cache', 'cache-control', 'expires', 'vary', 'content-location'];
             $headers = [];
             foreach ($response->headers as $n => $v) {
                 if (in_array(strtolower((string) $n), $keep, true)) $headers[(string) $n] = $v;

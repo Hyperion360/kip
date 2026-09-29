@@ -23,8 +23,9 @@ final class Backup
         foreach ($this->dsns as $label => $dsn) {
             if (!str_starts_with($dsn, 'sqlite:') || str_contains($dsn, ':memory:')) continue;
             $tmp = "{$this->dir}/{$label}-{$stamp}.sqlite";
-            // Path comes from config, never request input; quote for the SQL literal anyway.
-            (new Database($dsn))->exec("VACUUM INTO '" . str_replace("'", "''", $tmp) . "'");
+            // Bound parameter, not an escaped literal: query() binds where exec()
+            // cannot, so no quoting rule has to stay correct if the path source changes.
+            (new Database($dsn))->query('VACUUM INTO ?', [$tmp]);
             $copies[$label] = $tmp;
         }
         if ($copies === []) {
