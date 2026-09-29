@@ -2,7 +2,7 @@
   "name": "kip/skeleton",
   "description": "Kip application skeleton, start here",
   "license": "MIT",
-  "require": { "php": ">=8.3", "kip/framework": "^0.5@dev" },
+  "require": { "php": ">=8.3", "ext-pdo_sqlite": "*", "kip/framework": "^0.5@dev" },
   "repositories": [
     { "type": "path", "url": "../", "options": { "symlink": true } }
   ],

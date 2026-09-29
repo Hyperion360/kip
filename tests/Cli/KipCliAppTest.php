@@ -234,16 +234,9 @@ final class KipCliAppTest extends TestCase
 
     public function test_a_framework_exception_becomes_a_cli_failure_not_a_trace(): void
     {
-        // The harness copies config.php as source, so the DSN to break is the
-        // expression itself, not a resolved path. /no-such-dir cannot exist
-        // beside the filesystem root, so the PDO open throws instead of
-        // creating a database.
-        $configPath = $this->cliApp . '/config.php';
-        $config = (string) file_get_contents($configPath);
-        $broken = str_replace("'sqlite:' . __DIR__ . '/app/data.sqlite'", "'sqlite:/no-such-dir/data.sqlite'", $config);
-        $this->assertNotSame($config, $broken, 'skeleton/config.php changed how the db DSN is spelled; update the injection');
-        file_put_contents($configPath, $broken);
-        [$out, $code] = $this->cli(['migrate']); // harness records combined stdout+stderr
+        // KIP_DATA_DIR pointing under a directory that cannot exist makes the
+        // PDO open throw; the DSN is real config.php output, only repointed.
+        [$out, $code] = $this->cli(['migrate'], null, ['KIP_DATA_DIR' => '/no-such-dir/kip-data']); // harness records combined stdout+stderr
         $this->assertSame(1, $code, $out);
         $this->assertStringStartsWith('kip: ', $out);
         $this->assertStringNotContainsString('Stack trace', $out);
@@ -266,16 +259,13 @@ final class KipCliAppTest extends TestCase
         // Guide ch. 8 owns the contract: failures print "kip: <error>" on STDERR,
         // so deploy tooling can read stdout for success output. The harness merges
         // the two streams and cannot tell a regression to stdout (echo) from the
-        // contract; this run separates them.
-        $configPath = $this->cliApp . '/config.php';
-        $config = (string) file_get_contents($configPath);
-        $broken = str_replace("'sqlite:' . __DIR__ . '/app/data.sqlite'", "'sqlite:/no-such-dir/data.sqlite'", $config);
-        $this->assertNotSame($config, $broken, 'skeleton/config.php changed how the db DSN is spelled; update the injection');
-        file_put_contents($configPath, $broken);
+        // contract; this run separates them. The failure is the same KIP_DATA_DIR
+        // injection as the test above.
         $errFile = (string) tempnam(sys_get_temp_dir(), 'kip-cli-err-');
         $outFile = (string) tempnam(sys_get_temp_dir(), 'kip-cli-out-');
         try {
-            $cmd = 'cd ' . escapeshellarg($this->cliApp) . ' && ' . escapeshellarg(PHP_BINARY) . ' ./bin/kip migrate'
+            $cmd = 'cd ' . escapeshellarg($this->cliApp) . ' && KIP_DATA_DIR=' . escapeshellarg('/no-such-dir/kip-data')
+                . ' ' . escapeshellarg(PHP_BINARY) . ' ./bin/kip migrate'
                 . ' > ' . escapeshellarg($outFile) . ' 2> ' . escapeshellarg($errFile);
             exec($cmd, $lines, $code);
             $this->assertSame(1, $code);

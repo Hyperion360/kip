@@ -6,3 +6,4 @@ vendor/
 *.log
 public/uploads/
 app/backups/
+/build/

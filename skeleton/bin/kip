@@ -383,7 +383,28 @@ try {
             ? $scheduler->runDue(new DateTimeImmutable('now'))
             : $scheduler->listing(new DateTimeImmutable('now')));
     })(),
-    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]]\n"),
+    'build' => (function () {
+        // Manual, local, opt-in; the only place Docker can ever appear in a
+        // Kip app, and only because a human typed this command (guide ch. 10
+        // documents both deployment paths). Prepare, compile, smoke.
+        $appRoot = dirname(__DIR__);
+        $buildDir = $appRoot . '/build';
+        $staging = (new Kip\Build\Preparer($appRoot, $buildDir . '/staging'))->prepare();
+        echo "Prepared app copy: {$staging}\n";
+        $artifact = (new Kip\Build\Compiler($staging, $buildDir))->compile();
+        echo "Built single-file artifact: {$artifact}\n";
+        $smoke = (new Kip\Build\Smoke($artifact, $buildDir . '/smoke'))->run();
+        printf(
+            "Smoke: route %s answered HTTP %d on port %d; migrate exited %d against %s\n",
+            $smoke['http']['route'],
+            $smoke['http']['status'],
+            $smoke['port'],
+            $smoke['migrate']['exit'],
+            $smoke['migrate']['data_dir']
+        );
+        echo "Artifact ready: {$artifact}\n";
+    })(),
+    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]|build]\n"),
     };
 } catch (\Throwable $e) {
     // A failed deploy needs a stated failure, not a stack trace on stdout.

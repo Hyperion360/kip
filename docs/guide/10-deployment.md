@@ -242,10 +242,72 @@ authoritative for anything personalized. A page that embeds per-visitor
 state snapshots that state for every visitor, so only genuinely shared
 pages belong in the static layer.
 
+## One executable instead of a webserver
+
+The shapes above deploy PHP the traditional way: a webserver, PHP-FPM or
+Apache, a directory of files. There is a second family of shapes, built
+on the standalone server: one executable that embeds the PHP runtime and
+serves HTTP itself. The product chapter 7 names for its worker-mode
+notes, FrankenPHP, publishes such a server. Two ways to use it with a
+Kip app, one without any build step and one that compiles the app into
+the binary.
+
+### The prebuilt server plus a prepared app directory
+
+The no-build shape, and the one to reach for first. You deploy two
+things: the server's prebuilt binary for your architecture, and a
+prepared copy of the app:
+
+1. **Prepare the app directory** on the host: `composer install
+   --no-dev`, then delete `tests/` and `docs/`. That is exactly what
+   `kip build`'s prepare step does locally ([chapter 8](08-cli.md));
+   here it is two commands and the app stays an ordinary directory you
+   can inspect and edit on the host.
+2. **Download the prebuilt binary** for the host architecture and put it
+   beside the app. Follow the product's own documentation for the
+   download and the exact flags; the interface Kip's build tooling uses
+   (`php-server` to serve, `php-cli` to run a script) is the shape to
+   look for.
+3. **Run it under systemd**, same as any unit in this chapter:
+
+   ```ini
+   [Service]
+   WorkingDirectory=/var/www/myapp
+   Environment=KIP_DATA_DIR=/var/lib/myapp
+   ExecStart=/usr/local/bin/myapp-server php-server
+   Restart=always
+   RestartSec=2
+   ```
+
+The `KIP_DATA_DIR` line is the one Kip-specific piece: it points the
+three SQLite databases at a writable directory outside the app
+([chapter 1](01-getting-started.md)), which keeps runtime state out of
+deployed code. TLS in front of it works the way it does for any origin:
+terminate at a reverse proxy, or follow the product's own TLS options.
+
+### The single-file artifact: `kip build`, optional and manual
+
+`kip build` compiles the app and the runtime into one executable: the
+prepared app is embedded at build time, so the deploy is one file plus
+a data directory, nothing else. It is manual and opt-in by design: a
+human types it, nothing automatic ever runs it, and on macOS it needs
+Docker (the builder image) while Linux builds natively with no Docker
+at all. Chapter 8 documents the three steps, the shipped-inventory
+assertion that refuses a partial artifact, and the smoke check the
+command runs on its own output. The first build on a machine compiles
+PHP from source inside the builder image: minutes to tens of minutes.
+
+Pick the prebuilt-server shape when you want no build machinery and a
+normal app directory on the host. Pick the single-file artifact when
+you want the deploy to be one versioned file, runtime version pinned
+inside it. Both need `KIP_DATA_DIR`; neither needs a webserver.
+
 ## What isn't here
 
 There's no built-in health-check endpoint, no zero-downtime-migration
-tooling, and no first-party Docker image (yet). This chapter describes
+tooling, and no first-party Docker image (yet). The only Docker anywhere
+in a Kip deployment is the optional, manually-run `kip build` on a
+non-Linux machine, described above. This chapter describes
 the shape of a deploy, not a turnkey one. If your host needs a health
 check, any cheap `GET` route (even `/`) with a 200 response works, since
 `Kip\App` answers every request without any special bootstrapping delay.

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "e77bb227cad3825548a8ecbd08b494ac",
+    "content-hash": "ce56babafc4d4e3493e6b9d7c4b99e94",
     "packages": [
         {
             "name": "kip/framework",
@@ -83,7 +83,8 @@
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
-        "php": ">=8.3"
+        "php": ">=8.3",
+        "ext-pdo_sqlite": "*"
     },
     "platform-dev": {},
     "plugin-api-version": "2.6.0"
