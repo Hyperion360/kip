@@ -119,6 +119,15 @@ that logic.
   `X-Forwarded-For`/`X-Forwarded-Proto`. Read [chapter 6](06-security.md)
   before flipping this on. The wrong hop being trusted breaks the login
   throttle's IP-based key.
+- **`KIP_DATA_DIR`**, read by the two shipped apps' `config.php` (not
+  the framework itself) to point all three SQLite databases at one
+  writable directory outside the app, instead of `app/` beside
+  `config.php`. Unset, everything stays where the walkthrough puts it.
+  It exists for deployments where the app directory is not writable:
+  the standalone-server shapes in [chapter 10](10-deployment.md), where
+  an embedded or read-only app cannot create databases next to itself.
+  An app of your own opts in with the same one line the shipped apps
+  use.
 
 ## How it works
 

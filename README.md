@@ -10,7 +10,8 @@ already have: PHP 8.3+.
 Kip's deployment contract is part of the pitch: it runs unchanged on ordinary
 shared hosting (cPanel-style PHP 8.3 accounts) and on the cheapest VPS tier,
 with no build step, no Node, and no config wrangling. One server, one SQLite
-file, PHP-FPM or Apache.
+file, PHP-FPM or Apache; a single self-contained binary via `kip build` when
+you want the whole app as one executable.
 
 It exists because the PHP world splits into two corners that leave a real gap
 between them. Full-stack frameworks ship everything (queues, broadcast

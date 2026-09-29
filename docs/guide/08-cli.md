@@ -6,10 +6,10 @@ bus, no auto-discovered command classes. `migrate`, `logs`, and
 `logs:prune` below were run directly against `examples/blog` and the
 output shown is exactly what came back (down to the real client IP,
 `::1`); `rollback`, `user:create`, `serve`, `backup`, `queue:work`,
-`schedule`, and the `make:` commands weren't run against the live
-example, running them would mutate or restart it, so their output is
-derived directly from source (or a throwaway copy) instead, using the
-tutorial's own migration names as placeholders; the `make:` outputs
+`schedule`, `build`, and the `make:` commands weren't run against the
+live example, running them would mutate or restart it, so their output
+is derived directly from source (or a throwaway copy) instead, using
+the tutorial's own migration names as placeholders; the `make:` outputs
 below came from a throwaway copy.
 
 Every command also shares one failure contract: an unexpected framework
@@ -20,7 +20,7 @@ outcomes and their exit codes.
 
 ```
 $ php bin/kip
-Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]]
+Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]|build]
 ```
 
 Exit code 0 -- no argument, or an unrecognized one, prints usage and exits
@@ -598,6 +598,68 @@ job holds the lock until it exits, that is the overlap contract.
 
 A flag other than `--due` is a usage error and exits **1**, the same
 contract as `queue:work`: the command refuses to guess.
+
+## `build`
+
+The one command that is manual by design, and the only place Docker can
+ever appear in a Kip app: nothing runs it automatically, no CI job ever
+will, and no app needs it to deploy (the ordinary shapes are
+[chapter 10](10-deployment.md)). It exists for the single-file artifact
+shape: the whole app, runtime included, as one executable. Three steps,
+each printing its outcome, the whole run sharing the `kip: <error>`
+failure contract:
+
+1. **Prepare** a staging copy of the app: the tree is copied to
+   `build/staging` minus `vendor/` (reinstalled), `tests/`, `docs/`,
+   `.git/`, `build/`, runtime databases (`*.sqlite`, `-wal`, `-shm`),
+   `*.log`, and `app/backups/`; `composer install --no-dev` runs inside
+   the copy; `tests/`, `docs/`, and `.git` are pruned from `vendor/`
+   package roots. Path repositories (the shipped apps pin Kip through
+   one) are rewritten to absolute paths and materialize as real copies,
+   never symlinks into your source checkout; a staging directory that
+   would land inside a path package's own source tree relocates to the
+   system temp directory first, because composer refuses to install a
+   package into itself. The step ends with an inventory assertion,
+   `Preparer::assertShipped()`: every top-level directory of the source
+   app must exist in staging, `app/Features` by name, because a partial
+   artifact that drops it would apply a short schema while `migrate`
+   reports success ([chapter 5](05-database-and-migrations.md)). A
+   release pipeline can call the same check on its own artifact.
+2. **Compile** the staging copy into one binary. On Linux the native
+   static build script runs directly, no Docker: point `KIP_BUILD_SCRIPT`
+   at the script (or `KIP_BUILD_REPO` at its directory). On macOS the
+   official builder image does the work through Docker, and when no
+   daemon answers the command prints the two alternatives (build on a
+   Linux host with the native script, or use chapter 10's prebuilt
+   binary pattern, which needs no build at all) and exits **1** rather
+   than half-building. `KIP_BUILD_PLATFORM` selects the target,
+   `linux/amd64` (default) or `linux/arm64`.
+3. **Smoke** the artifact: boot it on the first free port from 8093 up,
+   `/` must answer 200, then `migrate` runs through the artifact itself
+   (`php-cli bin/kip migrate`, the embedded copy, never staging's)
+   against a scratch `KIP_DATA_DIR` database directory. On a non-Linux
+   build machine the Linux artifact runs in a throwaway container
+   through the same daemon the compile step already detected; the
+   container is named and removed afterward. A route that answers
+   anything but 200, a server that dies before answering, or a failed
+   migrate is a named error with the status or output, exit **1**.
+
+```
+$ php bin/kip build
+Prepared app copy: /var/folders/.../kip-build-staging-2f9d
+Built single-file artifact: /var/www/myapp/build/kip-app
+Smoke: route / answered HTTP 200 on port 8093; migrate exited 0 against /var/www/myapp/build/smoke/data
+Artifact ready: /var/www/myapp/build/kip-app
+```
+
+The artifact embeds the app read-only, so it cannot create the SQLite
+databases next to itself at runtime: a single-file deployment sets
+`KIP_DATA_DIR` to a writable directory, which is exactly what the smoke
+step does, and the two shipped apps' `config.php` already read it
+([chapter 1](01-getting-started.md)). The first build on a machine
+downloads the builder image and compiles PHP from source inside it:
+count it in minutes to tens of minutes, not seconds, and let it finish;
+a failed build leaves no artifact behind, success or nothing.
 
 ## How it works
 
