@@ -149,6 +149,19 @@ segment follows the same studly convention as the folder itself
 and template names are app-authored, so the router's URL validation rules do
 not apply to them.
 
+**`kip make:feature <Name>` scaffolds this exact shape in one command:** the
+controller, `views/index.php`, an empty `migrations/` directory (a
+`.gitkeep` inside it; the ledger skips dotfiles), and the `Tests/` stub
+described below. The name may be spelled any way the URL segment allows:
+`billing-lists` and `BillingLists` both create `BillingLists/`, routable at
+`/billing-lists`. The command refuses, before writing anything, any name
+that would collide: an existing feature folder, a plain controller of the
+same name (it would win and the feature would be dead code), an app-root
+template folder of the same URL (it would shadow the feature's own), or
+the built-in admin namespace when the admin panel is on. See
+[chapter 8](08-cli.md) for the command and its refusal contract; deleting
+is the same in reverse, below.
+
 `bin/kip migrate` reads `app/migrations/` plus every
 `app/Features/*/migrations/` directory as ONE ledger. A migration name may
 exist in only one directory (`008_billing.php` cannot sit in two features),
@@ -200,6 +213,8 @@ until it runs.
 
 **Deleting a feature.** Remove the directory and the feature is gone: its
 routes 404, its templates stop resolving, its migrations stop being listed.
+The scaffold story is symmetric: `kip make:feature` emitted the folder in
+one command, and removing the directory unfeatures it in one step.
 The ledger keys on migration names, not paths, so already-recorded migrations
 stay recorded (they simply never run again). Roll the feature's batch back
 before deleting the folder if you also want its tables dropped.
