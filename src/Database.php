@@ -32,6 +32,16 @@ final class Database
     /** The configured DSN, for introspection that must not re-run the constructor's pragmas. */
     public function dsn(): string { return $this->dsn; }
 
+    /**
+     * The server/library version PDO cached at connect (ATTR_SERVER_VERSION):
+     * sqlite reports the SQLite library, pgsql the server. No query is sent,
+     * so boot-time capability checks cost nothing per request.
+     */
+    public function serverVersion(): string
+    {
+        return (string) $this->pdo->getAttribute(\PDO::ATTR_SERVER_VERSION);
+    }
+
     public function onQuery(callable $listener): void { $this->onQuery = $listener; }
 
     /** @param array<array-key, mixed> $params positional or named PDO bindings */

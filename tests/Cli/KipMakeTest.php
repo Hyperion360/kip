@@ -195,8 +195,7 @@ final class KipMakeTest extends TestCase
         $this->assertFileDoesNotExist($this->cliApp . '/app/migrations/010_create_plans.php');
         [$out, $code] = $this->cli(['migrate']);
         $this->assertSame(0, $code, $out);
-        $this->assertStringContainsString('008_billing, 008_create_jobs, 009_create_oauth_identities, 010_create_plans', $out, 'one global order');
-    }
+        $this->assertStringContainsString('008_billing, 008_create_jobs, 009_create_oauth_identities, 010_create_rate_limits, 011_create_plans', $out, 'one global order');    }
 
     public function test_make_migration_targets_the_feature_of_the_working_directory(): void
     {
@@ -227,8 +226,7 @@ final class KipMakeTest extends TestCase
         $this->assertSame(1, $code, $out);
         $this->assertStringContainsString('already applied', $out);
         $this->assertFileDoesNotExist($this->cliApp . '/app/migrations/009_create_oauth_identities.php', 'the deleted name must not be regenerated');
-        $this->assertFileExists($this->cliApp . '/app/migrations/008_create_jobs.php', 'the check refuses one name, it deletes nothing');
-    }
+        $this->assertFileExists($this->cliApp . '/app/migrations/008_create_jobs.php', 'the check refuses one name, it deletes nothing');    }
 
     public function test_make_migration_label_rules(): void
     {

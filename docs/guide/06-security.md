@@ -126,6 +126,64 @@ Tightening reset limits further when login attempts look
 abusive (step-up verification) is deliberately not built, see
 [`../design-decisions.md`](../design-decisions.md).
 
+## General rate limiting
+
+The login throttle above protects one thing: `Auth::attempt()`. To cap
+abuse anywhere else (registration spam, comment floods, API scrapers),
+configure a fixed-window limiter per URL prefix:
+
+```php
+// app/config.php
+'rate_limit' => [
+    'auth' => ['max' => 10, 'window' => 60],      // 10 POSTs per minute per address
+    'comments' => ['max' => 30, 'window' => 60],
+],
+```
+
+A prefix is the first URL segment, so `'auth'` covers `/auth/login`,
+`/auth/logout`, `/auth/remind`, every POST under that path. Dashed and
+underscored spellings of one controller name (`/my-billing` and
+`/my_billing`) share a single bucket: the limiter canonicalizes through
+the router's own separator rule, so an attacker cannot dodge the cap by
+switching spelling. The empty string `''` is the prefix for `POST /`.
+Configuring an `admin` prefix covers everything under `/admin/*`,
+whichever namespace serves it; a `posts` prefix does not cover
+`/admin/...` paths, because only the first segment counts.
+
+Enforcement sits in the kernel before routing: every non-GET/HEAD
+request to a configured prefix counts one hit, and a request past the
+max is answered `429 Too many requests` with a `Retry-After` header
+saying how many seconds remain in the window. The check runs before the
+router, before `#[Auth]`, and before CSRF, so an over-limit request
+never reaches a controller, a session, or a transaction, and a POST to a
+nonexistent path under a configured prefix still spends budget. A
+`max` of `0` blocks every counted request for the window: a kill switch
+for one prefix while you investigate.
+
+GET and HEAD never count. Page renders pay nothing, so the one-query
+page budget is untouched, and an app without a `rate_limit` key issues
+zero limiter queries. A counted request pays exactly one UPSERT (the
+counter row), plus one DELETE retiring expired windows when the request
+happens to open a new one.
+
+The counter lives in the `rate_limits` table, shipped as migration
+`009_create_rate_limits` in both bundled apps: one row per prefix,
+address, and window start, with `window_start` a unix integer so the
+retiring DELETE seeks its index instead of scanning (the login
+throttle's `julianday()` lesson, applied). Run `php bin/kip migrate`
+before enabling the config, or every counted request is a 500 telling
+you the table is missing. The counter needs SQLite 3.35+ or PostgreSQL
+9.5+ for the upsert; the boot check names the driver when it cannot.
+
+Addresses are keyed the way the login throttle keys them: the IP the
+request arrived from, or the last `X-Forwarded-For` hop when
+`KIP_TRUSTED_PROXY=1` (set it only when the origin is reachable solely
+through that proxy, or a direct client can pick its own bucket).
+Equivalent IPv6 spellings collapse to one bucket; a request with no
+address at all shares one bucket per prefix, the safe direction. The
+limiter is independent of the login throttle: both apply, each with its
+own window and counts.
+
 ## Session revocation on password change
 
 A logged-in session carries a *password epoch*: the first 12 characters

@@ -5,6 +5,7 @@ use Kip\Http\Response;
 use Kip\Routing\Auth;
 use Kip\Routing\Json;
 use Kip\Routing\Post;
+use Kip\Routing\Put;
 
 final class ApiController
 {
@@ -30,6 +31,14 @@ final class ApiController
     public function create(): array
     {
         return ['received' => $this->request->json()];
+    }
+
+    /** Every non-GET/HEAD verb counts against a rate-limited prefix. */
+    #[Put]
+    #[Json]
+    public function replace(): array
+    {
+        return ['replaced' => true];
     }
 
     #[Post]
