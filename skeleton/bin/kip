@@ -16,9 +16,11 @@ try {
         $dirs = [$config['app_dir'] . '/migrations'];
         $features_dir = $config['app_dir'] . '/Features';
         if (!is_dir($features_dir) && !is_link($features_dir) && !file_exists($features_dir)) return $dirs;
-        $entries = scandir($features_dir);
+        error_clear_last();
+        $entries = @scandir($features_dir);
         if ($entries === false) {
-            throw new RuntimeException("Cannot list {$features_dir}: refusing to migrate a partial inventory as a complete batch.");
+            $why = error_get_last()['message'] ?? 'unknown error';
+            throw new RuntimeException("Cannot list {$features_dir}: {$why}. Refusing to migrate a partial inventory as a complete batch.");
         }
         foreach ($entries as $entry) {
             if ($entry[0] === '.') continue;
