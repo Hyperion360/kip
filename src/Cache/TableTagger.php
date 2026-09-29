@@ -8,7 +8,19 @@ use Kip\Migrations\Migrator;
 /** Extracts table names from the framework's own simple SQL. Table-granular by design (v0.2). */
 final class TableTagger
 {
-    private const IGNORED = ['sqlite_master', Migrator::LEDGER_TABLE];
+    private const IGNORED = [
+        'sqlite_master',
+        Migrator::LEDGER_TABLE,
+        // The rate limiter's counter table: framework bookkeeping in the
+        // content database, not content a page shows. Its writes ride every
+        // counted POST, so tagging them would churn the cache for nothing.
+        'rate_limits',
+        // Not a table: 'ON CONFLICT ... DO UPDATE SET x' reads as
+        // "UPDATE <table named set>" to the word-boundary regex below. SET is
+        // a keyword; a quoted table really named "set" never matched the
+        // bare-identifier capture anyway.
+        'set',
+    ];
 
     public static function isWrite(string $sql): bool
     {
