@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+Response construction refuses header values that are not strings or that contain CR/LF, with a clear exception at the boundary; previously a malformed value survived until send time (or was silently skipped when the page cache stored it).
+A session user id that is not integer-shaped (a fractional string like '1.5', an array) is audited as a guest instead of being truncated to an integer.
+The Migrator unwinds nested savepoints a failed migration left open, so a migration that opens a transaction and throws can no longer leak transaction depth past the failure.
+The audit-log retention prune seeks the new requests(julianday(created_at)) expression index instead of scanning; the DELETE statement itself is unchanged.
 An app ETag spelled in any letter case leaves the framework as one ETag field; the conditional-GET canonicalization used to append its own spelling beside the app's, sending two validators (RFC 9110 §8.8.3 allows one).
 Backup snapshots bind the `VACUUM INTO` target path as a parameter instead of a hand-quoted SQL literal.
 bin/kip reports the underlying OS reason when a Features directory cannot be listed (the Migrator idiom).
