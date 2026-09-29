@@ -44,6 +44,82 @@ final class RequestLog
         return $this->db->all('SELECT * FROM requests ORDER BY id DESC LIMIT ?', [$limit]);
     }
 
+    /**
+     * One page of audit rows for the admin logs viewer, newest first, read
+     * only. Keyset window: 'before' and 'after' are exclusive id bounds, so
+     * the plan is an INTEGER PRIMARY KEY range seek for every filter shape
+     * (no SCAN, no TEMP B-TREE; pinned by test). With no 'before' cursor the
+     * bound is an inclusive `id <= PHP_INT_MAX`, so even a max-id row stays
+     * visible on the first page.
+     *
+     * The caller passes its page size plus one (the probe, browse()'s
+     * convention). The returned list holds at most that many rows: the page
+     * itself, and, when one exists, exactly one extra row just beyond the
+     * page in the direction away from the cursor (older rows for a forward
+     * window, newer rows for an 'after' window). That extra row is how the
+     * caller proves another page exists without a second query.
+     *
+     * @param array{method?:string,status?:int,path?:string,user_id?:int,guests?:bool,before?:int,after?:int} $f
+     * @return list<array<array-key, mixed>>
+     */
+    public function page(array $f = [], int $limit = 50): array
+    {
+        $limit = max(1, $limit);
+        $where = [];
+        $params = [];
+        if (($f['method'] ?? '') !== '') {
+            $where[] = 'method = ?';
+            $params[] = $f['method'];
+        }
+        if (isset($f['status'])) {
+            $where[] = 'status >= ? AND status < ?';
+            $params[] = $f['status'] * 100;
+            $params[] = ($f['status'] + 1) * 100;
+        }
+        if (($f['path'] ?? '') !== '') {
+            // Control bytes go first: LIKE stops at an embedded NUL, which would
+            // silently shorten the prefix (log() strips the same bytes on write).
+            // Then the LIKE metacharacters are escaped so input stays a literal prefix.
+            $path = (string) preg_replace('/[\x00-\x1F\x7F]/', '', (string) $f['path']);
+            $where[] = "path LIKE ? ESCAPE '\\'";
+            $params[] = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $path) . '%';
+        }
+        if ($f['guests'] ?? false) {
+            $where[] = 'user_id IS NULL';
+        } elseif (isset($f['user_id'])) {
+            $where[] = 'user_id = ?';
+            $params[] = $f['user_id'];
+        }
+        if (isset($f['after'])) {
+            // Older-to-newer fetch, then reverse: rows come back newest first and
+            // the page sits flush against the cursor. Slice BEFORE reversing;
+            // reversing the probe row too would display the wrong page.
+            $where[] = 'id > ?';
+            $params[] = $f['after'];
+            $rows = $this->db->all(
+                'SELECT * FROM requests WHERE ' . implode(' AND ', $where) . ' ORDER BY id ASC LIMIT ?',
+                [...$params, $limit]
+            );
+            $page = array_slice($rows, 0, $limit - 1);
+            $newestFirst = array_reverse($page);
+            if (isset($rows[$limit - 1])) {
+                $newestFirst[] = $rows[$limit - 1]; // the probe: one row newer than the page
+            }
+            return $newestFirst;
+        }
+        if (isset($f['before'])) {
+            $where[] = 'id < ?';
+            $params[] = $f['before'];
+        } else {
+            $where[] = 'id <= ?';
+            $params[] = PHP_INT_MAX;
+        }
+        return $this->db->all(
+            'SELECT * FROM requests WHERE ' . implode(' AND ', $where) . ' ORDER BY id DESC LIMIT ?',
+            [...$params, $limit]
+        );
+    }
+
     /** @return int rows removed */
     public function prune(int $days): int
     {

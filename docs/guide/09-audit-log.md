@@ -64,6 +64,13 @@ Pruning happens two ways:
 0 3 * * * php /path/to/app/bin/kip logs:prune --days=30
 ```
 
+## Reading the log
+
+`bin/kip logs` prints the newest 50 rows in the terminal
+([chapter 8](08-cli.md)). In the browser, the admin panel's logs viewer at
+`/admin/logs` ([chapter 12](12-admin-panel.md)) gives an administrator the
+same table, read-only, with filters and pagination.
+
 ## Privacy note
 
 The log stores IP address and user id indefinitely *within* the retention
