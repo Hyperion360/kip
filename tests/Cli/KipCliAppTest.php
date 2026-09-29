@@ -318,4 +318,95 @@ final class KipCliAppTest extends TestCase
         $this->assertSame(0, $code, $out); // discovery is lazy: non-migration arms never list Features
     }
 
+    public function test_db_without_arguments_lists_tables_ledger_included(): void
+    {
+        $this->cli(['migrate']);
+        [$out, $code] = $this->cli(['db']);
+        $this->assertSame(0, $code, $out);
+        $this->assertStringContainsString('users', $out);
+        $this->assertStringContainsString('_migrations', $out); // the operator view keeps the ledger visible
+    }
+
+    public function test_db_runs_a_read_only_select_with_a_header_row(): void
+    {
+        $this->cli(['migrate']);
+        [$out, $code] = $this->cli(['db', 'SELECT name FROM _migrations ORDER BY name LIMIT 1']);
+        $this->assertSame(0, $code, $out);
+        // The harness joins exec() lines with \n, so the block's own final
+        // newline is trimmed: header line first, then the value line.
+        $this->assertStringContainsString("name\n001_create_users", $out);
+    }
+
+    public function test_db_runs_a_pragma(): void
+    {
+        $this->cli(['migrate']);
+        [$out, $code] = $this->cli(['db', 'PRAGMA table_info(users)']);
+        $this->assertSame(0, $code, $out);
+        $this->assertStringContainsString('email', $out);
+        $this->assertStringContainsString('password_hash', $out);
+    }
+
+    public function test_db_refuses_statements_other_than_select_and_pragma(): void
+    {
+        $this->cli(['migrate']);
+        foreach (
+            [
+                'CREATE' => 'CREATE TABLE x (i INTEGER)',
+                'ATTACH' => "ATTACH DATABASE '/tmp/kip-evil.sqlite' AS e",
+                'DELETE' => 'DELETE FROM users',
+            ] as $label => $sql
+        ) {
+            [$out, $code] = $this->cli(['db', $sql]);
+            $this->assertSame(1, $code, "{$label}: {$out}");
+            $this->assertStringContainsString('SELECT', $out, $label);
+            $this->assertStringContainsString('PRAGMA', $out, $label);
+        }
+    }
+
+    public function test_db_write_pragma_passes_the_gate_and_hits_the_read_only_handle(): void
+    {
+        $this->cli(['migrate']);
+        [$out, $code] = $this->cli(['db', 'PRAGMA user_version=5']);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringStartsWith('kip: ', $out);
+        $this->assertStringContainsString('readonly', $out); // the database, not the parser, refuses
+        $version = $this->pdo()->query('PRAGMA user_version')->fetchColumn();
+        $this->assertSame(0, (int) $version); // and nothing changed on disk
+    }
+
+    public function test_db_query_error_follows_the_failure_contract(): void
+    {
+        $this->cli(['migrate']);
+        [$out, $code] = $this->cli(['db', 'SELECT * FROM nosuch']);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringStartsWith('kip: ', $out);
+        $this->assertStringNotContainsString('Stack trace', $out);
+    }
+
+    public function test_db_failure_output_lands_on_stderr_not_stdout(): void
+    {
+        $this->cli(['migrate']);
+        $errFile = (string) tempnam(sys_get_temp_dir(), 'kip-db-err-');
+        $outFile = (string) tempnam(sys_get_temp_dir(), 'kip-db-out-');
+        try {
+            $cmd = 'cd ' . escapeshellarg($this->cliApp) . ' && ' . escapeshellarg(PHP_BINARY)
+                . ' ./bin/kip db "CREATE TABLE x(i)" > ' . escapeshellarg($outFile) . ' 2> ' . escapeshellarg($errFile);
+            exec($cmd, $lines, $code);
+            $this->assertSame(1, $code);
+            $this->assertStringContainsString('SELECT', (string) file_get_contents($errFile));
+            $this->assertSame('', (string) file_get_contents($outFile));
+        } finally {
+            @unlink($errFile);
+            @unlink($outFile);
+        }
+    }
+
+    public function test_db_on_a_missing_database_exits_one_and_creates_nothing(): void
+    {
+        [$out, $code] = $this->cli(['db', 'SELECT 1']); // no migrate: app/data.sqlite does not exist
+        $this->assertSame(1, $code, $out);
+        $this->assertStringStartsWith('kip: ', $out);
+        $this->assertFileDoesNotExist($this->cliApp . '/app/data.sqlite');
+    }
+
 }

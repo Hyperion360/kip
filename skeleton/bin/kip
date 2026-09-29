@@ -150,7 +150,36 @@ try {
         ]), $config['app_dir'] . '/backups', 14, $s3))->run(date('Ymd-His'));
         echo "Backup written: {$result}\n";
     })(),
-    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]]\n"),
+    'db' => (function () use ($config, $argv) {
+        // Read-only queries against the app database. The connection is opened
+        // DIRECTLY from the configured DSN on a second handle SQLite itself
+        // opens read-only (SQLITE_OPEN_READONLY + a mode=ro URI): a normal
+        // Kip\Database would set WAL and create a missing file, and the
+        // database, not this keyword gate, is what refuses writes.
+        $ro = Kip\Admin\ReadOnlyConnection::fromDsn($config['db']['dsn'] ?? '');
+        if ($ro === null) {
+            fwrite(STDERR, "Usage: kip db [\"SELECT ...\"|\"PRAGMA ...\"] (needs a file-backed SQLite database)\n");
+            exit(1);
+        }
+        $query = $argv[2] ?? '';
+        if ($query === '') {
+            // The operator view: every user table, the migration ledger included.
+            foreach ($ro->tables() as $t) echo $t, "\n";
+            return;
+        }
+        if (preg_match('/^\s*(SELECT|PRAGMA)\b/i', $query) !== 1) {
+            fwrite(STDERR, "kip db runs a single read-only SELECT or PRAGMA statement, nothing else.\n");
+            exit(1);
+        }
+        try {
+            echo Kip\Admin\ReadOnlyConnection::tsv($ro->select($query));
+        } catch (\PDOException $e) {
+            // The driver message can quote the query text; strip control bytes
+            // so an error line cannot carry terminal controls into a log.
+            throw new RuntimeException('query failed: ' . preg_replace('/[\x00-\x1f\x7f]+/', ' ', $e->getMessage()));
+        }
+    })(),
+    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|db [\"SELECT ...\"]]\n"),
     };
 } catch (\Throwable $e) {
     // A failed deploy needs a stated failure, not a stack trace on stdout.
