@@ -12,7 +12,7 @@ first time; after that, treat this as a reference you dip into.
 1. [Getting started](01-getting-started.md), install paths, directory
    layout, `config.php` keys, environment variables.
 2. [Routing](02-routing.md): the convention router, verb attributes,
-   `#[Auth]`, HEAD, 404 vs. 405.
+   `#[Auth]`, `#[Json]` JSON endpoints, HEAD, 404 vs. 405.
 3. [Controllers](03-controllers.md). Constructor autowiring, what's
    injectable, the `Request`/`Response` API.
 4. [Views](04-views.md): plain-PHP templates, `e()` escaping, layouts,
@@ -20,7 +20,7 @@ first time; after that, treat this as a reference you dip into.
 5. [Database and migrations](05-database-and-migrations.md), the
    `Database` API, SQLite/MySQL/Postgres, writing and running migrations.
 6. [Security](06-security.md): the two CSRF lanes, sessions, login
-   throttling, security headers, error modes.
+   throttling, webhook verification, security headers, error modes.
 7. [Performance](07-performance.md): the page cache, `X-Kip-Cache`,
    ETag/304, pagination, worker-mode notes.
 8. [CLI](08-cli.md): every `bin/kip` command, with examples and exit codes.
@@ -56,7 +56,7 @@ what Kip will never include and why.
   [`examples/blog`](../../examples/blog) unless a chapter says otherwise.
 - "How it works" sections at the end of most chapters cite the actual
   class and method names (`src/`). When in doubt, that source is smaller
-  and more readable than most frameworks' docs. 37 files, all of
+  and more readable than most frameworks' docs. 40 files, all of
   them short.
 - A limitation is documented as a limitation, not glossed over. If a
   chapter says something is an accepted risk or a known gap, that's the

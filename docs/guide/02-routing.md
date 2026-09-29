@@ -135,6 +135,77 @@ route rather than leaving it public. The flip side: an attribute of your own
 named `Auth`, `Get`, `Post`, `Put` or `Delete`, in any namespace, is read as
 Kip's. Give app attributes other names.
 
+## `#[Json]`: JSON endpoints
+
+Mark an action with `#[Json]` (`Kip\Routing\Json`) and anything it returns
+that is not already a `Response` is wrapped as JSON instead of HTML:
+
+```php
+use Kip\Routing\Json;
+use Kip\Routing\Post;
+
+#[Json]
+public function feed(): array
+{
+    return ['posts' => $this->posts->latest(10)];
+}
+```
+
+The kernel encodes the return value with `json_encode(..., JSON_THROW_ON_ERROR
+| JSON_UNESCAPED_SLASHES)` and sends it as a 200 with
+`Content-Type: application/json`. An action returning a `Response` passes
+through untouched, status and headers included, so a JSON action can still
+set its own cache headers or stream a file.
+
+`#[Json]` follows the same hierarchy rules as `#[Auth]`: put it on the
+class to mark every action of an API controller, and it counts from
+parents, interfaces and traits. It composes with `#[Auth]`, which still
+requires a logged-in session exactly as for HTML.
+
+### Reading a JSON request body
+
+`Request::json()` (`src/Http/Request.php`) parses the raw request body:
+an array for object and array documents, `null` for an empty body,
+malformed JSON, invalid UTF-8, or a scalar document. The body contract is
+an object or an array; nothing is silently repaired:
+
+```php
+#[Post]
+#[Json]
+public function create(): Response
+{
+    $in = $this->request->json();
+    if ($in === null || !isset($in['title'])) {
+        return new Response('{"error":"title required"}', 422,
+            ['Content-Type' => 'application/json']);
+    }
+    /* ... */
+}
+```
+
+A non-`GET`/`HEAD` request to a `#[Json]` action whose body claims a JSON
+media type (`application/json`, `application/vnd.api+json`, parameters
+allowed) but does not parse is answered **400 Malformed JSON body** before
+the action runs. The guard runs after the CSRF check, so a tokenless POST
+still gets the 403 and learns nothing about the body. An empty body passes
+through; `json()` returns `null` and the action decides what that means.
+
+### CSRF on JSON POSTs
+
+Non-GET JSON routes follow the same two CSRF lanes as HTML ones (see
+[chapter 6](06-security.md)): `#[Auth]` routes require the session token,
+guest routes require same-origin proof. The token may travel as `_token`
+in the POST body or in an `X-Csrf-Token` request header; the two are
+equivalent, because a browser cannot set a custom header cross-site
+without the CORS preflight the app has not granted. A logged-in request
+from your own pages sends the header with the same `csrfToken()` value
+the form field carries.
+
+For tests, `TestClient::postJson()` posts a JSON body with that header;
+see [chapter 11](11-testing.md). To publish these routes as a
+machine-readable document, `kip openapi` does it from these same
+conventions ([chapter 8](08-cli.md)).
+
 ## HEAD requests
 
 `HEAD /posts` is served by `PostsController::index()`, the same method

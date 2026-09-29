@@ -12,6 +12,7 @@ $client = new TestClient($app);                      // your real App
 $client->get('/posts', ['page' => '2']);             // GET, query params
 $client->post('/comments/store', ['body' => 'hi']);  // POST, no CSRF token
 $client->postWithToken('/posts/store', $data);       // POST, session CSRF token merged in
+$client->postJson('/api/create', ['a' => 1], ['x-csrf-token' => $client->csrfToken()]); // JSON POST
 $client->postWithFile('/uploads/store', $data, 'doc', $file); // POST a $_FILES entry + token
 $client->actingAs(1);                                // log in as user 1, no password round-trip
 $client->csrfToken();                                // the session's current token
@@ -24,6 +25,13 @@ Every call returns a real `Kip\Http\Response`, assert on `->status`,
 `#[Auth]` routes require the session CSRF token outright
 ([chapter 6](06-security.md)), a bare `post()` against `/posts/store`
 comes back 403.
+
+`postJson()` posts a JSON body: an array payload is encoded with the
+same flags the kernel's `#[Json]` wrap uses, a string passes through raw
+(the malformed-body test path), and `content-type: application/json` is
+merged in. The CSRF token is NOT merged, pass it in the headers exactly
+as a fetch client would, as in the list above. `request()` also accepts
+a body as its last argument when a test needs full control.
 
 ## The cookie rule
 
