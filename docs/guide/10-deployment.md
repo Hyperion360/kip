@@ -22,7 +22,10 @@ verbatim; adapt the specifics to your host.
      reverse proxy), viable for a low-traffic app; PHP's built-in server
      is single-threaded per request but that's often fine at $5-VPS scale.
      This is what `bin/kip serve` uses locally, just without `KIP_ENV=dev`
-     forced on in production.
+     forced on in production. One caveat for tests: the built-in server
+     answers `/style.css/` (trailing slash) leniently and serves the file,
+     while Apache and nginx route that path to the front controller, so
+     canonical-URL tests must not run against `php -S`.
    Either way, only `public/` is web-reachable: `app/`, `config.php`,
    `bin/`, and `vendor/` should sit outside the docroot or be blocked from
    direct access by the webserver config.
@@ -50,6 +53,14 @@ verbatim; adapt the specifics to your host.
    ```
 (`bin/kip migrate` and `bin/kip logs` also prune automatically on every
 run. The cron entry is the backstop for an app that runs quietly.)
+
+### Restart-on-crash is the process manager's job
+
+The framework does not supervise its own process. Under systemd give the
+PHP-FPM or server unit `Restart=always` and `RestartSec=2`; the audit log
+([chapter 9](09-audit-log.md)) is the record of what happened before any
+restart. An app that needs heartbeat alerts reads `kip logs` or ships
+logs.sqlite elsewhere.
 
 ## Apache and shared hosting (cPanel etc.)
 
@@ -121,6 +132,15 @@ files back into place. A nightly cron entry is the whole recipe:
 15 4 * * * cd /var/www/myapp && php bin/kip backup
 ```
 
+**Off-site copies are the missing half.** `php bin/kip backup` writes to
+the app's own disk, which shares fate with the machine. Until backup
+upload ships in a tagged release, the supported off-site path is a copy
+job in the same crontab, one entry after the backup, copying `app/backups/`
+to storage the app does not host; any file-copy tool your platform
+provides works. The 14-day local prune is a floor against disk fill, not a
+retention policy: whatever the off-site copy keeps is what survives the
+machine disappearing.
+
 If the app uses the uploads battery, serve `public/uploads` with
 `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`
 at the web-server layer, defense in depth for files the extension
@@ -150,6 +170,28 @@ accordingly. This means:
   max-age=31536000` at the proxy. Kip does not send it: a browser that
   has seen it refuses plain HTTP for the host until `max-age` runs out,
   so turn it on only when you are sure HTTPS is there to stay.
+
+## A static front for read-heavy sites
+
+A read-heavy site (essays, docs, a catalog that changes daily at most) can
+put a static copy of its public pages in front of the app: a build step of
+your own, a `pages:build` command you write, renders each public URL to an
+HTML file; the files deploy to any static host or to a directory the
+webserver serves directly; the origin keeps serving everything dynamic
+(login, writes, anything personalized). Kip does not ship this. The
+pattern is viable because every Kip page is complete server-rendered HTML
+that works with scripting disabled, so a snapshot of the page is the page.
+
+Correctness here is operational discipline, not the headers. A static copy
+can outlive the page it was rendered from, and nothing in the headers
+prevents it from serving those stale bytes: the origin's cache headers
+govern whatever TTL the edge honors, and that only bounds staleness where
+the host honors it. The discipline: re-run the export after every deploy;
+prune the exported files whenever a page is removed or renamed (build the
+`pages:prune` habit next to `pages:build`); treat the origin as
+authoritative for anything personalized. A page that embeds per-visitor
+state snapshots that state for every visitor, so only genuinely shared
+pages belong in the static layer.
 
 ## What isn't here
 

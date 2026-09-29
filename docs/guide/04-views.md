@@ -91,6 +91,17 @@ filenames with `_` by convention (`_comments.php`) to mark them as
 not-directly-routable fragments; nothing enforces this, it's a naming
 convention only.
 
+## Adding your own JavaScript
+
+Zero JavaScript means the framework: no build step, no bundler, no npm, and
+every framework feature works with scripting disabled. Your app is free to
+add plain JavaScript where it earns its keep; the default
+Content-Security-Policy permits it, and Kip will never require a JS
+framework or ship one. A `<script>` tag in your layout is the whole
+integration: templates are plain PHP files, so nothing in the framework
+needs to know a script exists, and the default policy that lets it run is
+listed with the other security headers in [chapter 6](06-security.md).
+
 ## Reserved data keys
 
 The `__kip_` prefix is reserved: `View::render()` uses `__kip_`-prefixed

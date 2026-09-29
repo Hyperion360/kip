@@ -73,6 +73,42 @@ documents, commits, and QA verdicts. Agents drift less when the state of
 the world is written down, and you can resume any phase months later from
 the tracker alone.
 
+## Building many features at once with agents
+
+The loop above runs one feature at a time, and it scales to several agents
+in parallel when the features are independent. The arrangement that keeps
+parallel agents out of each other's way:
+
+1. **One worktree per feature.** `git worktree add` gives each agent its
+   own checkout of the same repository on its own branch, so two agents
+   never edit the same working tree. The full gate (the whole suite,
+   static analysis, whatever you gate merges on) runs inside that worktree
+   before the agent reports done; a branch that has not passed the gate in
+   its own worktree is not finished.
+2. **Feature folders keep the trees disjoint.** A feature's controllers,
+   views, and migrations live under `app/Features/<Name>/` (see
+   [Feature folders in chapter 3](03-controllers.md#feature-folders)), so
+   parallel branches touch disjoint trees and merges stop being text
+   fights.
+3. **Own your data.** Each feature's migrations create the feature's own
+   tables and columns; a feature never alters a table another feature
+   owns. Two agents reworking the same table in parallel is the merge
+   conflict no reviewer can resolve, so the rule is absolute.
+4. **A review gate between merges.** Branches merge one at a time, with a
+   human review (plus the gate) between every merge, never two branches
+   landing at once.
+
+One migration rule has teeth when you revert a branch: reverting the
+branch removes its migration files, and rollback needs the files present
+to know what to undo. The drill, in order: run `php bin/kip rollback` for
+the feature's batch first, while its migration files are still checked
+out, then revert the branch. It works because batches stay per-feature:
+run `php bin/kip migrate` after every merge, before the next branch lands,
+and each feature's migrations are exactly one batch in the ledger. When
+several features landed after the one being reverted, roll their batches
+back first; rollback only ever undoes the most recent batch (see
+[chapter 5](05-database-and-migrations.md)).
+
 ## What to automate vs. what to read yourself
 
 Let agents own: the plan drafting, the test writing, the mechanical

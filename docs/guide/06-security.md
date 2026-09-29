@@ -186,6 +186,15 @@ The CSP is deliberately minimal: it sets no `script-src`, so it blocks
 nothing a Kip page does, and no `frame-ancestors`, which would override an
 app's own `X-Frame-Options: DENY`. Pass your own
 `Content-Security-Policy` header to replace it with a stricter one.
+
+Zero JavaScript means the framework: no build step, no bundler, no npm, and
+every framework feature works with scripting disabled. Your app is free to
+add plain JavaScript where it earns its keep; the default
+Content-Security-Policy permits it, and Kip will never require a JS
+framework or ship one. The shipped default, `Content-Security-Policy:
+base-uri 'self'; object-src 'none'`, sets no `script-src`, so app scripts
+run without any CSP change; tighten it when the app does not need them.
+
 `Strict-Transport-Security` is not set by the framework: once a browser
 sees it, it refuses plain HTTP for that host until it expires, so enable it
 at the proxy or in your app once HTTPS works end to end (see
