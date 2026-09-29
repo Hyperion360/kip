@@ -8,6 +8,7 @@ The audit-log retention prune seeks the new requests(julianday(created_at)) expr
 An app ETag spelled in any letter case leaves the framework as one ETag field; the conditional-GET canonicalization used to append its own spelling beside the app's, sending two validators (RFC 9110 §8.8.3 allows one).
 Backup snapshots bind the `VACUUM INTO` target path as a parameter instead of a hand-quoted SQL literal.
 bin/kip reports the underlying OS reason when a Features directory cannot be listed (the Migrator idiom).
+Durable background jobs ship as a battery: `Kip\Jobs` enqueue joins the caller's transaction (a rolled-back request rolls its jobs back too), `kip queue:work --once` claims and runs one job for cron with exit codes cron can read, the loop form drains continuously, two workers can never claim the same row, a failed row keeps its error and is never retried automatically, and a done row clears its payload. The `jobs` table arrives as migration 008 in both shipped apps; guide ch. 8 documents the command and ch. 14 the mail pattern.
 
 - Cache-format versioning and consolidation hardening. Stored cache rows carry
   a format version; when the rules that decide what may be stored change, the
