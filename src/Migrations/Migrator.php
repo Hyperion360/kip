@@ -28,13 +28,14 @@ final class Migrator
             if (in_array($name, $done, true)) continue;
             // Transactional migration (SQLite DDL is transactional): a failure leaves
             // NOTHING applied and NOTHING recorded, no half-migrated schema.
+            $entryDepth = $this->db->transactionDepth();
             $this->db->begin();
             try {
                 $this->apply($file, 'up');
                 $this->db->query('INSERT INTO _migrations (name, batch, run_at) VALUES (?, ?, ?)', [$name, $batch, date('c')]);
                 $this->db->commit();
             } catch (\Throwable $e) {
-                $this->db->rollBack();
+                $this->db->rollBackToDepth($entryDepth); // mirrors App::process(): unwind nested savepoints too
                 throw new \RuntimeException("Migration {$name} failed and was rolled back: {$e->getMessage()}", 0, $e);
             }
             $ran[] = $name;
@@ -54,6 +55,7 @@ final class Migrator
         $files = $this->files();
         $rows = $this->db->all('SELECT name FROM ' . self::LEDGER_TABLE . ' WHERE batch = ? ORDER BY name DESC', [$batch]);
         $reversed = [];
+        $entryDepth = $this->db->transactionDepth();
         $this->db->begin();
         try {
             foreach ($rows as $row) {
@@ -64,7 +66,7 @@ final class Migrator
             }
             $this->db->commit();
         } catch (\Throwable $e) {
-            $this->db->rollBack();
+            $this->db->rollBackToDepth($entryDepth); // mirrors App::process(): unwind nested savepoints too
             throw new \RuntimeException('Rollback of the batch failed and was rolled back: ' . $e->getMessage(), 0, $e);
         }
         return $reversed;
