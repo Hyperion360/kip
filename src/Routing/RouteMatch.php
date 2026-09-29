@@ -15,6 +15,7 @@ final class RouteMatch
     /**
      * @param class-string $class controller the router resolved
      * @param list<string> $args  path segments passed to the action
+     * @param ?string $policy policy name from #[Auth(policy: ...)], evaluated by App after login
      */
     public function __construct(
         public readonly string $class,
@@ -22,6 +23,7 @@ final class RouteMatch
         private array $args,
         public readonly bool $requiresAuth,
         public readonly bool $json = false,
+        public readonly ?string $policy = null,
     ) {}
 
     public function invoke(Container $scope): mixed

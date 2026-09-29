@@ -97,7 +97,44 @@ final class Router
             throw new MethodNotAllowedException(implode(', ', $allowed), $requiresAuth);
         }
 
-        return new RouteMatch($class, $action, $args, $requiresAuth, $isJson);
+        $policy = self::authPolicyIn($declarers, $action);
+        return new RouteMatch($class, $action, $args, $requiresAuth, $isJson, $policy);
+    }
+
+    /**
+     * The policy named by the nearest #[Auth] declaring one (the action's own
+     * declaration first), null when every #[Auth] is bare. Arguments are read
+     * WITHOUT instantiation (the short-name match may hit an app-local Auth
+     * class), and arguments that name no policy fail loud: a typo must break
+     * the route, not weaken it to login-only.
+     *
+     * @param list<\ReflectionClass<object>> $declarers
+     */
+    private static function authPolicyIn(array $declarers, string $action): ?string
+    {
+        foreach ($declarers as $d) {
+            foreach ($d->hasMethod($action) ? [$d->getMethod($action), $d] : [$d] as $source) {
+                foreach ($source->getAttributes() as $attr) {
+                    if (strcasecmp(self::shortName($attr->getName()), 'Auth') !== 0) continue;
+                    if (($policy = self::authPolicyOf($attr)) !== null) return $policy;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Bare = no arguments; one non-empty string (named policy: or positional) = that policy; anything else fails loud. */
+    private static function authPolicyOf(\ReflectionAttribute $attr): ?string
+    {
+        try {
+            $args = $attr->getArguments();
+        } catch (\Throwable $e) {
+            throw new \LogicException("{$attr->getName()} arguments do not evaluate: {$e->getMessage()}", 0, $e);
+        }
+        if ($args === []) return null;
+        $policy = $args['policy'] ?? $args[0] ?? null;
+        if (count($args) === 1 && is_string($policy) && $policy !== '') return $policy;
+        throw new \LogicException($attr->getName() . " must be bare or carry exactly one policy string, e.g. #[Auth(policy: 'can-edit')]");
     }
 
     /**

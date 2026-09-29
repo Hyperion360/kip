@@ -62,6 +62,60 @@ final class RouterTest extends TestCase
         $this->assertTrue($m->requiresAuth);
     }
 
+    /** TRUST BOUNDARY, both directions: a bare #[Auth] and an ungated action carry no policy. */
+    public function test_policy_name_surfaces_on_the_match(): void
+    {
+        $m = $this->router()->match(new Request('GET', '/posts/destroy/9', [], [], []));
+        $this->assertNotNull($m);
+        $this->assertSame('can-edit', $m->policy);
+        $this->assertTrue($m->requiresAuth, 'a policy route is gated too');
+    }
+
+    public function test_policy_defaults_to_null_in_both_directions(): void
+    {
+        $bare = $this->router()->match(new Request('GET', '/posts/edit/1', [], [], []));
+        $this->assertNotNull($bare);
+        $this->assertNull($bare->policy, 'a bare #[Auth] gates login-only');
+        $open = $this->router()->match(new Request('GET', '/posts/show/1', [], [], []));
+        $this->assertNull($open->policy, 'an ungated action carries no policy');
+    }
+
+    public function test_positional_string_policy_is_accepted(): void
+    {
+        $this->assertSame('positional', $this->router()->match(new Request('GET', '/posts/purge', [], [], []))->policy);
+    }
+
+    public function test_method_policy_overrides_the_class_policy(): void
+    {
+        $r = $this->router();
+        $this->assertSame('admin-only', $r->match(new Request('GET', '/policy-panel', [], [], []))->policy, 'the class policy reaches undecorated actions');
+        $this->assertSame('override', $r->match(new Request('GET', '/policy-panel/settings', [], [], []))->policy, 'the action\'s own policy wins');
+        $this->assertSame('admin-only', $r->match(new Request('GET', '/policy-panel/reports', [], [], []))->policy, 'a bare method #[Auth] does not clear the class policy');
+    }
+
+    public function test_a_child_declaration_wins_over_the_parent(): void
+    {
+        $r = $this->router();
+        $this->assertSame('narrower', $r->match(new Request('GET', '/sub-panel/settings', [], [], []))->policy, 'the override\'s policy beats the parent class\'s');
+        $this->assertSame('admin-only', $r->match(new Request('GET', '/sub-panel', [], [], []))->policy, 'an inherited action keeps the parent class policy');
+    }
+
+    /** A typo'd named argument must fail closed, never fall back to login-only while the author believes a policy runs. */
+    public function test_malformed_policy_arguments_fail_loud(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('policy');
+        $this->router()->match(new Request('GET', '/typo-policy', [], [], []));
+    }
+
+    /** Short-name trust boundary: an app-local Auth whose arguments cannot name a policy fails loud, not silently login-only. */
+    public function test_an_app_local_auth_with_unrelated_arguments_fails_loud(): void
+    {
+        require_once __DIR__ . '/LocalGate.php';
+        $this->expectException(\LogicException::class);
+        (new Router(namespace: 'Kip\\Tests\\Routing\\LocalGate\\'))->match(new Request('GET', '/notes', [], [], []));
+    }
+
     public function test_router_rejects_traversal_path(): void
     {
         $this->assertNull($this->router()->match(new Request('GET', '/../etc/passwd', [], [], [])));

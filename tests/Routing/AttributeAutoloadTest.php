@@ -37,6 +37,14 @@ final class AttributeAutoloadTest extends TestCase
         $this->assertInstanceOf(\Kip\Routing\Auth::class, new \Kip\Routing\Auth());
     }
 
+    /** Bare and policy forms both instantiate: tooling may newInstance() either spelling. */
+    public function test_auth_attribute_instantiates_bare_and_with_a_policy(): void
+    {
+        $this->assertNull((new \Kip\Routing\Auth())->policy);
+        $this->assertSame('can-edit', (new \Kip\Routing\Auth(policy: 'can-edit'))->policy);
+        $this->assertSame('can-edit', (new \Kip\Routing\Auth('can-edit'))->policy);
+    }
+
     /**
      * TRUST BOUNDARY. #[Auth] is the authorization gate. Assert BOTH directions:
      * a positive-only test would still pass if the attribute filter matched
