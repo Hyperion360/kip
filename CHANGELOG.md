@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+bin/kip reports the underlying OS reason when a Features directory cannot be listed (the Migrator idiom).
 
 - Cache-format versioning and consolidation hardening. Stored cache rows carry
   a format version; when the rules that decide what may be stored change, the

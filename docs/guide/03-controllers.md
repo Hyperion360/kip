@@ -165,7 +165,7 @@ the migration commands, so a broken Features layout never breaks `logs` or
 the framework; the layout is yours. The pattern that keeps a slice whole:
 a capitalized `Tests/` directory inside the feature
 (`app/Features/Billing/Tests/`) with test classes namespaced
-`App\Features\Billing\Tests`, which the PSR-4 prefix above already
+`App\Features\Billing\Tests`, which the PSR-4 prefix below already
 resolves with no composer change (the capitalization matters on
 case-sensitive filesystems). Add the features root as a second directory
 in your PHPUnit testsuite alongside `tests/`, and keep tests whose subject

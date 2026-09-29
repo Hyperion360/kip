@@ -250,6 +250,7 @@ final class KipCliAppTest extends TestCase
         [$out, $code] = $this->cli(['migrate']);
         $this->assertSame(1, $code, $out);
         $this->assertStringContainsString('Cannot list', $out);
+        $this->assertStringContainsString('scandir', $out); // the OS reason is present (cross-OS-stable prefix of the strerror)
         $this->assertStringContainsString('Refusing to migrate', $out);
         $this->assertStringNotContainsString('Warning', $out);
     }
