@@ -59,6 +59,31 @@ final class PolicyFlowTest extends TestCase
         $this->assertTrue(\Kip\Tests\Fixtures\Controllers\PolicyController::$ran);
     }
 
+    /** The nearer declaration wins: a child class policy beats a parent method policy (closing-pass finding). */
+    public function test_a_child_class_policy_beats_the_parent_method_policy(): void
+    {
+        $app = $this->makeApp('dev');
+        $app->policy('member', fn(Session $s): bool => true);  // the parent's weaker gate: always passes
+        $app->policy('admin', fn(Session $s): bool => false);  // the child's narrower gate: always denies
+        $client = $this->seededClient($app);
+        $client->actingAs(1);
+        $res = $client->get('/inheritshow');
+        $this->assertSame(403, $res->status, 'the child class policy must decide, not the parent method policy reached through the inherited reflection');
+    }
+
+    /** Control: with the gates swapped, the same shape allows through. */
+    public function test_a_child_class_policy_beats_the_parent_method_policy_control(): void
+    {
+        $app = $this->makeApp('dev');
+        $app->policy('member', fn(Session $s): bool => false);
+        $app->policy('admin', fn(Session $s): bool => true);
+        $client = $this->seededClient($app);
+        $client->actingAs(1);
+        $res = $client->get('/inheritshow');
+        $this->assertSame(200, $res->status);
+        $this->assertSame('parent-decision', $res->body);
+    }
+
     public function test_a_logged_in_viewer_is_denied_with_the_framework_403_shape(): void
     {
         $res = $this->login('viewer')->get('/policy/edit');

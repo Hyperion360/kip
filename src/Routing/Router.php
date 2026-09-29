@@ -113,7 +113,21 @@ final class Router
     private static function authPolicyIn(array $declarers, string $action): ?string
     {
         foreach ($declarers as $d) {
-            foreach ($d->hasMethod($action) ? [$d->getMethod($action), $d] : [$d] as $source) {
+            $sources = [];
+            if ($d->hasMethod($action)) {
+                // Only the declarer's OWN method declaration counts here:
+                // getMethod() also returns inherited methods, and reading the
+                // parent's method attributes through the child would let a
+                // distant method policy outrank the child's nearer class
+                // policy (closing-pass finding: an inherited member policy
+                // beat the child's admin policy and the route returned 200).
+                $m = $d->getMethod($action);
+                if ($m->getDeclaringClass()->getName() === $d->getName()) {
+                    $sources[] = $m;
+                }
+            }
+            $sources[] = $d;
+            foreach ($sources as $source) {
                 foreach ($source->getAttributes() as $attr) {
                     if (strcasecmp(self::shortName($attr->getName()), 'Auth') !== 0) continue;
                     if (($policy = self::authPolicyOf($attr)) !== null) return $policy;
