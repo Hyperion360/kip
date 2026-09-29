@@ -1,6 +1,7 @@
 <?php // tests/Cli/KipCliAppTest.php
 namespace Kip\Tests\Cli;
 
+use Kip\Tests\S3StubServer;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -12,6 +13,7 @@ use PHPUnit\Framework\TestCase;
 final class KipCliAppTest extends TestCase
 {
     use CliAppHarness;
+    use S3StubServer;
 
     protected function setUp(): void
     {
@@ -164,6 +166,59 @@ final class KipCliAppTest extends TestCase
         for ($i = 0; $i < $zip->numFiles; $i++) $names[] = $zip->getNameIndex($i);
         $zip->close();
         $this->assertContains('data.sqlite', $names); // the migrated app database
+    }
+
+    /** No KIP_BACKUP_S3_* vars set (an empty string counts as unset): local-only, the path above unchanged. */
+    public function test_backup_without_s3_vars_stays_local_only(): void
+    {
+        $this->cli(['migrate']);
+        [$out, $code] = $this->cli(['backup'], null, ['KIP_BACKUP_S3_ENDPOINT' => '']);
+        $this->assertSame(0, $code, $out);
+        $this->assertStringContainsString('Backup written:', $out);
+        $this->assertNotEmpty(glob($this->cliApp . '/app/backups/kip-backup-*.zip'));
+    }
+
+    /** All five vars set: the archive lands on the (stub) bucket in the same run. */
+    public function test_backup_with_all_s3_vars_set_uploads_the_archive(): void
+    {
+        $this->cli(['migrate']);
+        $config = $this->startS3Stub(8098);
+        try {
+            [$out, $code] = $this->cli(['backup'], null, [
+                'KIP_BACKUP_S3_ENDPOINT' => $config['endpoint'],
+                'KIP_BACKUP_S3_REGION' => 'us-east-1',
+                'KIP_BACKUP_S3_BUCKET' => $config['bucket'],
+                'KIP_BACKUP_S3_KEY' => $config['key'],
+                'KIP_BACKUP_S3_SECRET' => $config['secret'],
+            ]);
+            $this->assertSame(0, $code, $out);
+            $this->assertStringContainsString('Backup written:', $out);
+            $this->assertNotEmpty(glob($config['store'] . '/kip-backup-*.zip'), 'the archive must reach the bucket');
+        } finally {
+            $this->stopS3Stub();
+        }
+    }
+
+    /**
+     * Partial configuration is a cron typo and must fail loudly under the
+     * shared contract (kip: <message>, exit 1) BEFORE any backup is written:
+     * a half-configured job never silently falls back to local-only.
+     */
+    public function test_backup_with_one_s3_var_missing_fails_and_writes_nothing(): void
+    {
+        $this->cli(['migrate']);
+        [$out, $code] = $this->cli(['backup'], null, [
+            'KIP_BACKUP_S3_ENDPOINT' => 'http://127.0.0.1:8098',
+            'KIP_BACKUP_S3_REGION' => 'us-east-1',
+            'KIP_BACKUP_S3_BUCKET' => 'stub-bucket',
+            'KIP_BACKUP_S3_KEY' => 'stub-key',
+            // KIP_BACKUP_S3_SECRET missing
+        ]);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringStartsWith('kip: ', $out);
+        $this->assertStringContainsString('KIP_BACKUP_S3_SECRET', $out);
+        $this->assertStringNotContainsString('Backup written', $out);
+        $this->assertSame([], glob($this->cliApp . '/app/backups/kip-backup-*.zip') ?: [], 'no archive may exist after the refusal');
     }
 
     public function test_logs_and_prune_on_fresh_app(): void

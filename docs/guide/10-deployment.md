@@ -133,13 +133,20 @@ files back into place. A nightly cron entry is the whole recipe:
 ```
 
 **Off-site copies are the missing half.** `php bin/kip backup` writes to
-the app's own disk, which shares fate with the machine. Until backup
-upload ships in a tagged release, the supported off-site path is a copy
-job in the same crontab, one entry after the backup, copying `app/backups/`
-to storage the app does not host; any file-copy tool your platform
-provides works. The 14-day local prune is a floor against disk fill, not a
-retention policy: whatever the off-site copy keeps is what survives the
-machine disappearing.
+the app's own disk, which shares fate with the machine. For off-site
+copies, give that same cron line the five `KIP_BACKUP_S3_*` environment
+variables ([chapter 8](08-cli.md) lists them, plus a one-time launch
+check worth running against the provider before the cron entry goes
+live): `backup` then uploads each archive to the bucket right after
+writing it, as part of the same exit code, so a failed upload sends
+cron's mail instead of passing silently. The local archive stays the
+fast restore path; the bucket is the copy that survives the host. The
+14-day local prune is a floor against disk fill, not a retention
+policy: whatever the bucket keeps is what survives the machine
+disappearing. A host that cannot use the variables keeps the plain
+alternative: one crontab entry after the backup copying `app/backups/`
+to storage the app does not host, with any file-copy tool the platform
+provides.
 
 If the app uses the uploads battery, serve `public/uploads` with
 `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`

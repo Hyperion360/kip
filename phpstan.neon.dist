@@ -1,14 +1,16 @@
 # Kip static analysis contract. Run it with: composer lint
 #
 # Level 6 is the target and src/ is clean at it. Measured on this tree
-# 2026-09-25, with the two ignores below in place: level 7 is 3 errors,
-# level 8 is 10, level 9 is 99, level 10 is 102.
+# 2026-09-29, with the three ignores below in place: level 7 is 6 errors,
+# level 8 is 14, level 9 is 106, level 10 is 109.
 #
-# The three findings at level 7 are annotations in this file's own
-# vocabulary being more specific than the source can prove, not defects:
-# Schema::columns() declares a column shape Database::all() cannot
-# guarantee, App.php passes array<int<0,max>, string> where list<string>
-# is declared, and Database::all() narrows fetchAll()'s bare array.
+# The findings at level 7 are annotations in this file's own vocabulary or
+# in extension stubs being more specific than the source can prove, not
+# defects: Schema::columns() declares a column shape Database::all() cannot
+# guarantee, App.php passes array<int<0,max>, string> where list<string> is
+# declared, Database::all() narrows fetchAll()'s bare array, and S3.php's
+# curl option array (a conditional array shape the curl stubs want fully
+# populated, including a non-empty-string where a plain string is built).
 #
 # The jump at level 9 is strict-mixed rules firing on values that arrive
 # as mixed from array<array-key, mixed> surfaces: 38 argument.type, 16
@@ -44,3 +46,12 @@ parameters:
             identifier: property.unusedType
             count: 1
             path: src/Session.php
+        -
+            # $http_response_header only exists once the http stream wrapper
+            # has parsed response headers; after a connection failure it is
+            # unset (verified at runtime), so the null coalesce is
+            # load-bearing. The analyzer models the variable as always
+            # defined and calls the guard dead.
+            identifier: nullCoalesce.variable
+            count: 1
+            path: src/S3.php
