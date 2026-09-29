@@ -15,6 +15,8 @@ use PHPUnit\Framework\TestCase;
  */
 final class S3Test extends TestCase
 {
+    use S3StubServer;
+
     /** @return array{endpoint:string,region:string,bucket:string,key:string,secret:string} */
     private static function config(): array
     {
@@ -110,5 +112,114 @@ final class S3Test extends TestCase
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('allow_url_fopen', $e->getMessage());
         }
+    }
+
+    /**
+     * Tier 2, happy path: PUT through the real transport (curl on this host),
+     * with an object name that exercises the percent-encoding, then HEAD it.
+     * The stub verifies the signature with its own derivation and compares
+     * the hash of the bytes that arrived against the header, so a pass means
+     * the request was signed right AND the body arrived intact.
+     */
+    public function testStubRoundTripPutsAndHeadsAnObject(): void
+    {
+        $config = $this->startS3Stub(8096);
+        try {
+            $file = (string) tempnam(sys_get_temp_dir(), 'kip-s3-put-');
+            $bytes = 'backup-bytes-' . bin2hex(random_bytes(8));
+            file_put_contents($file, $bytes);
+            $s3 = new S3($config);
+
+            $key = $s3->put($file, 'backups/2026/a b+.sqlite');
+            $this->assertSame('backups/2026/a b+.sqlite', $key);
+            $this->assertSame($bytes, (string) file_get_contents($config['store'] . '/backups/2026/a b+.sqlite'));
+            $this->assertTrue($s3->head('backups/2026/a b+.sqlite'));
+            $this->assertFalse($s3->head('backups/2026/missing.sqlite'));
+
+            // A prefix is a folder segment: the returned key and the stored
+            // path both carry it.
+            $prefixed = new S3($config + ['prefix' => 'nightly']);
+            $this->assertSame('nightly/plain.sqlite', $prefixed->put($file, 'plain.sqlite'));
+            $this->assertFileExists($config['store'] . '/nightly/plain.sqlite');
+            $this->assertTrue($prefixed->head('plain.sqlite'));
+            unlink($file);
+        } finally {
+            $this->stopS3Stub();
+        }
+    }
+
+    /** Tier 2: a wrong secret must be rejected with 403 and store nothing. */
+    public function testStubRejectsAWrongSecretWith403(): void
+    {
+        $config = $this->startS3Stub(8096);
+        try {
+            $file = (string) tempnam(sys_get_temp_dir(), 'kip-s3-put-');
+            file_put_contents($file, 'these bytes must not land');
+            $config['secret'] = 'wrong-secret';
+            $s3 = new S3($config);
+            try {
+                $s3->put($file, 'evil.sqlite');
+                $this->fail('expected the wrong secret to be rejected');
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('HTTP 403', $e->getMessage());
+            }
+            $this->assertFileDoesNotExist($config['store'] . '/evil.sqlite');
+            unlink($file);
+        } finally {
+            $this->stopS3Stub();
+        }
+    }
+
+    /**
+     * Tier 2, streams transport: this PHP ships curl compiled in and a
+     * compiled-in extension cannot be unloaded at runtime, so the streams
+     * branch runs in a subprocess that shadows extension_loaded() inside
+     * the Kip namespace. The stub's signature and body-hash checks then
+     * verify the streams byte mover separately from curl's.
+     */
+    public function testStreamsTransportCarriesTheSameSignedRequest(): void
+    {
+        $config = $this->startS3Stub(8096);
+        $script = (string) tempnam(sys_get_temp_dir(), 'kip-s3-streams-');
+        $file = (string) tempnam(sys_get_temp_dir(), 'kip-s3-put-');
+        try {
+            $bytes = 'streamed-bytes-' . bin2hex(random_bytes(8));
+            file_put_contents($file, $bytes);
+            unset($config['store']); // harness detail, not client config
+            $scriptBody = 'namespace Kip;
+
+// Shadow the global extension_loaded() inside namespace Kip: the S3 client
+// must believe curl is absent and take the streams transport instead.
+function extension_loaded(string $ext): bool
+{
+    return $ext === \'curl\' ? false : \extension_loaded($ext);
+}
+
+require ' . var_export(dirname(__DIR__) . '/src/S3.php', true) . ';
+$s3 = new S3(' . var_export($config, true) . ');
+$file = ' . var_export($file, true) . ';
+$key = $s3->put($file, \'streams/a b+.sqlite\');
+if ($key !== \'streams/a b+.sqlite\') { fwrite(STDERR, "key mismatch: {$key}\n"); exit(1); }
+if (!$s3->head(\'streams/a b+.sqlite\')) { fwrite(STDERR, "head failed over streams\n"); exit(1); }
+if ($s3->head(\'streams/missing.sqlite\')) { fwrite(STDERR, "head on a missing object must be false\n"); exit(1); }
+echo "streams-ok\n";
+';
+            file_put_contents($script, '<?php ' . $scriptBody);
+            exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($script) . ' 2>&1', $lines, $code);
+            $out = implode("\n", $lines);
+            $this->assertSame(0, $code, $out);
+            $this->assertStringContainsString('streams-ok', $out);
+            $this->assertSame($bytes, (string) file_get_contents($this->s3StubStore() . '/streams/a b+.sqlite'));
+        } finally {
+            $this->stopS3Stub();
+            @unlink($script);
+            @unlink($file);
+        }
+    }
+
+    /** @return string the stub store directory of the running server */
+    private function s3StubStore(): string
+    {
+        return $this->s3Stub !== null ? $this->s3Stub['store'] : '';
     }
 }
