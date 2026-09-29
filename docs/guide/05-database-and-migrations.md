@@ -40,6 +40,21 @@ write, migrations) call `begin()` themselves, so they run safely inside
 your app's transaction instead of throwing "There is already an active
 transaction".
 
+The nesting depth lives in a counter in `Database` itself, not in
+`PDO::inTransaction()`. The driver flag is used only as a guard, because
+what it reports differs by driver once a driver-side event ends the real
+transaction behind the counter's back (on MySQL, DDL implicitly commits
+and a deadlock rolls back automatically). Left unguarded: on MySQL the
+drift fails loud, the next savepoint `RELEASE` or `ROLLBACK TO` targets a
+savepoint whose transaction has already ended and does not exist; on
+SQLite a bare `SAVEPOINT` outside a transaction quietly starts a new one,
+so the drift self-heals; on PostgreSQL the flag reads the actual server
+state, so the guard sees the drift directly. `begin()` and `rollBack()`
+therefore check the flag and reset the depth when the driver says no
+transaction is open, never issuing a savepoint with no transaction to
+live in. In app code, prefer `transactionDepth()` over
+`PDO::inTransaction()` for the same reason.
+
 ## SQLite by default, MySQL/Postgres if you want them
 
 `Database`'s constructor takes a PDO DSN string directly:

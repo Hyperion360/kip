@@ -39,7 +39,7 @@ first time; after that, treat this as a reference you dip into.
     enforcement.
 16. [Building with AI agents](16-building-with-ai.md): a tool-agnostic
     workflow for building Kip apps with AI coding agents: plan, review,
-    execute, gate.
+    execute, gate, and building many features at once.
 
 ## Companion pages
 
