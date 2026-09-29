@@ -18,7 +18,13 @@ final class Smoke
 {
     private const PORT_BASE = 8093;
     private const PORTS_NEVER = [8090, 8096, 8098];
-    private const SMOKE_IMAGE = 'alpine:latest';
+    /**
+     * The artifact is a PIE that wants the glibc dynamic loader
+     * (/lib/ld-linux-<arch>.so.1, observed on the first real build), so the
+     * smoke container needs a glibc userspace; musl alpine cannot exec it
+     * ("no such file or directory", the loader is the missing file).
+     */
+    private const SMOKE_IMAGE = 'debian:bookworm-slim';
     private const READY_SECONDS = 20;
 
     private string $platform;

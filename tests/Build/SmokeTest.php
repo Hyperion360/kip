@@ -191,6 +191,11 @@ final class SmokeTest extends TestCase
         $this->assertStringContainsString('docker run --rm', $migrateCmd);
         $this->assertStringContainsString('-e KIP_DATA_DIR=', $migrateCmd);
         $this->assertStringContainsString('/kip-app php-cli bin/kip migrate', $migrateCmd);
+        // The artifact is a glibc PIE (first real build: interpreter
+        // /lib/ld-linux-aarch64.so.1), so the smoke container must be a
+        // glibc userspace; musl alpine cannot exec it at all.
+        $this->assertStringContainsString('debian:bookworm-slim', $serverCmd);
+        $this->assertStringContainsString('debian:bookworm-slim', $migrateCmd);
     }
 
     public function test_port_selection_skips_occupied_and_fixed_ports(): void
