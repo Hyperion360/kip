@@ -42,10 +42,17 @@ php bin/kip user:create you@example.com --admin
 - `app/src/Controllers/AuthController.php`: login/logout, CSRF-protected,
   with login throttling, plus the password-reset flow
   (forgot/remind/reset/confirm; dev mail lands in `app/mail.log`).
+- `app/src/Controllers/OauthController.php`: "sign in with" Google,
+  GitHub, or Microsoft. Set a provider's `KIP_OAUTH_<PROVIDER>_CLIENT_ID`
+  and `KIP_OAUTH_<PROVIDER>_CLIENT_SECRET` environment variables and its
+  button appears on the login page; register
+  `{KIP_BASE_URL}/oauth/callback/{provider}` with the provider. The
+  policy and protections are documented in the
+  [security chapter](../docs/guide/06-security.md).
 - `app/views/`: `layout.php`, `home/index.php`, `auth/login.php`,
   `auth/forgot.php`, `auth/reset.php`.
-- `app/migrations/`: `users` (with `is_admin`), `login_attempts`, and
-  `password_resets` tables.
+- `app/migrations/`: `users` (with `is_admin`), `login_attempts`,
+  `password_resets`, `jobs`, and `oauth_identities` tables.
 - The admin panel is enabled in `config.php`, log in with an `--admin`
   account and visit `/admin` (see the
   [admin chapter](../docs/guide/12-admin-panel.md)).
