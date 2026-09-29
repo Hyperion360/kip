@@ -359,6 +359,20 @@ kip db runs a single read-only SELECT or PRAGMA against the app database through
   that mapping now lives in `skeleton/composer.json` and
   `examples/blog/composer.json`, each resolving `kip/framework` via a local
   path repository until it's published to Packagist.
+- Named authorization policies: `App::policy(name, closure)` registers a
+  plain PHP closure per name (once per App; a duplicate name is an
+  error), and `#[Auth(policy: 'name')]` runs it after login validation
+  and CSRF and before the controller, passing the request's `Session`
+  and `Request` in that order (a closure may declare only the
+  `Session`). `false` is the framework's plain 403 `Forbidden`, on
+  `#[Json]` routes too, while a guest still gets the login redirect and
+  a tokenless POST still fails CSRF first.
+- Policy failures are loud, never silent: a route naming a policy no
+  `App::policy()` registered errors at first hit naming the policy, a
+  closure verdict that is not `bool` errors naming the type (a truthy
+  string cannot allow), and an `#[Auth]` whose arguments do not name
+  exactly one policy string fails at route resolution instead of
+  quietly degrading to login-only.
 
 ## 0.3.0
 

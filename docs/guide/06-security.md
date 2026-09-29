@@ -160,6 +160,61 @@ entries), falling back to `REMOTE_ADDR` if that value isn't a syntactically
 valid IP. This supports one trusted proxy hop, not an arbitrary forwarding
 chain.
 
+## Named policies
+
+`#[Auth]` answers "is this a logged-in session?". For "is this user
+allowed to do this?", register a named policy as a plain PHP closure and
+name it on the gate:
+
+```php
+use Kip\Routing\Auth;
+use Kip\Session;
+
+$app->policy('can-edit', function (Session $session): bool {
+    return $session->get('role') === 'editor';
+});
+
+#[Auth(policy: 'can-edit')]
+public function edit(string $id): string
+{
+    // ...
+}
+```
+
+The kernel runs the closure after login validation and after CSRF, and
+before the controller. It passes the request's `Session` and `Request`
+in that order; a closure may declare only the `Session` (extra inputs
+are ignored), and anything else it needs, a `Database` handle, config
+values, it captures with `use`. A `false` return is the framework's
+plain 403 `Forbidden`, on `#[Json]` routes too: the user is logged in,
+just not allowed, so there is no redirect to the login page. A guest
+still gets the login redirect, and a tokenless POST on a policy route
+still fails CSRF first, so no authorization verdict is revealed to a
+request that has not proven its ambient authority.
+
+Register each name once, in your bootstrap (`public/index.php`), before
+the first request. Registering the same name twice is an error: a
+silent replacement of an authorization rule is exactly the mistake to
+surface, not absorb. Under a persistent worker the closure is shared
+but its inputs are per request; two visitors on one `App` instance are
+judged by their own sessions.
+
+Two failure modes are loud, never silent:
+
+- **Unknown name.** A route naming a policy no `App::policy()`
+  registered fails at first hit with an error naming the policy (the
+  dev error page shows it; prod logs it and answers 500). The same
+  holds for a misspelled attribute argument, which fails at route
+  resolution instead of quietly degrading to login-only.
+- **Non-bool verdict.** The closure must return `bool`. A truthy
+  string, the `?:` shorthand's right operand, say, is an error, not an
+  allow.
+
+Policies stay plain closures on purpose: no role table, no expression
+language. The name exists so the attribute on the controller stays a
+short string while the check itself lives in ordinary PHP, testable
+with [chapter 11's](11-testing.md) `TestClient`.
+
 ## Credentials are POST-only
 
 `Request::postStr()` reads only `$_POST`, never falling back to

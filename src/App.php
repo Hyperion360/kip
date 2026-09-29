@@ -19,6 +19,8 @@ final class App
     /** @var list<callable(): void> work queued by defer(), run after the response is sent */
     private array $deferred = [];
     private bool $deferFallbackArmed = false;
+    /** @var array<string, \Closure> named authorization policies, registered once per App via policy() */
+    private array $policies = [];
 
     /** @param array<string, mixed> $config */
     public function __construct(private array $config, ?Session $session = null)
@@ -211,6 +213,24 @@ final class App
         return $this->config[$key] ?? $default;
     }
 
+    /**
+     * Register a named authorization policy. A route gated by
+     * #[Auth(policy: 'name')] runs the closure after login and CSRF and
+     * before the controller; false is a 403 (logged in but not allowed).
+     * Register once per App in bootstrap; duplicate names are an error.
+     * A closure may declare only the Session parameter: the kernel passes
+     * (Session, Request), and extra inputs are ignored by userland closures.
+     *
+     * @param \Closure(Session $session, Request $request): bool $check
+     */
+    public function policy(string $name, \Closure $check): void
+    {
+        if (isset($this->policies[$name])) {
+            throw new \LogicException("Policy '{$name}' is already registered; policy names are unique per App");
+        }
+        $this->policies[$name] = $check;
+    }
+
     private function cachedProcess(Request $request, Session $active): Response
     {
         if ($this->pageCache === null) {
@@ -378,6 +398,21 @@ final class App
                 ) {
                     return new Response('Malformed JSON body', 400);
                 }
+            }
+            // Named policy: after login and CSRF (ambient authority proven before
+            // any authorization outcome is revealed), before the controller. An
+            // unregistered name is a loud misconfiguration, never an allow; a
+            // non-bool verdict is too (a truthy string from ?: shorthand must
+            // not authorize). Denial is the framework's plain 403, JSON routes
+            // included: the user is logged in, just not allowed.
+            if ($match->policy !== null) {
+                $check = $this->policies[$match->policy]
+                    ?? throw new \LogicException("Route '{$request->path}' names policy '{$match->policy}' but no App::policy() registered it");
+                $verdict = $check($active, $request);
+                if (!is_bool($verdict)) {
+                    throw new \LogicException("Policy '{$match->policy}' must return bool, got " . get_debug_type($verdict));
+                }
+                if (!$verdict) return new Response('Forbidden', 403);
             }
             $scope = clone $this->container;
             $scope->instance(Request::class, $request);
