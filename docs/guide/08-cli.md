@@ -5,12 +5,12 @@ single PHP script with a `match` over `$argv[1]`, no framework command
 bus, no auto-discovered command classes. `migrate`, `logs`, and
 `logs:prune` below were run directly against `examples/blog` and the
 output shown is exactly what came back (down to the real client IP,
-`::1`); `rollback`, `user:create`, `serve`, `backup`, `queue:work`, and
-the `make:` commands weren't run against the live example, running them
-would mutate or restart it, so their output is derived directly from
-source (or a throwaway copy) instead, using the tutorial's own migration
-names as placeholders; the `make:` outputs below came from a throwaway
-copy.
+`::1`); `rollback`, `user:create`, `serve`, `backup`, `queue:work`,
+`schedule`, and the `make:` commands weren't run against the live
+example, running them would mutate or restart it, so their output is
+derived directly from source (or a throwaway copy) instead, using the
+tutorial's own migration names as placeholders; the `make:` outputs
+below came from a throwaway copy.
 
 Every command also shares one failure contract: an unexpected framework
 exception (a database that will not open, an unreadable migrations
@@ -20,7 +20,10 @@ outcomes and their exit codes.
 
 ```
 $ php bin/kip
-Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]]Exit code 0 -- no argument, or an unrecognized one, prints usage and exits
+Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]]
+```
+
+Exit code 0 -- no argument, or an unrecognized one, prints usage and exits
 normally.
 
 ## `migrate`
@@ -467,6 +470,135 @@ already recorded (its file was deleted later) is refused, because
 check reads `_migrations` strictly read-only, and only when the
 configured database is a SQLite file that exists; no database file, no
 connection attempt.
+
+## `schedule [--due]`
+
+Runs the app's periodic work from one file: `app/schedule.php` returns a
+map of cron expression => job, and this command either lists the
+schedule or runs whatever is due right now. One crontab line replaces
+one line per task:
+
+```cron
+* * * * * cd /var/www/myapp && php bin/kip schedule --due
+```
+
+`--due` evaluates every expression against the current minute and runs
+the matching entries. A minute the host was down for is skipped, the
+same contract cron itself has: there is no catch-up run, and an entry
+that was due at 04:00 while the machine was off next runs at its next
+matching time. The scheduler prints nothing itself on a clean run, so a
+healthy schedule sends no mail; a job's own output passes straight
+through to cron's mail, exactly as if you had scheduled that job
+directly.
+
+The file format:
+
+```php
+<?php // app/schedule.php
+return [
+    '*/5 * * * *' => 'logs:prune --days=30',               // a kip command
+    '0 4 * * *'   => ['backup', fn () => warm_cache()],    // several jobs, one expression
+    '30 6 * * 1'  => fn () => rebuild_search(),            // a callable, no arguments
+];
+```
+
+Three job shapes, and the list exists because PHP array keys collide
+silently: two entries keyed `'0 4 * * *'` would keep only the last one,
+with no error at runtime. Two jobs at four in the morning is normal, so
+the list form is the honest answer. Each list element is itself a
+command or a callable, one level only.
+
+A command string is always a kip command, split on whitespace with no
+shell quoting (`'logs:prune --days=30'` is two tokens, not a shell
+line). Its first token is checked against bin/kip's own command list at
+load time, so a typo like `'backpu'` is a per-entry failure naming the
+token instead of a silent success: the default arm prints usage and
+exits 0 for an unknown command, which would otherwise count as success
+forever. A callable runs in-process with no arguments: a closure,
+`['Class', 'method']`, or an invokable object. Callables must not
+`exit()` or `die()`: throwing is the failure channel and it isolates to
+that entry, but a process exit kills the whole run and its exit code
+becomes the run's.
+
+Plain `php bin/kip schedule` lists every entry with its next due time:
+
+```
+$ php bin/kip schedule
+*/5 * * * *    next: 2026-09-29 21:00              kip logs:prune --days=30
+0 4 * * *      next: 2026-09-30 04:00              kip backup; closure (app/schedule.php:4)
+30 6 * * 1     next: 2026-10-05 06:30              closure (app/schedule.php:5)
+```
+
+An invalid entry lists with its error and the exit code is **1**, so
+`php bin/kip schedule` doubles as a deploy-time schedule sanity check:
+
+```
+$ php bin/kip schedule
+60 * * * *     invalid: cron expression '60 * * * *': minute must be 0-59, got 60
+```
+
+No `app/schedule.php` prints `No schedule (<path>/app/schedule.php not
+present).` and exits **0**; an empty array prints `No scheduled jobs.`
+the same way. Under `--due`, an absent file is completely silent: a
+cron line installed before the app defines a schedule must not mail
+every minute. A broken schedule file (it throws, or returns something
+that is not an array) is a boot error like a broken `config.php`:
+`kip: <error>` on STDERR and exit **1**, in both modes. Per-entry
+errors (a bad expression, a bad job value, an unknown command token, a
+job that throws or exits non-zero) isolate: they report on STDERR, the
+remaining entries still run, and the exit code is **1** when any due
+entry failed. Each failure prints one line:
+
+```
+schedule: * * * * * kip backpu: unknown kip command 'backpu' (check the spelling against bin/kip)
+schedule: 0 4 * * * closure (app/schedule.php:4): RuntimeException: job boom
+```
+
+Expressions are the standard five fields (minute hour day-of-month
+month day-of-week), each field a star, a number, an ascending range
+`a-b`, a step on a star or a range (`*/15`, `10-40/15`), or a comma
+list of those (`1,15,30-40/5`). A step on a range starts at the range
+start: `10-40/15` hits 10, 25, 40. 0 and 7 are both Sunday. The
+day-of-month / day-of-week interaction follows the daemon's documented
+rule: when BOTH day fields are restricted, the day matches when EITHER
+one does, so `0 0 1 * 1` fires on the 1st of the month and on every
+Monday; when either field starts with a star, plain or stepped, both
+must match, so `0 0 */2 * 1` fires on even-numbered days that are
+Mondays, not on every Monday. Matching evaluates the whole minute: an
+entry due at 14:05 is due for the entire minute 14:05, so a tick at
+14:05:59 still runs it.
+
+Unsupported syntax is rejected with an error naming the field, never
+guessed: day and month names (`mon`, `jan`) are not accepted, use
+numbers; a bare number with a step (`5/15`) is refused, write the range
+out (`5-59/15`); ranges must be ascending (`50-10` is an error); a step
+must be a positive integer; values out of the field's range name the
+field and the expression. Expressions evaluate in PHP's default
+timezone (`date.timezone`), while the cron daemon schedules in the
+system timezone; when the two differ, the schedule fires at the wrong
+wall time, so set `date.timezone` to the system zone (or prefix the
+crontab entry with `TZ=` when the host's cron honors it).
+
+`--due` holds an exclusive flock on `app/schedule.lock` for the whole
+run. An overlapping invocation prints one line on STDERR
+(`schedule: previous run still active, skipping this run.`) and exits
+**0**: cron mails on any output, which is how an overrunning job
+surfaces, one mail per overlapped minute. The kernel releases the flock
+when the holder dies, so a crashed run leaves an inert file the next
+run reacquires and overwrites; there is no stale-lock state and no
+PID-liveness heuristic to get wrong (a recycled PID can make a
+PID-checking lock look held when it is not; the PID inside the file is
+for humans, `cat app/schedule.lock` then `ps -p`). Command jobs inherit
+the lock handle: if the scheduler is killed while a command job runs,
+the job keeps the lock until it exits, the safe direction, because work
+is still running. A lock that cannot be opened or acquired for a reason
+other than an active run is a loud failure (`kip: <reason>`, exit
+**1**), never a silent unlocked run. There is no job timeout: a hung
+job holds the lock until it exits, that is the overlap contract.
+
+A flag other than `--due` is a usage error and exits **1**, the same
+contract as `queue:work`: the command refuses to guess.
+
 ## How it works
 
 Every command constructs its own `Kip\Database`/`Kip\Migrations\Migrator`/
@@ -474,4 +606,8 @@ Every command constructs its own `Kip\Database`/`Kip\Migrations\Migrator`/
 go through `Kip\App` or the container at all, since there's no HTTP
 request to route. This is why a command's behavior is easy to predict
 from source: each `match` arm is a short, self-contained closure with
-nothing hidden behind autowiring. `db` is the one exception that proves the rule's reason: it deliberately does NOT construct a `Kip\Database`, because that would set `journal_mode = WAL` and create a missing file; it opens the read-only handle straight from the configured DSN.
+nothing hidden behind autowiring. `schedule` is the one arm that
+delegates wholesale: it hands everything to `Kip\Cron\Scheduler`
+(`src/Cron/Scheduler.php`), which owns the expression evaluator
+(`src/Cron/Expression.php`), the overlap lock, and the subprocess
+runner, so the arm itself stays a short dispatch. `db` is the one exception that proves the rule's reason: it deliberately does NOT construct a `Kip\Database`, because that would set `journal_mode = WAL` and create a missing file; it opens the read-only handle straight from the configured DSN.

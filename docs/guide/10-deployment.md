@@ -153,6 +153,48 @@ If the app uses the uploads battery, serve `public/uploads` with
 at the web-server layer, defense in depth for files the extension
 whitelist already screens.
 
+## Scheduled app work: `kip schedule`
+
+Everything the app must do periodically (the nightly backup above, log
+prunes, report mails) can live in `app/schedule.php` and run off ONE
+crontab line instead of one line per task:
+
+```cron
+* * * * * cd /var/www/myapp && php bin/kip schedule --due
+```
+
+[Chapter 8](08-cli.md) owns the file format, the expression subset, the
+overlap lock, and the exit codes. The no-backfill contract applies here
+too: a minute the host was down for is skipped, there is no catch-up
+run.
+
+On a systemd host, a timer unit is the alternative to the crontab
+entry, and it needs one setting cron gives you for free:
+
+```ini
+# /etc/systemd/system/kip-schedule.service
+[Service]
+Type=oneshot
+WorkingDirectory=/var/www/myapp
+ExecStart=/usr/bin/php bin/kip schedule --due
+
+# /etc/systemd/system/kip-schedule.timer
+[Timer]
+OnCalendar=*:*:00
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+```
+
+`AccuracySec=1s` matters: systemd coalesces timer firings inside its
+accuracy window, one minute by default, so an every-minute timer can
+land late enough to skip a minute outright. `Persistent=false` is the
+default spelled out on purpose: it keeps the timer's semantics
+identical to the cron line, no backfill of runs the host missed while
+it was off.
+
 ## HTTPS and secure cookies
 
 `public/index.php` decides whether the current request is HTTPS itself,

@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.4.0
+`bin/kip` gains `schedule`: `app/schedule.php` maps cron expressions to kip command strings, callables, or lists of those; plain `kip schedule` lists every entry with its next due time and exits 1 on any invalid entry, so it doubles as a deploy-time sanity check, and `kip schedule --due` runs the entries matching the current minute for the crontab line `* * * * * cd /app && php bin/kip schedule --due`.
+The scheduler is silent on a clean run (job output passes through, an absent schedule file is completely silent), one failing entry never stops the others, and the run exits non-zero when any due entry failed; a scheduled command's first token is validated against bin/kip's own command list, so a typo reports instead of silently "succeeding".
+The five-field expression subset (star, number, ascending range, step on a star or range, comma lists; 0 and 7 both Sunday) follows the cron day-field rule exactly: both day fields restricted means either matches, a day field starting with a star (plain or stepped) means both must; day and month names, bare-number steps, and descending ranges are rejected with an error naming the field, and expressions evaluate in PHP's default timezone.
+`kip schedule --due` holds a flock on `app/schedule.lock`: an overlapping invocation prints one line and exits 0 (cron mails it), the kernel releases the lock when the holder dies so a crashed run never blocks the next one, and a command job keeps the lock until it exits if the scheduler is killed mid-run.
 The `#[Json]` route attribute (on a method or a controller class) makes the kernel wrap the action's non-`Response` return value as `application/json`, encoded with `JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES`; a `Response` return passes through untouched.
 `Request` carries the raw request body and a `json()` parser (an array for object and array documents, null for an empty, malformed, invalid-UTF-8, or scalar body); `TestClient::request()` accepts a body and a new `postJson()` posts JSON payloads.
 Non-GET requests may present the CSRF token in an `X-Csrf-Token` request header, equivalent to the `_token` POST field.

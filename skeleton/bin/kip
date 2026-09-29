@@ -367,7 +367,23 @@ try {
         $path = Kip\Scaffold::migration($label, $dirs, $target, $applied);
         echo 'Created: ' . Kip\Scaffold::relative($path, dirname(__DIR__)) . "\n";
     })(),
-    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]]\n"),
+    'schedule' => (function () use ($config, $argv) {
+        // app/schedule.php: a map of cron expression => a kip command
+        // string, a callable, or a list of those (guide ch. 8 owns the
+        // format). Plain listing shows every entry with its next due time;
+        // --due is the crontab mode, it runs only entries matching the
+        // current minute under a lock so overlapping invocations no-op.
+        $mode = $argv[2] ?? '';
+        if ($mode !== '' && $mode !== '--due') {
+            fwrite(STDERR, "Usage: kip schedule [--due]\n");
+            exit(1);
+        }
+        $scheduler = new Kip\Cron\Scheduler($config['app_dir'], __FILE__);
+        exit($mode === '--due'
+            ? $scheduler->runDue(new DateTimeImmutable('now'))
+            : $scheduler->listing(new DateTimeImmutable('now')));
+    })(),
+    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]]\n"),
     };
 } catch (\Throwable $e) {
     // A failed deploy needs a stated failure, not a stack trace on stdout.
