@@ -41,7 +41,7 @@ final class KipCliAppTest extends TestCase
         $tables = $this->pdo()->query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")->fetchAll(\PDO::FETCH_COLUMN);
         foreach (['users', 'login_attempts', 'password_resets', 'jobs', 'oauth_identities', 'rate_limits', '_migrations'] as $t) {            $this->assertContains($t, $tables);
         }
-        $this->assertSame(9, (int) $this->pdo()->query('SELECT COUNT(*) FROM _migrations')->fetchColumn());
+        $this->assertSame(10, (int) $this->pdo()->query('SELECT COUNT(*) FROM _migrations')->fetchColumn());
         $idx = $this->pdo()->query("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_password_resets_token'")->fetchColumn();
         $this->assertNotFalse($idx); // token lookups are indexed
         $kind = $this->pdo()->query("SELECT kind FROM login_attempts LIMIT 1");
