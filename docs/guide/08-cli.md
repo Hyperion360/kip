@@ -376,7 +376,7 @@ the file in the way.
 
 ```
 $ php bin/kip make:migration create_plans
-Created: app/migrations/008_create_plans.php
+Created: app/migrations/009_create_plans.php
 ```
 
 `--feature=<Name>` targets the feature's own migrations folder, and so
@@ -385,7 +385,7 @@ number still spans both directories:
 
 ```
 $ php bin/kip make:migration create_plans --feature=Billing
-Created: app/Features/Billing/migrations/009_create_plans.php
+Created: app/Features/Billing/migrations/010_create_plans.php
 ```
 
 One guard protects the ledger's identity: a name the database has
