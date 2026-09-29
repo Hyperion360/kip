@@ -5,6 +5,12 @@ use Kip\Routing\{Auth as AuthAttr, Post};
 
 final class AuthController
 {
+    /** The enum flags OauthController appends to /auth/login, and their messages. */
+    private const OAUTH_ERRORS = [
+        'failed' => 'That provider sign-in did not complete. Please try again.',
+        'refused' => 'This provider cannot sign you in directly. Log in with your email and password first, then use its button again to link it to your account.',
+    ];
+
     public function __construct(
         private Auth $auth,
         private View $view,
@@ -12,11 +18,13 @@ final class AuthController
         private Request $request,
         private Mailer $mailer,
         private App $app,
+        private OauthController $oauth,
     ) {}
 
     public function login(): string
     {
-        return $this->view->render('auth/login', ['title' => 'Log in', 'csrf' => $this->session->csrfToken(), 'error' => null]);
+        $flag = $this->request->str('oauth');
+        return $this->loginView(isset(self::OAUTH_ERRORS[$flag]) ? self::OAUTH_ERRORS[$flag] : null);
     }
 
     #[Post]
@@ -25,15 +33,25 @@ final class AuthController
         $email = $this->request->postStr('email');
         if ($this->auth->throttled($email, $this->request->ip)) {
             return new Response(
-                $this->view->render('auth/login', ['title' => 'Log in', 'csrf' => $this->session->csrfToken(),
-                    'error' => 'Too many attempts, try again in 15 minutes.']),
+                $this->loginView('Too many attempts, try again in 15 minutes.'),
                 429
             );
         }
         if ($this->auth->attempt($email, $this->request->postStr('password'), $this->request->ip)) {
             return Response::redirect('/');
         }
-        return $this->view->render('auth/login', ['title' => 'Log in', 'csrf' => $this->session->csrfToken(), 'error' => 'Wrong email or password']);
+        return $this->loginView('Wrong email or password');
+    }
+
+    /** The login page, with the provider buttons and whatever error applies. */
+    private function loginView(?string $error): string
+    {
+        return $this->view->render('auth/login', [
+            'title' => 'Log in',
+            'csrf' => $this->session->csrfToken(),
+            'error' => $error,
+            'providers' => $this->oauth->enabled(),
+        ]);
     }
 
     #[AuthAttr] #[Post]

@@ -215,6 +215,99 @@ language. The name exists so the attribute on the controller stays a
 short string while the check itself lives in ordinary PHP, testable
 with [chapter 11's](11-testing.md) `TestClient`.
 
+## Signing in with OAuth providers
+
+The skeleton ships "sign in with" Google, GitHub, and Microsoft over one
+generic client, `Kip\Auth\OAuthProvider` (`src/Auth/OAuthProvider.php`),
+driven entirely by config: set a provider's two environment variables and
+its button appears on the login page.
+
+| Provider | Client id | Client secret | PKCE |
+|---|---|---|---|
+| Google | `KIP_OAUTH_GOOGLE_CLIENT_ID` | `KIP_OAUTH_GOOGLE_CLIENT_SECRET` | yes, S256 |
+| GitHub | `KIP_OAUTH_GITHUB_CLIENT_ID` | `KIP_OAUTH_GITHUB_CLIENT_SECRET` | no, its web flow has none |
+| Microsoft | `KIP_OAUTH_MICROSOFT_CLIENT_ID` | `KIP_OAUTH_MICROSOFT_CLIENT_SECRET` | yes, S256 (its v2 endpoint requires it) |
+
+Register the redirect URI `{KIP_BASE_URL}/oauth/callback/{provider}` with
+the provider, exactly. The client builds it from `base_url` at both ends
+of the flow, never from the request, so a tampered `redirect_uri`
+parameter cannot aim the token exchange anywhere else. Set `KIP_BASE_URL`
+to the site's real URL before going live.
+
+The `oauth_identities` table (skeleton migration 009) links a provider
+identity to an account, and that row is the only key an OAuth login
+turns:
+
+| At the callback | Outcome |
+|---|---|
+| the identity row exists | that user is logged in, the email plays no role |
+| no row, the visitor is signed in (started signed in, still is) | the identity is linked to that account |
+| no row, a guest, the provider email is verified and unused locally | an account is created with a random unusable password, linked, logged in |
+| no row, a guest, that email already exists locally | refused |
+| no row, a guest, the email is unverified or absent | refused |
+
+The two refusals are the security core. A provider email never resolves
+to an existing local account: a local Kip account is never email-verified
+at birth, so merging a verified provider email into it would hand whoever
+pre-registered that address shared control. And an unverified email never
+creates an account, so nobody seeds a login they have not proven control
+of. A refused visitor who owns the local account logs in with the
+password once, then uses the provider button again while signed in: that
+links the identity (the third row above).
+
+Microsoft's user-info response carries no email-verification marker, so a
+Microsoft sign-in maps to unverified always: Microsoft can attach to an
+existing account but never create one. Google reports `email_verified`;
+GitHub reports a verified primary address through its emails endpoint,
+which the client consults when `/user` answers with no email. A password
+reset severs the account's linked identities, because a reset often
+signals compromise and re-linking costs the owner one click
+(`Auth::resetPassword()`).
+
+### How the flow is protected
+
+- **State is single-use and session-bound.** `start()` stashes a random
+  state (with the PKCE verifier and the redirect pin) in the session;
+  the callback consumes it before any network I/O. A wrong state
+  consumes nothing, so one tab's callback cannot cancel another's. A
+  flow expires after 600 seconds, at most three stay pending, and
+  logout forgets them all.
+- **The flow is principal-bound.** It records whether the visitor was
+  signed in, and as which user; the callback refuses when that changed
+  mid-flow (a login or logout in another tab), so a flow can never
+  cross an auth transition.
+- **Tokens never persist.** The access token lives in a local variable
+  for the two requests that need it: never in the session, never in an
+  exception message, never in a log line. The state and the
+  authorization code travel the callback URL's query string, which the
+  audit log does not record (it stores the path only); a reverse proxy
+  in front of the app may still log query strings, so check its
+  configuration if that matters to you.
+- **Neither transport follows redirects.** A 3xx from a token or
+  user-info endpoint is an error, so a compromised endpoint can never
+  forward the bearer token to another host. TLS peer verification stays
+  on; endpoints must be https, except a loopback host for local
+  development.
+- **Failures land on the login page.** Every failure redirects to
+  `/auth/login?oauth=failed` or `?oauth=refused` (an enum value only,
+  never provider text or a code), never a rendered page at the callback
+  URL, and every OAuth response carries `Referrer-Policy: no-referrer`
+  and `Cache-Control: no-store`.
+
+The framework method under the wiring is
+`Auth::linkOAuthIdentity(int $userId, string $provider, string $providerUid): bool`;
+it never transfers ownership, an identity already linked to another user
+answers false. `Auth::loginOrRegisterOAuth()` implements the table above.
+An app that calls either without the `oauth_identities` table gets a
+`RuntimeException` naming the migration to apply, not a raw database
+error.
+
+A provider beyond the three presets is a config entry with explicit
+endpoints (`authorize_url`, `token_url`, `user_url`, and for the GitHub
+shape `emails_url`), a `shape` (`oidc`, `github`, or `msgraph`), and
+optional `scope` and `params`; PKCE defaults on for a custom provider,
+set `pkce => false` if the endpoint rejects the challenge.
+
 ## Credentials are POST-only
 
 `Request::postStr()` reads only `$_POST`, never falling back to

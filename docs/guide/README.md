@@ -19,9 +19,9 @@ first time; after that, treat this as a reference you dip into.
    partials.
 5. [Database and migrations](05-database-and-migrations.md), the
    `Database` API, SQLite/MySQL/Postgres, writing and running migrations.
-6. [Security](06-security.md): the two CSRF lanes, named policies,
-   sessions, login throttling, webhook verification, security headers,
-   error modes.
+6. [Security](06-security.md): the two CSRF lanes, sessions, login
+   throttling, OAuth sign-in, named policies, webhook verification,
+   security headers, error modes.
 7. [Performance](07-performance.md): the page cache, `X-Kip-Cache`,
    ETag/304, pagination, worker-mode notes.
 8. [CLI](08-cli.md): every `bin/kip` command, with examples and exit codes.
@@ -58,7 +58,7 @@ what Kip will never include and why.
   [`examples/blog`](../../examples/blog) unless a chapter says otherwise.
 - "How it works" sections at the end of most chapters cite the actual
   class and method names (`src/`). When in doubt, that source is smaller
-  and more readable than most frameworks' docs. 49 files, all of
+  and more readable than most frameworks' docs. 50 files, all of
   them short.
 - A limitation is documented as a limitation, not glossed over. If a
   chapter says something is an accepted risk or a known gap, that's the

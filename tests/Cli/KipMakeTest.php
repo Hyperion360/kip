@@ -175,13 +175,13 @@ final class KipMakeTest extends TestCase
     {
         [$out, $code] = $this->cli(['make:migration', 'create_plans']);
         $this->assertSame(0, $code, $out);
-        $path = $this->cliApp . '/app/migrations/009_create_plans.php';
-        $this->assertFileExists($path, 'the skeleton ships 001..008, the next number is 009');
-        $this->assertStringContainsString('Created: app/migrations/009_create_plans.php', $out);
+        $path = $this->cliApp . '/app/migrations/010_create_plans.php';
+        $this->assertFileExists($path, 'the skeleton ships 001..009, the next number is 010');
+        $this->assertStringContainsString('Created: app/migrations/010_create_plans.php', $out);
         $this->assertLint($path);
         [$out, $code] = $this->cli(['migrate']);
         $this->assertSame(0, $code, $out);
-        $this->assertStringContainsString('009_create_plans', $out);
+        $this->assertStringContainsString('010_create_plans', $out);
     }
 
     public function test_make_migration_in_a_feature_numbers_across_both_directories(): void
@@ -191,11 +191,11 @@ final class KipMakeTest extends TestCase
             '<?php return new class extends Kip\Migrations\Migration { public function up(Kip\Database $db): void {} public function down(Kip\Database $db): void {} };');
         [$out, $code] = $this->cli(['make:migration', 'create_plans', '--feature=Billing']);
         $this->assertSame(0, $code, $out);
-        $this->assertFileExists($this->cliApp . '/app/Features/Billing/migrations/009_create_plans.php', '009: max over app (008) and feature (008) ledgers');
-        $this->assertFileDoesNotExist($this->cliApp . '/app/migrations/009_create_plans.php');
+        $this->assertFileExists($this->cliApp . '/app/Features/Billing/migrations/010_create_plans.php', '010: max over app (009) and feature (008) ledgers');
+        $this->assertFileDoesNotExist($this->cliApp . '/app/migrations/010_create_plans.php');
         [$out, $code] = $this->cli(['migrate']);
         $this->assertSame(0, $code, $out);
-        $this->assertStringContainsString('008_billing, 008_create_jobs, 009_create_plans', $out, 'one global order');
+        $this->assertStringContainsString('008_billing, 008_create_jobs, 009_create_oauth_identities, 010_create_plans', $out, 'one global order');
     }
 
     public function test_make_migration_targets_the_feature_of_the_working_directory(): void
@@ -205,8 +205,8 @@ final class KipMakeTest extends TestCase
             . ' ' . escapeshellarg($this->cliApp . '/bin/kip') . ' make:migration create_plans 2>&1';
         exec($cmd, $lines, $code);
         $this->assertSame(0, $code, implode("\n", $lines));
-        $this->assertFileExists($this->cliApp . '/app/Features/Billing/migrations/009_create_plans.php');
-        $this->assertFileDoesNotExist($this->cliApp . '/app/migrations/009_create_plans.php');
+        $this->assertFileExists($this->cliApp . '/app/Features/Billing/migrations/010_create_plans.php');
+        $this->assertFileDoesNotExist($this->cliApp . '/app/migrations/010_create_plans.php');
     }
 
     public function test_make_migration_refuses_a_feature_that_does_not_exist(): void
@@ -222,21 +222,22 @@ final class KipMakeTest extends TestCase
     public function test_make_migration_refuses_a_name_the_ledger_already_applied(): void
     {
         $this->cli(['migrate']);
-        unlink($this->cliApp . '/app/migrations/008_create_jobs.php');
-        [$out, $code] = $this->cli(['make:migration', 'create_jobs']);
+        unlink($this->cliApp . '/app/migrations/009_create_oauth_identities.php');
+        [$out, $code] = $this->cli(['make:migration', 'create_oauth_identities']);
         $this->assertSame(1, $code, $out);
         $this->assertStringContainsString('already applied', $out);
-        $this->assertFileDoesNotExist($this->cliApp . '/app/migrations/008_create_jobs.php', 'the deleted name must not be regenerated');
+        $this->assertFileDoesNotExist($this->cliApp . '/app/migrations/009_create_oauth_identities.php', 'the deleted name must not be regenerated');
+        $this->assertFileExists($this->cliApp . '/app/migrations/008_create_jobs.php', 'the check refuses one name, it deletes nothing');
     }
 
     public function test_make_migration_label_rules(): void
     {
         [$out, $code] = $this->cli(['make:migration', 'Create Invoices']);
         $this->assertSame(0, $code, $out);
-        $this->assertFileExists($this->cliApp . '/app/migrations/009_create_invoices.php');
+        $this->assertFileExists($this->cliApp . '/app/migrations/010_create_invoices.php');
         [, $code] = $this->cli(['make:migration', 'seed-data']);
         $this->assertSame(0, $code);
-        $this->assertFileExists($this->cliApp . '/app/migrations/010_seed_data.php');
+        $this->assertFileExists($this->cliApp . '/app/migrations/011_seed_data.php');
         [$out, $code] = $this->cli(['make:migration', 'Invoices!']);
         $this->assertSame(1, $code, $out);
         $this->assertStringStartsWith('kip: ', $out);
