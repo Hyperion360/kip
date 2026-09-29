@@ -24,14 +24,14 @@
     button.danger { background: #fff; color: #9c2f1d; border-color: #9c2f1d; }
     button.danger:hover { background: #9c2f1d; color: #fff; }
     label { display: block; margin: .8rem 0 .2rem; font-weight: 600; }
-    input[type=text], input[type=password], input[type=number], textarea { width: 100%; max-width: 34rem; padding: .4rem; border: 1px solid #6f7a72; border-radius: 4px; font: inherit; }
+    input[type=text], input[type=password], input[type=number], select, textarea { width: 100%; max-width: 34rem; padding: .4rem; border: 1px solid #6f7a72; border-radius: 4px; font: inherit; }
     textarea { min-height: 8rem; }
     :focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
     nav.pager { margin: 1rem 0; display: flex; gap: 1rem; }
   </style>
 </head>
 <body>
-  <header><a href="/admin">Kip Admin</a><a href="/">← back to site</a></header>
+  <header><a href="/admin">Kip Admin</a><a href="/admin/logs">Audit log</a><a href="/">← back to site</a></header>
   <main><?= $content ?></main>
 </body>
 </html>

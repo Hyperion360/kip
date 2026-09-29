@@ -4,9 +4,11 @@ declare(strict_types=1);
 namespace Kip\Admin\Controllers;
 
 use Kip\Admin\Schema;
+use Kip\App;
 use Kip\Database;
 use Kip\Http\Request;
 use Kip\Http\Response;
+use Kip\RequestLog;
 use Kip\Routing\Auth;
 use Kip\Routing\Post;
 use Kip\Session;
@@ -15,10 +17,11 @@ use Kip\View;
 final class AdminController
 {
     private const PER_PAGE = 50;
+    private const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
     private View $view;
     private Schema $schema;
 
-    public function __construct(private Database $db, private Session $session, private Request $request)
+    public function __construct(private Database $db, private Session $session, private Request $request, private App $app)
     {
         // Framework-shipped views, deliberately NOT the app's container View,
         // whose root is the app's own views directory.
@@ -159,6 +162,105 @@ final class AdminController
         if ($r = $this->deny($table)) return $r;
         $this->db->query("DELETE FROM \"{$table}\" WHERE rowid = ?", [$rid]);
         return Response::redirect("/admin/browse/{$table}");
+    }
+
+    /**
+     * Read-only viewer over the audit log (ch. 9's logs.sqlite requests
+     * table): one keyset-paginated SELECT per view, newest first, with
+     * method / status-class / path-prefix / user filters. The row IS the
+     * data, so there is no detail view. Retention owns deletion; this action
+     * never writes, and a POST here is a 405 (no verb attribute).
+     */
+    #[Auth]
+    public function logs(): Response|string
+    {
+        if ($r = $this->deny()) return $r;
+        // Guard BEFORE any container lookup: an app without log_db has no bound
+        // RequestLog, and autowiring one would build it against the CONTENT
+        // database, creating a requests table there. The deny() precedent for
+        // an environment gap is a 403 that names the missing piece.
+        $logDb = $this->app->config('log_db');
+        if (!is_array($logDb) || !isset($logDb['dsn'])) {
+            return new Response('The logs viewer requires a log_db database: see the admin guide chapter.', 403);
+        }
+        $f = $this->logFilters();
+        $rows = $this->app->container->make(RequestLog::class)->page($f, self::PER_PAGE + 1);
+        $shown = array_slice($rows, 0, self::PER_PAGE);
+        $beyond = count($rows) > self::PER_PAGE; // one row exists past the page, away from the cursor
+        $query = [];
+        if (isset($f['method'])) $query['method'] = $f['method'];
+        if (isset($f['status'])) $query['status'] = (string) $f['status'];
+        if (isset($f['path'])) $query['path'] = $f['path'];
+        if (isset($f['user_id'])) $query['user_id'] = (string) $f['user_id'];
+        if (isset($f['guests'])) $query['guests'] = '1';
+        $url = static function (array $extra) use ($query): string {
+            $q = http_build_query($query + $extra);
+            return '/admin/logs' . ($q === '' ? '' : '?' . $q);
+        };
+        // Rows are newest first, so $shown[0] is the page's newest row and the
+        // last element its oldest. Next always paginates older (before = the
+        // oldest shown id), Prev newer (after = the newest shown id). On a
+        // forward window the probe row proves an older page; on an after
+        // window it proves a newer one. The other side is optimistic: a link
+        // whose target retention removed lands on an empty window with a
+        // Newest reset, never an error.
+        $isAfter = isset($f['after']);
+        $first = $shown === [] ? null : (int) $shown[count($shown) - 1]['id'];
+        $last = $shown === [] ? null : (int) $shown[0]['id'];
+        return $this->view->render('logs', [
+            'rows' => $shown,
+            'title' => 'Requests',
+            'filters' => [
+                'method' => $f['method'] ?? '',
+                'status' => isset($f['status']) ? (string) $f['status'] : '',
+                'path' => $f['path'] ?? '',
+                'user_id' => isset($f['user_id']) ? (string) $f['user_id'] : '',
+                'guests' => isset($f['guests']),
+            ],
+            'links' => [
+                'next' => $shown !== [] && ($isAfter ? $first > 1 : $beyond) ? $url(['before' => (string) $first]) : null,
+                'prev' => $shown !== [] && ($isAfter ? $beyond : isset($f['before'])) ? $url(['after' => (string) $last]) : null,
+                'newest' => ($isAfter || isset($f['before']) || $shown === []) ? $url([]) : null,
+            ],
+        ]);
+    }
+
+    /**
+     * Validate raw query input into RequestLog::page()'s shape. Nothing is
+     * coerced: a value that is not a decimal-string scalar (arrays, floats,
+     * garbage, overflow) is dropped, and cursors must be positive. `before`
+     * wins over `after`; both together would be a contradictory window.
+     *
+     * @return array{method?:string,status?:int,path?:string,user_id?:int,guests?:bool,before?:int,after?:int}
+     */
+    private function logFilters(): array
+    {
+        $uint = static function (mixed $v): ?int {
+            if (!is_string($v) || preg_match('/^\d+$/', $v) !== 1) return null;
+            $int = filter_var($v, FILTER_VALIDATE_INT);
+            return $int === false ? null : $int;
+        };
+        $f = [];
+        $m = $this->request->input('method');
+        if (is_string($m)) {
+            $m = strtoupper(trim($m));
+            if (in_array($m, self::METHODS, true)) $f['method'] = $m;
+        }
+        $s = $uint($this->request->input('status'));
+        if ($s !== null && $s >= 2 && $s <= 5) $f['status'] = $s;
+        $p = $this->request->input('path');
+        if (is_string($p) && trim($p) !== '') $f['path'] = trim($p);
+        $u = $uint($this->request->input('user_id'));
+        if ($u !== null) $f['user_id'] = $u;
+        if ($uint($this->request->input('guests')) === 1) $f['guests'] = true; // 0 is a real user id, not a guest sentinel
+        $before = $uint($this->request->input('before'));
+        if ($before !== null && $before > 0) {
+            $f['before'] = $before;
+        } else {
+            $after = $uint($this->request->input('after'));
+            if ($after !== null && $after > 0) $f['after'] = $after;
+        }
+        return $f;
     }
 
     /**
