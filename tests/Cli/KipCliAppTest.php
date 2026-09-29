@@ -37,11 +37,12 @@ final class KipCliAppTest extends TestCase
         $this->assertStringContainsString('Ran: 001_create_users', $out);
         $this->assertStringContainsString('007_index_login_attempts_by_time', $out);
         $this->assertStringContainsString('008_create_jobs', $out);
+        $this->assertStringContainsString('009_create_rate_limits', $out);
         $tables = $this->pdo()->query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")->fetchAll(\PDO::FETCH_COLUMN);
-        foreach (['users', 'login_attempts', 'password_resets', 'jobs', '_migrations'] as $t) {
+        foreach (['users', 'login_attempts', 'password_resets', 'jobs', 'rate_limits', '_migrations'] as $t) {
             $this->assertContains($t, $tables);
         }
-        $this->assertSame(8, (int) $this->pdo()->query('SELECT COUNT(*) FROM _migrations')->fetchColumn());
+        $this->assertSame(9, (int) $this->pdo()->query('SELECT COUNT(*) FROM _migrations')->fetchColumn());
         $idx = $this->pdo()->query("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_password_resets_token'")->fetchColumn();
         $this->assertNotFalse($idx); // token lookups are indexed
         $kind = $this->pdo()->query("SELECT kind FROM login_attempts LIMIT 1");
@@ -86,7 +87,7 @@ final class KipCliAppTest extends TestCase
         $this->cli(['migrate']);
         [$out, $code] = $this->cli(['rollback']);
         $this->assertSame(0, $code, $out);
-        $this->assertStringContainsString('Rolled back: 008_create_jobs, 007_index_login_attempts_by_time, 006_add_login_attempts_kind, 005_add_password_resets_token_index, 004_create_password_resets, 003_add_users_is_admin, 002_create_login_attempts, 001_create_users', $out);
+        $this->assertStringContainsString('Rolled back: 009_create_rate_limits, 008_create_jobs, 007_index_login_attempts_by_time, 006_add_login_attempts_kind, 005_add_password_resets_token_index, 004_create_password_resets, 003_add_users_is_admin, 002_create_login_attempts, 001_create_users', $out);
         $this->assertSame(0, (int) $this->pdo()->query('SELECT COUNT(*) FROM _migrations')->fetchColumn());
     }
 
@@ -94,7 +95,7 @@ final class KipCliAppTest extends TestCase
     public function test_migrate_applies_and_rolls_back_a_feature_folder_migration(): void
     {
         mkdir($this->cliApp . '/app/Features/Billing/migrations', 0777, true);
-        file_put_contents($this->cliApp . '/app/Features/Billing/migrations/009_billing.php', <<<'PHP'
+        file_put_contents($this->cliApp . '/app/Features/Billing/migrations/010_billing.php', <<<'PHP'
         <?php
         return new class extends Kip\Migrations\Migration {
             public function up(Kip\Database $db): void { $db->query('CREATE TABLE billing_invoices (id INTEGER PRIMARY KEY)'); }
@@ -104,12 +105,12 @@ final class KipCliAppTest extends TestCase
 
         [$out, $code] = $this->cli(['migrate']);
         $this->assertSame(0, $code, $out);
-        $this->assertStringContainsString('008_create_jobs, 009_billing', $out); // one global order: the feature file runs after the app's own migrations
+        $this->assertStringContainsString('009_create_rate_limits, 010_billing', $out); // one global order: the feature file runs after the app's own migrations
         $this->assertNotFalse($this->pdo()->query("SELECT name FROM sqlite_master WHERE name = 'billing_invoices'")->fetchColumn());
 
         [$out, $code] = $this->cli(['rollback']);
         $this->assertSame(0, $code, $out);
-        $this->assertStringContainsString('Rolled back: 009_billing', $out); // newest first
+        $this->assertStringContainsString('Rolled back: 010_billing', $out); // newest first
         $this->assertFalse((bool) $this->pdo()->query("SELECT name FROM sqlite_master WHERE name = 'billing_invoices'")->fetchColumn());
     }
 

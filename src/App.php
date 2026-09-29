@@ -16,6 +16,7 @@ final class App
     private array $sessionStore = [];
     private ?RequestLog $requestLog = null;
     private ?\Kip\Cache\PageCache $pageCache = null;
+    private ?RateLimit $rateLimit = null;
     /** @var list<callable(): void> work queued by defer(), run after the response is sent */
     private array $deferred = [];
     private bool $deferFallbackArmed = false;
@@ -37,6 +38,15 @@ final class App
                 $config['db']['user'] ?? null,
                 $config['db']['pass'] ?? null
             ));
+        }
+        // Rate limiting counts in the content database (its rate_limits table
+        // ships as app migration 009), so the config without one is a boot
+        // error, never a silent no-op.
+        if (isset($config['rate_limit'])) {
+            if (!isset($config['db']['dsn'])) {
+                throw new \InvalidArgumentException('config key "rate_limit" needs the content database to count in: configure "db.dsn" or remove "rate_limit"');
+            }
+            $this->rateLimit = new RateLimit($this->container->make(Database::class), $config['rate_limit']);
         }
         if (isset($config['log_db']['dsn'])) {
             $this->requestLog = new RequestLog(new Database(
@@ -345,6 +355,18 @@ final class App
         $db = $this->dbOrNull();
         $depth = $db?->transactionDepth() ?? 0;
         try {
+            // Rate limiting (ch. 6) sits before routing: a configured prefix
+            // counts every non-GET request (one upsert), page renders and
+            // unconfigured prefixes pay nothing, and an over-limit request
+            // never reaches a controller, a session, or a transaction. The
+            // plain body matches the framework's other error responses;
+            // Retry-After says when the window resets.
+            if ($this->rateLimit !== null && !in_array($request->method, ['GET', 'HEAD'], true)) {
+                $retryAfter = $this->rateLimit->check($request->path, $request->ip);
+                if ($retryAfter !== null) {
+                    return new Response('Too many requests', 429, ['Retry-After' => (string) $retryAfter]);
+                }
+            }
             $match = $this->router->match($request);
             if ($match === null) return new Response('Page not found', 404);
             // Review 1A + 7A: request state (Request AND Session) lives in a
