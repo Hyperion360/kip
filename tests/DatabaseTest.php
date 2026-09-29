@@ -185,4 +185,15 @@ final class DatabaseTest extends TestCase
             $this->markTestSkipped('PDO transaction flag does not reflect a SQL-level ROLLBACK on this build');
         }
     }
+
+    public function test_dsn_accessor_returns_the_configured_dsn(): void
+    {
+        // The admin SQL browser derives its read-only path from the DSN the
+        // app configured; the accessor is the only sanctioned way to see it.
+        $this->assertSame('sqlite::memory:', $this->db->dsn());
+        $temp = tempnam(sys_get_temp_dir(), 'kip-dsn-') . '.sqlite';
+        $fileDb = new Database('sqlite:' . $temp);
+        $this->assertSame('sqlite:' . $temp, $fileDb->dsn());
+        @unlink($temp);
+    }
 }

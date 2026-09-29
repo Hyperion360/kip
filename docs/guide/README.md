@@ -29,7 +29,8 @@ first time; after that, treat this as a reference you dip into.
 11. [Testing your app](11-testing.md), the `Kip\Testing\TestClient`
     in-process client: GET/POST with CSRF, `actingAs`, file uploads.
 12. [Admin panel](12-admin-panel.md), the schema-driven auto-CRUD panel,
-    its fail-closed security model, lockout recovery.
+    its fail-closed security model, lockout recovery, and the read-only
+    SQL browser.
 13. [File uploads](13-uploads.md), `Request::file()` + `Kip\Storage`,
     the upload threat model.
 14. [Email](14-email.md), the mail battery's three transports and the
@@ -56,8 +57,7 @@ what Kip will never include and why.
   [`examples/blog`](../../examples/blog) unless a chapter says otherwise.
 - "How it works" sections at the end of most chapters cite the actual
   class and method names (`src/`). When in doubt, that source is smaller
-  and more readable than most frameworks' docs. 39 files, all of
-  them short.
+  and more readable than most frameworks' docs. 43 files, all of  them short.
 - A limitation is documented as a limitation, not glossed over. If a
   chapter says something is an accepted risk or a known gap, that's the
   framework's own position on it, not a bug you found.

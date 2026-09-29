@@ -7,6 +7,9 @@ final class Database
 {
     private \PDO $pdo;
 
+    /** The DSN exactly as constructed: read-only surfaces (the admin SQL browser, kip db) derive their file path from it. */
+    private readonly string $dsn;
+
     /** @var null|callable(string):void */
     private $onQuery = null;
 
@@ -15,6 +18,7 @@ final class Database
 
     public function __construct(string $dsn, ?string $user = null, ?string $pass = null)
     {
+        $this->dsn = $dsn;
         $this->pdo = new \PDO($dsn, $user, $pass, [
             \PDO::ATTR_ERRMODE            => \PDO::ERRMODE_EXCEPTION,
             \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
@@ -24,6 +28,9 @@ final class Database
             $this->pdo->exec('PRAGMA foreign_keys = ON');
         }
     }
+
+    /** The configured DSN, for introspection that must not re-run the constructor's pragmas. */
+    public function dsn(): string { return $this->dsn; }
 
     public function onQuery(callable $listener): void { $this->onQuery = $listener; }
 
