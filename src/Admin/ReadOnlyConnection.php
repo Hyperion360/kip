@@ -128,10 +128,12 @@ final class ReadOnlyConnection
                 if ($c['name'] !== 'password_hash') $known[] = (string) $c['name'];
             }
             if (!in_array($col, $known, true)) {
-                throw new \InvalidArgumentException("Unknown filter column: {$col}");
+                // Deliberately no input in the message: the data view returns it
+                // in a bare 422 body, outside any escaped template.
+                throw new \InvalidArgumentException('Unknown filter column (not a column of this table, or excluded from filtering)');
             }
             if (!in_array($op, self::OPERATORS, true)) {
-                throw new \InvalidArgumentException("Unknown filter operator: {$op}");
+                throw new \InvalidArgumentException('Unknown filter operator (allowed: ' . implode(', ', self::OPERATORS) . ')');
             }
             $filtered = $val !== '';
         }

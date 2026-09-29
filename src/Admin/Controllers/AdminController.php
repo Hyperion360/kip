@@ -3,10 +3,12 @@
 declare(strict_types=1);
 namespace Kip\Admin\Controllers;
 
+use Kip\Admin\ReadOnlyConnection;
 use Kip\Admin\Schema;
 use Kip\Database;
 use Kip\Http\Request;
 use Kip\Http\Response;
+use Kip\Migrations\Migrator;
 use Kip\Routing\Auth;
 use Kip\Routing\Post;
 use Kip\Session;
@@ -85,6 +87,90 @@ final class AdminController
             'hasNext' => $hasNext,
             'csrf' => $this->session->csrfToken(),
             'title' => "Browse {$table}",
+        ]);
+    }
+
+    /**
+     * SQL browser section (read-only by database enforcement, not by parsing):
+     * every content read below goes through a SECOND PDO handle SQLite opens
+     * read-only (ReadOnlyConnection). deny()/Schema stay the gate, exactly as
+     * for the CRUD routes above; only the reading surface differs.
+     */
+
+    /** The browser's read-only connection, or null when the app DB is not a file-backed SQLite database. */
+    private function browser(): ?ReadOnlyConnection
+    {
+        return ReadOnlyConnection::fromDsn($this->db->dsn());
+    }
+
+    private static function needsFileBackedDb(): Response
+    {
+        return new Response('The SQL browser needs a file-backed SQLite database (config db.dsn).', 501);
+    }
+
+    #[Auth]
+    public function sql(): Response|string
+    {
+        if ($r = $this->deny()) return $r;
+        $ro = $this->browser();
+        if ($ro === null) return self::needsFileBackedDb();
+        $tables = [];
+        // The panel view of the world: the migration ledger is machinery, not content.
+        foreach (array_diff($ro->tables(), [Migrator::LEDGER_TABLE]) as $t) {
+            $tables[$t] = $ro->count($t);
+        }
+        return $this->view->render('sql', ['tables' => $tables, 'title' => 'SQL browser']);
+    }
+
+    #[Auth]
+    public function schema(string $table): Response|string
+    {
+        if ($r = $this->deny($table)) return $r;
+        $ro = $this->browser();
+        if ($ro === null) return self::needsFileBackedDb();
+        return $this->view->render('schema', [
+            'table' => $table,
+            'columns' => $ro->columns($table),
+            'create' => $ro->createSql($table),
+            'count' => $ro->count($table),
+            'title' => "Schema {$table}",
+        ]);
+    }
+
+    #[Auth]
+    public function data(string $table): Response|string
+    {
+        if ($r = $this->deny($table)) return $r;
+        $ro = $this->browser();
+        if ($ro === null) return self::needsFileBackedDb();
+        $page = min(max(1, (int) $this->request->str('page')), 1000000); // clamp: (PHP_INT_MAX-1)*50 would bind a float
+        $col = $this->request->str('col');
+        $op = $this->request->str('op');
+        $val = $this->request->str('val');
+        try {
+            $rows = $ro->rows($table, $col === '' ? null : $col, $op, $val, self::PER_PAGE + 1, ($page - 1) * self::PER_PAGE);
+        } catch (\InvalidArgumentException $e) {
+            return new Response($e->getMessage(), 422);
+        }
+        $hasNext = count($rows) > self::PER_PAGE;
+        // password_hash never appears as a filter option (a hash filter would
+        // turn row visibility into a hash-extraction oracle).
+        $filterColumns = array_values(array_filter(
+            $ro->columns($table),
+            static fn(array $c): bool => $c['name'] !== 'password_hash'
+        ));
+        return $this->view->render('data', [
+            'table' => $table,
+            'columns' => $ro->columns($table),
+            'rows' => array_slice($rows, 0, self::PER_PAGE),
+            'page' => $page,
+            'hasNext' => $hasNext,
+            'col' => $col,
+            'op' => $op,
+            'val' => $val,
+            'filterColumns' => $filterColumns,
+            'operators' => ReadOnlyConnection::OPERATORS,
+            'title' => "Data {$table}",
         ]);
     }
 
