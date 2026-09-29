@@ -10,7 +10,9 @@ output shown is exactly what came back (down to the real client IP,
 live example, running them would mutate or restart it, so their output
 is derived directly from source (or a throwaway copy) instead, using
 the tutorial's own migration names as placeholders; the `make:` outputs
-below came from a throwaway copy.
+below came from a throwaway copy, and the `build` output below is from
+a real run in one (a worktree of this repository, against
+`examples/blog`, machine-specific middles elided).
 
 Every command also shares one failure contract: an unexpected framework
 exception (a database that will not open, an unreadable migrations
@@ -633,7 +635,11 @@ failure contract:
    Linux host with the native script, or use chapter 10's prebuilt
    binary pattern, which needs no build at all) and exits **1** rather
    than half-building. `KIP_BUILD_PLATFORM` selects the target,
-   `linux/amd64` (default) or `linux/arm64`.
+   `linux/amd64` (default) or `linux/arm64`. The PHP extensions inside
+   the binary are the ones the app's `composer.json` declares: the
+   builder reads them from the project (that is why both shipped apps
+   declare `ext-pdo_sqlite` next to `php`; an app that needs another
+   driver declares it there too, and the artifact gains it).
 3. **Smoke** the artifact: boot it on the first free port from 8093 up,
    `/` must answer 200, then `migrate` runs through the artifact itself
    (`php-cli bin/kip migrate`, the embedded copy, never staging's)
@@ -646,10 +652,10 @@ failure contract:
 
 ```
 $ php bin/kip build
-Prepared app copy: /var/folders/.../kip-build-staging-2f9d
-Built single-file artifact: /var/www/myapp/build/kip-app
-Smoke: route / answered HTTP 200 on port 8093; migrate exited 0 against /var/www/myapp/build/smoke/data
-Artifact ready: /var/www/myapp/build/kip-app
+Prepared app copy: /var/folders/.../kip-build-staging-e1c252...
+Built single-file artifact: /path/to/myapp/examples/blog/build/kip-app
+Smoke: route / answered HTTP 200 on port 8093; migrate exited 0 against /path/to/myapp/examples/blog/build/smoke/data
+Artifact ready: /path/to/myapp/examples/blog/build/kip-app
 ```
 
 The artifact embeds the app read-only, so it cannot create the SQLite
