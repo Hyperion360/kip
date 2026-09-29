@@ -17,6 +17,7 @@ final class Auth
     /** @var callable */
     private $regenerator;
     private ?bool $kindSplit = null;
+    private ?bool $oauthTable = null;
 
     public function __construct(
         private Database $db,
@@ -190,8 +191,129 @@ final class Auth
     public function logout(): void
     {
         $this->session->forget('user_id');
+        $this->session->forget(Auth\OAuthProvider::SESSION_KEY); // pending OAuth flows die with the login
         $this->session->rotateCsrf();     // stale tokens die with the login (QA T4)
         ($this->regenerator)();           // same fixation defense as attempt()
+    }
+
+    /**
+     * Attach a provider identity to an account. Never transfers ownership:
+     * an identity already linked to another user answers false, and the row
+     * keeps its original owner. The caller must have authenticated the user
+     * (the OAuth callback links the session's own user, never an email).
+     */
+    public function linkOAuthIdentity(int $userId, string $provider, string $providerUid): bool
+    {
+        $this->assertOAuthTable();
+        $this->db->query(
+            'INSERT INTO oauth_identities (provider, provider_uid, user_id) VALUES (?, ?, ?) '
+            . 'ON CONFLICT(provider, provider_uid) DO NOTHING',
+            [$provider, $providerUid, $userId]
+        );
+        $row = $this->db->one(
+            'SELECT user_id FROM oauth_identities WHERE provider = ? AND provider_uid = ?',
+            [$provider, $providerUid]
+        );
+        return $row !== null && (int) $row['user_id'] === $userId;
+    }
+
+    /**
+     * Login-or-register for a completed OAuth flow. The identity row is the
+     * only login key: a match logs that user in whatever the email says.
+     * Without a match, a provider-VERIFIED email may seed a brand-new
+     * account (random unusable password), and nothing else: an email that
+     * already exists locally is refused, never linked, because a local
+     * account has never proven its address (a verified provider email
+     * merging into it would hand the pre-registrant shared control). An
+     * unverified or absent email is refused the same way, which is why a
+     * provider whose user-info carries no verification marker can attach to
+     * an existing account only through linkOAuthIdentity() after a password
+     * login. Returns ['user' => id, 'created' => bool], or null when the
+     * flow must not log anyone in; the session is published only after the
+     * transaction commits.
+     *
+     * @return array{user: int, created: bool}|null
+     */
+    public function loginOrRegisterOAuth(string $provider, string $providerUid, ?string $email, bool $emailVerified): ?array
+    {
+        $this->assertOAuthTable();
+        $email = $email === null ? null : strtolower(trim($email));
+        if ($email === '') $email = null;
+        $this->db->begin();
+        try {
+            $identity = $this->db->one(
+                'SELECT user_id FROM oauth_identities WHERE provider = ? AND provider_uid = ?',
+                [$provider, $providerUid]
+            );
+            if ($identity !== null) {
+                $user = $this->db->one('SELECT id, password_hash FROM users WHERE id = ?', [$identity['user_id']]);
+                if ($user !== null) {
+                    $this->db->commit();
+                    $this->establishSession((int) $user['id'], (string) $user['password_hash']);
+                    return ['user' => (int) $user['id'], 'created' => false];
+                }
+                // Stale row: the user was deleted and the app runs without
+                // foreign keys. Drop it and fall through to the email policy.
+                $this->db->query(
+                    'DELETE FROM oauth_identities WHERE provider = ? AND provider_uid = ?',
+                    [$provider, $providerUid]
+                );
+            }
+            if ($email === null || !$emailVerified) {
+                $this->db->commit();
+                return null;
+            }
+            // COUNT, not one(): a schema without UNIQUE(email) could hold
+            // several rows, and picking one would attach the identity to an
+            // arbitrary account. Any occurrence refuses.
+            $taken = (int) $this->db->one(
+                'SELECT COUNT(*) c FROM users WHERE email = ? COLLATE NOCASE', [$email]
+            )['c'];
+            if ($taken > 0) {
+                $this->db->commit();
+                return null;
+            }
+            $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)',
+                [$email, password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT)]);
+            $userId = (int) $this->db->lastInsertId();
+            $this->db->query('INSERT INTO oauth_identities (provider, provider_uid, user_id) VALUES (?, ?, ?)',
+                [$provider, $providerUid, $userId]);
+            $hash = (string) $this->db->one('SELECT password_hash FROM users WHERE id = ?', [$userId])['password_hash'];
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+        $this->establishSession($userId, $hash);
+        return ['user' => $userId, 'created' => true];
+    }
+
+    /** The fixation defense and epoch of attempt(), shared by the OAuth login path. */
+    private function establishSession(int $userId, string $hash): void
+    {
+        ($this->regenerator)();
+        $this->session->set('user_id', $userId);
+        $this->session->set('pwd_epoch', substr($hash, 0, self::EPOCH_LEN));
+    }
+
+    /** Memoized: does oauth_identities exist (the app adopted OAuth)? */
+    private function oauthIdentitiesPresent(): bool
+    {
+        if ($this->oauthTable === null) {
+            try { $this->db->one('SELECT provider FROM oauth_identities LIMIT 1'); $this->oauthTable = true; }
+            catch (\PDOException) { $this->oauthTable = false; }
+        }
+        return $this->oauthTable;
+    }
+
+    private function assertOAuthTable(): void
+    {
+        if (!$this->oauthIdentitiesPresent()) {
+            throw new \RuntimeException(
+                'the oauth_identities table is missing; apply the bundled app migration '
+                . '008_create_oauth_identities before using OAuth sign-in'
+            );
+        }
     }
 
     /**
@@ -238,6 +360,15 @@ final class Auth
             $this->db->query('UPDATE users SET password_hash = ? WHERE email = ?',
                 [password_hash($password, PASSWORD_DEFAULT), $row['email']]);
             $this->db->query('DELETE FROM login_attempts WHERE email = ?', [$row['email']]);
+            if ($this->oauthIdentitiesPresent()) {
+                // A reset often signals compromise; a linked provider whose
+                // account was hijacked must not survive it. Re-linking costs
+                // the owner one click. Apps without the table reset as before.
+                $this->db->query(
+                    'DELETE FROM oauth_identities WHERE user_id IN (SELECT id FROM users WHERE email = ?)',
+                    [$row['email']]
+                );
+            }
             $this->db->commit();
         } catch (\Throwable $e) {
             $this->db->rollBack();
