@@ -1,8 +1,8 @@
 # Kip static analysis contract. Run it with: composer lint
 #
 # Level 6 is the target and src/ is clean at it. Measured on this tree
-# 2026-09-29, with the four ignores below in place: level 7 is 9 errors,
-# level 8 is 19, level 9 is 139, level 10 is 145.
+# 2026-09-29, with the four ignores below in place: level 7 is 10 errors,
+# level 8 is 20, level 9 is 140, level 10 is 146.
 #
 # The findings at level 7 are annotations in this file's own vocabulary or
 # in extension stubs being more specific than the source can prove, not
@@ -11,16 +11,18 @@
 # array<int<0,max>, string> where list<string> is declared, Database::all()
 # narrows fetchAll()'s bare array, Jobs.php calls handle() on a job object
 # only the app can type, View.php guards strstr()/strlen() the analyzer
-# cannot narrow, and the curl option arrays in S3.php and
-# Auth/OAuthProvider.php are conditional array shapes the curl stubs want
-# fully populated (including a non-empty-string where a plain string is
-# built).
+# cannot narrow, Cron/Scheduler.php holds a proc_open pipe the resource
+# stub types more narrowly than the code uses it, and the curl option
+# arrays in S3.php and Auth/OAuthProvider.php are conditional array shapes
+# the curl stubs want fully populated (including a non-empty-string where
+# a plain string is built).
 #
 # The jump at level 9 is strict-mixed rules firing on values that arrive
 # as mixed from array<array-key, mixed> surfaces: 44 argument-type
-# mismatches, 24 cast.string, 19 cast.int, 7 offset accesses. Clearing it
-# needs real column shapes throughout, which is a design change to the
-# array-row model rather than an annotation pass.
+# mismatches, 24 string casts, 19 int casts, plus a tail of offset,
+# array-key, and return-shape findings. Clearing it needs real column
+# shapes throughout, which is a design change to the array-row model
+# rather than an annotation pass.
 parameters:
     level: 6
 
