@@ -219,6 +219,7 @@ final class App
 
         $cacheable = in_array($request->method, ['GET', 'HEAD'], true)
             && $request->cookies === []                    // any cookie (session esp.) → personal → bypass
+            && $request->body === ''                       // a body-carrying GET is body-dependent → bypass
             && $request->header('authorization') === null; // never served from or stored in a shared cache (RFC 9111)
 
         $query = http_build_query($request->get);
@@ -356,19 +357,39 @@ final class App
                 return Response::redirect('/auth/login');
             }
             if (!in_array($request->method, ['GET', 'HEAD'], true)) {
-                $tokenOk = $active->validateCsrf($request->postStr('_token') ?: null);
+                // The token rides the form field or the X-CSRF-Token header: a
+                // browser cannot set a custom header cross-site without the CORS
+                // preflight this app has not granted, so the header is not a
+                // weakening; it still has to match the session's via hash_equals.
+                $tokenOk = $active->validateCsrf($request->postStr('_token') ?: $request->header('x-csrf-token'));
                 if ($match->requiresAuth) {
                     // Ambient authority at stake: the session token is mandatory (v0.2 T2).
                     if (!$tokenOk) return new Response('Invalid or missing CSRF token', 403);
                 } elseif (!$tokenOk && !$this->sameOriginProof($request)) {
                     return new Response('Cross-site request rejected', 403);
                 }
+                // A #[Json] route whose body claims a JSON media type but does not
+                // parse is a 400 before the action runs. After the CSRF gate, so a
+                // tokenless POST stays 403; an empty body passes (json() is null,
+                // the action decides). Zero change for non-JSON routes.
+                $contentType = strtolower(trim((string) $request->header('content-type')));
+                if ($match->json && $request->body !== '' && $request->json() === null
+                    && preg_match('#^application/(?:[a-z0-9.+-]+\+)?json(?:\s*;|$)#', $contentType) === 1
+                ) {
+                    return new Response('Malformed JSON body', 400);
+                }
             }
             $scope = clone $this->container;
             $scope->instance(Request::class, $request);
             $scope->instance(Session::class, $active);
             $result = $match->invoke($scope);
-            return $result instanceof Response ? $result : new Response((string) $result);
+            if ($result instanceof Response) return $result;
+            if ($match->json) {
+                // THROW_ON_ERROR: an unencodable value raises JsonException into the
+                // existing catch (dev error page / prod 500), never a half-encoded body.
+                return new Response((string) json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), 200, ['Content-Type' => 'application/json']);
+            }
+            return new Response((string) $result);
         } catch (\Kip\Routing\MethodNotAllowedException $e) {
             // A guest learns nothing about a gated route: the same redirect a right-verb request gets.
             if ($e->requiresAuth && !$this->authSessionValid($active)) return Response::redirect('/auth/login');

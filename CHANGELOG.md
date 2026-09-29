@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.4.0
+The `#[Json]` route attribute (on a method or a controller class) makes the kernel wrap the action's non-`Response` return value as `application/json`, encoded with `JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES`; a `Response` return passes through untouched.
+`Request` carries the raw request body and a `json()` parser (an array for object and array documents, null for an empty, malformed, invalid-UTF-8, or scalar body); `TestClient::request()` accepts a body and a new `postJson()` posts JSON payloads.
+Non-GET requests may present the CSRF token in an `X-Csrf-Token` request header, equivalent to the `_token` POST field.
+A `#[Json]` route whose non-GET body claims a JSON media type but does not parse is answered 400 before the action runs; the guard sits after the CSRF gate, so a tokenless request stays 403.
+A GET carrying a body is neither served from nor stored in the page cache.
+`Kip\Webhook::verify()` checks signed webhooks: HMAC-SHA256 over the raw body, constant-time comparison, bare hex and `sha256=` prefixed signatures.
+`kip openapi [file]` emits an OpenAPI 3.1.0 document from the app's routing conventions (verb attributes, `#[Auth]`, `#[Json]`, required parameters), with zero new dependencies.
 Response construction refuses header values that are not strings or that contain CR/LF, with a clear exception at the boundary; previously a malformed value survived until send time (or was silently skipped when the page cache stored it).
 A session user id that is not integer-shaped (a fractional string like '1.5', an array) is audited as a guest instead of being truncated to an integer.
 The Migrator unwinds nested savepoints a failed migration left open, so a migration that opens a transaction and throws can no longer leak transaction depth past the failure.

@@ -19,8 +19,7 @@ outcomes and their exit codes.
 
 ```
 $ php bin/kip
-Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db ["SELECT ..."]]```
-
+Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]]```
 Exit code 0 -- no argument, or an unrecognized one, prints usage and exits
 normally.
 
@@ -339,6 +338,40 @@ Error cases, all exit **1** under the shared `kip:` contract: a query
 error (`kip: RuntimeException: query failed: no such table: nosuch`),
 a missing database file (it is never created), and a `db.dsn` that is
 not a file-backed SQLite database.
+
+## `openapi [file]`
+
+Emits an OpenAPI 3.1.0 document (`openapi.json` at the app root, or the
+path given) describing the routes your app serves, derived from the same
+conventions the router uses at runtime: controller segments, lowercased
+action paths, required parameters, verb attributes, `#[Auth]` (as
+`x-kip-auth`), and `#[Json]` (as an `application/json` response). No new
+dependency; the generator (`src/OpenApi.php`) is plain reflection over
+your controller files.
+
+```
+$ php bin/kip openapi
+Wrote /var/www/myapp/openapi.json (18 paths)
+```
+
+Sources mirror `App`'s own namespace selection: your
+`controller_namespace` (it must be `App\`-rooted, because the apps' PSR-4
+autoloading maps `App\` onto `app/src`), the framework admin controllers
+when the panel is enabled and a database is configured, and your feature
+folders when `app/Features` exists (`features_dir` and
+`feature_namespace` override it, and an explicit `feature_namespace =>
+null` keeps the feature form off, the same rule `App` applies). The
+document title comes from `config.php`'s `openapi_title` key, defaulting
+to `Kip API`.
+
+An `index()` action that requires a parameter is omitted: the bare
+controller path is its only URL spelling and it 404s there, so listing
+it would advertise a route nobody can call.
+
+Exit code **0** on success. **1**, with the shared `kip: <error>`
+contract, for a `controller_namespace` that is not `App\`-rooted, a
+source directory that cannot be listed, or an output path that cannot be
+written.
 ## How it works
 
 Every command constructs its own `Kip\Database`/`Kip\Migrations\Migrator`/

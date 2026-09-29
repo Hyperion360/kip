@@ -169,6 +169,50 @@ supplied only in the query string (`?password=...`, `?_token=...`) is
 silently ignored, not accepted. Use `postStr()` for anything similarly
 sensitive in your own controllers.
 
+## Verifying signed webhooks
+
+A webhook from a payment provider is a server-to-server POST: there is no
+browser, no session, no cookies, so session CSRF does not apply. Such a
+request carries none of `Sec-Fetch-Site`, `Origin` or `Referer`, which is
+the non-browser signature the guest lane already accepts. What the route
+needs is proof of origin, and providers supply it as an HMAC over the
+body. `Kip\Webhook::verify()` (`src/Webhook.php`) does that comparison in
+constant time over the raw bytes that arrived:
+
+```php
+use Kip\Http\Request;
+use Kip\Http\Response;
+use Kip\Routing\Post;
+use Kip\Webhook;
+
+#[Post]
+public function receive(Request $request): Response
+{
+    $secret = (string) ($_ENV['WEBHOOK_SECRET'] ?? '');
+    if (!Webhook::verify($request, $secret)) {
+        return new Response('invalid signature', 403);
+    }
+    $event = $request->json();
+    /* record the event, return 200 fast */
+}
+```
+
+`verify()` accepts the two generic header shapes providers use, a bare
+hex digest and the common `sha256=<hex>` prefixed form, in the
+`X-Webhook-Signature` header unless you pass another name. It returns
+false on a missing header, an empty secret (a config bug fails closed),
+or any mismatch. The HMAC is over the raw body, never a re-encoded
+parse, so the bytes you verify are the bytes the provider signed.
+
+Replay protection stays the app's concern: providers that sign a
+timestamp put it inside the signed payload or in its own header, and
+your handler reads it and rejects stale deliveries. Kip does not guess a
+scheme; read your provider's signing documentation for what is covered.
+
+Keep the handler small and fast. Slow work (receipt emails, outgoing API
+calls) belongs in `App::defer()` so the provider's retry timer never
+fires against a slow 200.
+
 ## Security headers
 
 Every `Response` carries these by default (see [chapter 3](03-controllers.md)),

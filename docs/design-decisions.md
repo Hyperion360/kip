@@ -29,14 +29,25 @@ dependency list never grows.** Optional features may require bundled PHP
 extensions (uploads uses `finfo`; backups prefer `ZipArchive` but degrade
 without it), never a package.
 
-## No JSON API, by design
+## JSON endpoints: opt-in per route, not a REST framework
 
-Kip renders HTML and ships zero JavaScript. A REST/JSON API exists to
-serve JS or mobile SDK clients. Consumers this model deliberately doesn't
-have. If a real app one day needs JSON endpoints, the natural shape is a
-`#[Json]` route attribute generating OpenAPI from the routing table (the
-machine-readable router makes API docs free); that is a demand-gated
-decision, not a roadmap item.
+Kip renders HTML and ships zero JavaScript, so for a long time it had no
+JSON story at all: an API layer exists to serve JS or mobile SDK
+clients, and consumers of that kind were deliberately absent. When real
+demand arrived (webhooks and simple integrations, both session-less
+server-to-server callers), the shape this file predicted is what shipped:
+a `#[Json]` route attribute, per action or per controller class, whose
+non-`Response` results the kernel wraps as `application/json`, plus
+`kip openapi` generating the machine-readable description of those routes
+from the same conventions the router serves (guide chapters 2 and 8).
+Opt-in per route, no schema layer, no new dependency.
+
+What stays out is the rest of the REST stack: no serializer/resource
+layer, no content negotiation, and no bearer-token issuance for native
+mobile clients. Sessions are cookie-shaped; token lifecycle, revocation
+and storage are the genuinely hard part of that feature, and no app in
+this ecosystem has a mobile client. If one appears, it goes through the
+same demand gate this section did.
 
 ## SQLite by default, one server
 
@@ -122,4 +133,6 @@ gate.
 - A schema-designer UI, see code-first migrations above.
 - Thirty OAuth providers. Three to five cover real usage; breadth is
   maintenance without users.
-- A JSON API surface as a core feature, see above.
+- A REST framework: serializers, content negotiation, bearer-token auth
+  for native mobile clients. JSON endpoints are per-route `#[Json]` (see
+  above), nothing more.

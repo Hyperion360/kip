@@ -58,4 +58,19 @@ final class TestClientTest extends TestCase
         $res = $this->client->get('/posts/create');
         $this->assertSame(302, $res->status); // guest → login redirect, no session leaked from nowhere
     }
+
+    public function test_post_json_sends_encoded_body_and_content_type(): void
+    {
+        $res = $this->client->postJson('/api/echobody', ['title' => 'Hi', 'url' => '/a/b']);
+        $this->assertSame(200, $res->status);
+        $this->assertSame('application/json', $res->headers['Content-Type']);
+        $this->assertSame('{"title":"Hi","url":"/a/b"}', $res->body); // UNESCAPED_SLASHES, the wrap's own flags
+    }
+
+    public function test_post_json_raw_string_body_passes_through_unchanged(): void
+    {
+        $res = $this->client->postJson('/api/echobody', '{"broken": ');
+        $this->assertSame(200, $res->status);
+        $this->assertSame('{"broken": ', $res->body); // malformed payloads reach the app, for the 400 path
+    }
 }

@@ -89,14 +89,15 @@ final class Router
         // an override that drops a parent's #[Post] stays POST-only instead of
         // becoming a GET that skips the CSRF check. Fails closed.
         $declarers = self::declarers(new \ReflectionClass($class));
-        $requiresAuth = self::hasAuthIn($declarers, $action);
+        $requiresAuth = self::hasAttributeIn($declarers, $action, 'Auth');
+        $isJson = self::hasAttributeIn($declarers, $action, 'Json');
         $allowed = self::verbsIn($declarers, $action) ?: ['GET'];
         if (!in_array($requestMethod, $allowed, true)) {
             // The route exists but the verb is wrong. That's a 405, not a 404 (review 9A)
             throw new MethodNotAllowedException(implode(', ', $allowed), $requiresAuth);
         }
 
-        return new RouteMatch($class, $action, $args, $requiresAuth);
+        return new RouteMatch($class, $action, $args, $requiresAuth, $isJson);
     }
 
     /**
@@ -118,15 +119,15 @@ final class Router
     }
 
     /**
-     * True when #[Auth] sits on any declarer, or on any declarer's $action.
+     * True when #[<short>] (Auth, Json) sits on any declarer, or on any declarer's $action.
      *
      * @param list<\ReflectionClass<object>> $declarers
      */
-    private static function hasAuthIn(array $declarers, string $action): bool
+    private static function hasAttributeIn(array $declarers, string $action, string $short): bool
     {
         foreach ($declarers as $d) {
-            if (self::hasAuth($d->getAttributes())) return true;
-            if ($d->hasMethod($action) && self::hasAuth($d->getMethod($action)->getAttributes())) return true;
+            if (self::hasAttribute($d->getAttributes(), $short)) return true;
+            if ($d->hasMethod($action) && self::hasAttribute($d->getMethod($action)->getAttributes(), $short)) return true;
         }
         return false;
     }
@@ -168,10 +169,10 @@ final class Router
     }
 
     /** @param array<\ReflectionAttribute<object>> $attributes */
-    private static function hasAuth(array $attributes): bool
+    private static function hasAttribute(array $attributes, string $short): bool
     {
         foreach ($attributes as $attr) {
-            if (strcasecmp(self::shortName($attr->getName()), 'Auth') === 0) return true;
+            if (strcasecmp(self::shortName($attr->getName()), $short) === 0) return true;
         }
         return false;
     }
