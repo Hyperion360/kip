@@ -240,6 +240,20 @@ final class KipCliAppTest extends TestCase
         $this->assertStringNotContainsString('Nothing to migrate', $out); // not a silent skip
     }
 
+    public function test_a_features_dir_that_is_a_regular_file_fails_with_the_reason_and_no_raw_warning(): void
+    {
+        // The closure's OWN listing branch (Migrator's equivalent is covered
+        // elsewhere): Features exists but is a file, so scandir itself fails.
+        // The idiom is @scandir + error_get_last, so the exception carries
+        // the OS reason and no raw PHP warning leaks into the output.
+        file_put_contents($this->cliApp . '/app/Features', 'not a directory');
+        [$out, $code] = $this->cli(['migrate']);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringContainsString('Cannot list', $out);
+        $this->assertStringContainsString('refusing to migrate', $out);
+        $this->assertStringNotContainsString('Warning', $out);
+    }
+
     public function test_logs_command_ignores_a_broken_features_layout(): void
     {
         mkdir($this->cliApp . '/app/Features/Junk', 0777, true);
