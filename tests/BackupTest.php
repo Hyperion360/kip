@@ -68,4 +68,14 @@ final class BackupTest extends TestCase
         $this->expectException(\RuntimeException::class);
         (new Backup(['other' => 'mysql:host=x'], $this->work . '/backups'))->run('20260816-120002');
     }
+
+    public function test_target_path_containing_a_quote_character_snapshots_fine(): void
+    {
+        // The VACUUM INTO target is a bound parameter; a quote in the path is the
+        // input class a hand-rolled escaping rule existed for. It must be a
+        // non-event either way.
+        $dir = $this->work . "/ba'ckups";
+        $path = (new Backup(['data' => 'sqlite:' . $this->work . '/data.sqlite'], $dir))->run('20260816-120003');
+        $this->assertFileExists($path);
+    }
 }

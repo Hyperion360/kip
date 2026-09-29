@@ -37,6 +37,16 @@ class CacheHeaderPageController
     }
 }
 
+// The strongest form of the duplicate-validator bug: both spellings on one
+// response. The framework must collapse them into one canonical field.
+class DualEtagPageController
+{
+    public function index(): \Kip\Http\Response
+    {
+        return new \Kip\Http\Response('de', 200, ['etag' => '"one"', 'ETag' => '"two"']);
+    }
+}
+
 final class CacheFlowTest extends TestCase
 {
     private App $app;
@@ -253,6 +263,22 @@ final class CacheFlowTest extends TestCase
         $this->get('/weak-etag-page');
         $res = $this->get('/weak-etag-page', ['if-none-match' => '"v1"']);
         $this->assertSame(304, $res->status); // weak comparison: both sides drop W/
+    }
+
+    public function test_both_etag_spellings_collapse_to_one_canonical_field(): void
+    {
+        $app = new App([
+            'env' => 'dev',
+            'controller_namespace' => 'Kip\\Tests\\App\\',
+            'db' => ['dsn' => 'sqlite::memory:'],
+            'cache_db' => ['dsn' => 'sqlite::memory:', 'ttl_seconds' => 3600],
+            'views' => dirname(__DIR__) . '/Fixtures/views',
+        ]);
+        $res = $app->handle(new Request('GET', '/dual-etag-page', [], [], []));
+        $keys = array_keys(array_filter($res->headers,
+            fn (string $n) => strcasecmp($n, 'etag') === 0, ARRAY_FILTER_USE_KEY));
+        $this->assertSame(['ETag'], $keys); // one field, canonical spelling
+        $this->assertSame('"one"', $res->headers['ETag']); // first spelling in header order wins
     }
 
     public function test_304_carries_content_location(): void
