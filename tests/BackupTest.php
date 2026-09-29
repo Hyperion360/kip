@@ -2,10 +2,13 @@
 namespace Kip\Tests;
 use Kip\Backup;
 use Kip\Database;
+use Kip\S3;
 use PHPUnit\Framework\TestCase;
 
 final class BackupTest extends TestCase
 {
+    use S3StubServer;
+
     private string $work;
 
     protected function setUp(): void
@@ -77,5 +80,29 @@ final class BackupTest extends TestCase
         $dir = $this->work . "/ba'ckups";
         $path = (new Backup(['data' => 'sqlite:' . $this->work . '/data.sqlite'], $dir))->run('20260816-120003');
         $this->assertFileExists($path);
+    }
+
+    /**
+     * Off-site integration: a Backup with an S3 client pushes the archive as
+     * part of the run, the local copy stays (prune never touches a fresh
+     * archive), and the bucket holds the exact same bytes. The stub server
+     * verifies the upload's signature with its own SigV4 derivation.
+     */
+    public function test_off_site_backup_pushes_the_archive_and_keeps_the_local_copy(): void
+    {
+        $config = $this->startS3Stub(8097);
+        try {
+            $s3 = new S3($config);
+            $backup = new Backup(['data' => 'sqlite:' . $this->work . '/data.sqlite'], $this->work . '/backups', 14, $s3);
+            $path = $backup->run('20260929-120000');
+
+            $this->assertFileExists($path, 'the local archive must survive its own upload');
+            $this->assertTrue($s3->head('kip-backup-20260929-120000.zip'));
+            $uploaded = $config['store'] . '/kip-backup-20260929-120000.zip';
+            $this->assertFileExists($uploaded);
+            $this->assertSame((string) file_get_contents($path), (string) file_get_contents($uploaded));
+        } finally {
+            $this->stopS3Stub();
+        }
     }
 }

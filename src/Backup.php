@@ -6,12 +6,14 @@ namespace Kip;
 /**
  * Online-safe SQLite backups: VACUUM INTO snapshots each database without
  * blocking writers (safe under WAL), then zips the copies. The "$5 VPS
- * appliance" battery. Restoring is unzipping files back into place.
+ * appliance" battery. Restoring is unzipping files back into place. An
+ * optional S3 client pushes the archive (or the loose copies on zip-less
+ * hosts) off-site as part of the same run.
  */
 final class Backup
 {
     /** @param array<string,string> $dsns label => DSN (non-sqlite entries are skipped) */
-    public function __construct(private array $dsns, private string $dir, private int $keepDays = 14) {}
+    public function __construct(private array $dsns, private string $dir, private int $keepDays = 14, private ?S3 $s3 = null) {}
 
     /** @return string path to the produced archive (zip, or a directory when ext-zip is absent) */
     public function run(string $stamp): string
@@ -32,7 +34,11 @@ final class Backup
             throw new \RuntimeException('No SQLite databases configured, nothing to back up.');
         }
         if (!class_exists(\ZipArchive::class)) {
-            $this->pruneOldArchives(); // loose copies too. No-zip hosts must not accumulate full DB snapshots
+            // No zip on this host: each loose copy IS the backup, so each
+            // goes off-site too. No-zip hosts must not accumulate full DB
+            // snapshots, prune runs as before.
+            foreach ($copies as $file) $this->s3?->put($file);
+            $this->pruneOldArchives();
             return $this->dir; // plain copies left in place, documented fallback
         }
         $zipPath = "{$this->dir}/kip-backup-{$stamp}.zip";
@@ -50,6 +56,9 @@ final class Backup
         if (!$zip->close()) {
             throw new \RuntimeException("Could not finalize {$zipPath}. The loose .sqlite copies were left in place for manual recovery");
         }
+        // Off-site copy before the local cleanup: if the upload throws, the
+        // loose .sqlite copies are still on disk for manual recovery.
+        $this->s3?->put($zipPath);
         foreach ($copies as $file) unlink($file);
         $this->pruneOldArchives();
         return $zipPath;
