@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "a94ab39597684e7354af4a7b86a0796d",
+    "content-hash": "36f8bfef13d6bab7902447d03f6bae86",
     "packages": [
         {
             "name": "kip/framework",
@@ -12,19 +12,20 @@
             "dist": {
                 "type": "path",
                 "url": "../..",
-                "reference": "2308676a7d920560f3b68a96e34877c7ad79d72c"
+                "reference": "807645462011c49b83e222ab94bf7c181e4ea800"
             },
             "require": {
                 "ext-pdo": "*",
                 "php": ">=8.3"
             },
             "require-dev": {
+                "phpstan/phpstan": "^2.2",
                 "phpunit/phpunit": "^11"
             },
             "type": "library",
             "extra": {
                 "branch-alias": {
-                    "dev-main": "0.2.x-dev"
+                    "dev-main": "0.5.x-dev"
                 }
             },
             "autoload": {
@@ -37,10 +38,36 @@
                     "Kip\\Tests\\": "tests/"
                 }
             },
+            "scripts": {
+                "check-docs": [
+                    "@php scripts/check-docs.php"
+                ],
+                "lint": [
+                    "@php vendor/bin/phpstan analyse --no-progress --memory-limit=256M"
+                ],
+                "test": [
+                    "@php vendor/bin/phpunit"
+                ],
+                "check": [
+                    "@lint",
+                    "@check-docs",
+                    "@test"
+                ]
+            },
             "license": [
                 "MIT"
             ],
-            "description": "Kip, the batteries-included, zero-dependency, server-rendered PHP framework",
+            "authors": [
+                {
+                    "name": "Danilo Stern-Sapad",
+                    "homepage": "https://hyperion360.com/"
+                }
+            ],
+            "description": "Kip: the batteries-included, zero-dependency, server-rendered PHP framework",
+            "support": {
+                "issues": "https://github.com/Hyperion360/kip/issues",
+                "source": "https://github.com/Hyperion360/kip"
+            },
             "transport-options": {
                 "symlink": true,
                 "relative": true

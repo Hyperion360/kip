@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 An app ETag spelled in any letter case leaves the framework as one ETag field; the conditional-GET canonicalization used to append its own spelling beside the app's, sending two validators (RFC 9110 §8.8.3 allows one).
 Backup snapshots bind the `VACUUM INTO` target path as a parameter instead of a hand-quoted SQL literal.
 bin/kip reports the underlying OS reason when a Features directory cannot be listed (the Migrator idiom).
