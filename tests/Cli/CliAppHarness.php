@@ -45,12 +45,22 @@ spl_autoload_register(static function (string $class): void {
         );
     }
 
-    /** @return array{0: string, 1: int} [combined output, exit code] */
-    protected function cli(array $args, ?string $stdin = null): array
+    /**
+     * @param array<string,string> $env VAR => value, passed as assignment
+     *   prefixes on the php invocation (the child sees them via getenv())
+     * @return array{0: string, 1: int} [combined output, exit code]
+     */
+    protected function cli(array $args, ?string $stdin = null, array $env = []): array
     {
         // cd BEFORE any pipeline: `cd x && printf | php` runs the pipe in the right directory.
         $cmd = 'cd ' . escapeshellarg($this->cliApp) . ' && ';
         if ($stdin !== null) $cmd .= 'printf %s ' . escapeshellarg($stdin) . ' | ';
+        foreach ($env as $name => $value) {
+            if (preg_match('/^[A-Z0-9_]+$/', (string) $name) !== 1) {
+                throw new \RuntimeException("refusing to pass env name {$name}");
+            }
+            $cmd .= $name . '=' . escapeshellarg((string) $value) . ' ';
+        }
         $cmd .= PHP_BINARY . ' ./bin/kip';
         foreach ($args as $a) $cmd .= ' ' . escapeshellarg($a);
         exec($cmd . ' 2>&1', $lines, $code);

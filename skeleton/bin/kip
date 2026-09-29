@@ -118,11 +118,36 @@ try {
         printf("Pruned %d rows older than %d days.\n", $log->prune($days), $days);
     })(),
     'backup' => (function () use ($config) {
+        // Off-site uploads: all five KIP_BACKUP_S3_* vars or none. A
+        // set-but-incomplete combination is a cron typo, and it must fail
+        // loudly BEFORE any backup is written, never silently fall back to
+        // local-only backups. An empty value counts as unset.
+        $s3Env = [
+            'KIP_BACKUP_S3_ENDPOINT' => 'endpoint',
+            'KIP_BACKUP_S3_REGION' => 'region',
+            'KIP_BACKUP_S3_BUCKET' => 'bucket',
+            'KIP_BACKUP_S3_KEY' => 'key',
+            'KIP_BACKUP_S3_SECRET' => 'secret',
+        ];
+        $set = array_filter($s3Env, static fn(string $envName): bool => (string) getenv($envName) !== '', ARRAY_FILTER_USE_KEY);
+        if ($set !== [] && count($set) !== count($s3Env)) {
+            $missing = implode(', ', array_keys(array_diff_key($s3Env, $set)));
+            throw new RuntimeException("Incomplete off-site backup configuration, missing KIP_BACKUP_S3_* vars: {$missing}. "
+                . 'A half-configured cron must fail loudly, never silently fall back to local-only backups.');
+        }
+        $s3 = null;
+        if ($set !== []) {
+            $s3Config = [];
+            foreach ($set as $envName => $configKey) $s3Config[$configKey] = (string) getenv($envName);
+            $prefix = getenv('KIP_BACKUP_S3_PREFIX');
+            if (is_string($prefix) && $prefix !== '') $s3Config['prefix'] = $prefix;
+            $s3 = new Kip\S3($s3Config);
+        }
         $result = (new Kip\Backup(array_filter([
             'data'  => $config['db']['dsn'] ?? null,
             'logs'  => $config['log_db']['dsn'] ?? null,
             'cache' => $config['cache_db']['dsn'] ?? null,
-        ]), $config['app_dir'] . '/backups'))->run(date('Ymd-His'));
+        ]), $config['app_dir'] . '/backups', 14, $s3))->run(date('Ymd-His'));
         echo "Backup written: {$result}\n";
     })(),
     default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]]\n"),
