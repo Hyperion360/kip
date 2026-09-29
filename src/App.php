@@ -130,12 +130,14 @@ final class App
         // D3: reset tokens travel in the URL; never persist them in the audit log.
         // Token length comes from Auth so the redaction cannot drift from token generation.
         $auditPath = preg_replace('#^(/auth/reset/)[0-9a-f]{' . Auth::RESET_TOKEN_HEX . '}$#', '$1<redacted>', $request->path);
-        // The session store is app-authored and may hold a numeric string where
-        // the framework declares int; coerce it here (the deliberate boundary).
-        // A non-numeric value is audited as a guest; sessionValid() still
+        // The session store is app-authored and may hold a numeric string where the
+        // framework declares int; only integer-shaped strings audit as that user.
+        // Anything else ('1.5', arrays) audits as a guest; sessionValid() still
         // fail-closes on bad data.
         $sessionUserId = $active->peek('user_id');
-        $auditUserId = is_numeric($sessionUserId) ? (int) $sessionUserId : null;
+        $auditUserId = is_string($sessionUserId) && preg_match('/^\d+$/', $sessionUserId) === 1
+            ? (int) $sessionUserId
+            : (is_int($sessionUserId) ? $sessionUserId : null);
         $this->requestLog?->log($request, $response->status, $auditUserId, (hrtime(true) - $start) / 1e6, $auditPath);
         return $response;
     }

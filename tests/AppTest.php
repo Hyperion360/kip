@@ -251,6 +251,38 @@ final class AppTest extends TestCase
         $this->assertNull($rows[0]['user_id']); // a guest row exists, not a TypeError with none
     }
 
+    public function test_fractional_string_session_user_id_audits_as_guest(): void // audit exactness
+    {
+        // '1.5' is numeric, so the old is_numeric() coercion truncated it to 1
+        // and attributed the request to the wrong user. Only integer-shaped
+        // values audit as a user; everything else is a guest row.
+        // sessionValid() still fail-closes independently on bad data.
+        $app = $this->app('prod');
+        $store = [];
+        $s = new \Kip\Session($store);
+        $s->set('user_id', '1.5');
+        $res = $app->handle(new Request('GET', '/', [], [], []), $s);
+        $this->assertSame(200, $res->status);
+        $rows = $app->container->make(\Kip\RequestLog::class)->recent(1);
+        $this->assertNull($rows[0]['user_id']); // audited as guest, never truncated to 1
+    }
+
+    public function test_only_integer_shaped_session_user_ids_audit_as_that_user(): void
+    {
+        // '5' audits as 5; a real int passes through unchanged.
+        $app = $this->app('prod');
+        $store = [];
+        $s = new \Kip\Session($store);
+        $s->set('user_id', '5');
+        $app->handle(new Request('GET', '/', [], [], []), $s);
+        $this->assertSame(5, $app->container->make(\Kip\RequestLog::class)->recent(1)[0]['user_id']);
+        $store2 = [];
+        $s2 = new \Kip\Session($store2);
+        $s2->set('user_id', 9);
+        $app->handle(new Request('GET', '/', [], [], []), $s2);
+        $this->assertSame(9, $app->container->make(\Kip\RequestLog::class)->recent(1)[0]['user_id']);
+    }
+
     public function test_head_returns_headers_and_status_with_empty_body(): void // v0.1.1 T1
     {
         $res = $this->app('prod')->handle(new Request('HEAD', '/', [], [], []));
