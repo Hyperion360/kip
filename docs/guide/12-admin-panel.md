@@ -5,7 +5,7 @@ every user table gets a browser, a create form, an edit form, and a
 delete button, no code generation, nothing configured per table. The
 panel reads the live SQLite schema (`sqlite_master` for the table
 list, `PRAGMA table_info` for columns) and derives the rest from
-conventions. There is no JavaScript: four plain-PHP templates plus
+conventions. There is no JavaScript: five plain-PHP templates plus
 one inline classless stylesheet (`src/Admin/views/layout.php`), and
 no build step.
 
@@ -50,6 +50,7 @@ password and the prompt hides input ([chapter 8](08-cli.md)).
 | `/admin/edit/<table>/<rowid>` | GET | edit form for one row |
 | `/admin/update/<table>/<rowid>` | POST | update, redirect to browse |
 | `/admin/delete/<table>/<rowid>` | POST | delete, redirect to browse |
+| `/admin/logs` | GET | audit-log viewer, filters + cursor paging, read only |
 
 Rows are addressed by SQLite **rowid**, never by primary-key value. An
 email PK (`a@b.com`) could never survive the router's `[a-z0-9_-]`
@@ -112,6 +113,50 @@ locked out. The CLI is the way back: run
 creates a *new* user. On an existing email, `user:create` fails
 with a UNIQUE violation and exits 1; it cannot re-promote one.
 
+## The logs viewer
+
+`/admin/logs` is a read-only viewer over the audit log
+([chapter 9](09-audit-log.md)). Same gate as the rest of the panel
+(`#[Auth]` plus `deny()`, an admin session only), same classless styling,
+and one SELECT per view against `logs.sqlite`, never against your content
+database. The panel header links to it from every page.
+
+It requires the `log_db` config. An app without it gets a 403 naming the
+key, because there is no audit database to read.
+
+Rows are newest first, 50 per page: id, timestamp, method, path, status,
+duration, ip, and user (rows without one show `guest`). The row is the
+whole record, so there is no detail view and no write path: the viewer
+never inserts, updates, or deletes, and a POST to `/admin/logs` is a 405.
+Retention ([chapter 9](09-audit-log.md)) owns deletion; the viewer shows
+whatever is still there.
+
+Filters, in any combination, carried through every pager link:
+
+| Filter | Meaning |
+|---|---|
+| `method` | exact verb: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS |
+| `status` | status class: 2xx, 3xx, 4xx, 5xx |
+| `path` | prefix match, case-insensitive; `%` and `_` match literally |
+| `user_id` | exact user id (`0` is a real id, not a guest marker) |
+| `guests` | checkbox: only rows with no user id |
+
+Pagination is cursor-based, not page numbers. Next shows the next older
+50, Prev the next newer 50, Newest resets to the top. A cursor is an id
+boundary, so retention deleting rows around it is harmless: a link whose
+rows are gone opens an empty table with the Newest link, never an error.
+One edge is stated plainly: a Prev page offers its Next link without
+probing older rows first, because that probe would cost the one-query
+budget, so it can land on an empty window.
+
+The window query stays a seek: `id <= <bound>` (or `id < <cursor>` /
+`id > <cursor>`) is answered by walking the INTEGER PRIMARY KEY, so
+`EXPLAIN QUERY PLAN` reports a `SEARCH` with no `SCAN` and no temporary
+sort for every filter combination. That is also why the viewer adds no
+indexes: the audit INSERT on every request stays exactly as cheap as
+before. A filter matching nothing walks the retained window once;
+retention bounds that cost.
+
 ## Beyond `is_admin`
 
 One boolean is all the panel checks. Finer-grained roles are app land:
@@ -146,3 +191,9 @@ its own `View` rooted at `src/Admin/views`, not the app's container
 known before SQL mentions it. `browse()` selects `rowid AS __rid, *`
 ordered by rowid descending, `LIMIT 51`. The extra row is the
 "next page" probe. Output goes through `View::e()` escaping.
+
+`logs()` reuses the same guard and renders `src/Admin/views/logs.php`;
+the window query lives on `RequestLog::page()` (`src/RequestLog.php`,
+the logs schema's owner). It returns newest-first rows plus one probe
+row, so the pager decides has-next and has-prev without a second SELECT,
+and every dynamic value in the template goes through `View::e()`.

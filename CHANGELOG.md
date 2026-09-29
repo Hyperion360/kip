@@ -8,6 +8,7 @@ The audit-log retention prune seeks the new requests(julianday(created_at)) expr
 An app ETag spelled in any letter case leaves the framework as one ETag field; the conditional-GET canonicalization used to append its own spelling beside the app's, sending two validators (RFC 9110 §8.8.3 allows one).
 Backup snapshots bind the `VACUUM INTO` target path as a parameter instead of a hand-quoted SQL literal.
 bin/kip reports the underlying OS reason when a Features directory cannot be listed (the Migrator idiom).
+The admin panel gains a read-only audit-log viewer at `/admin/logs`: newest-first rows from the `log_db` database with method, status-class, path-prefix, and user filters, cursor-based pagination, and exactly one SELECT per view; it adds no indexes to the audit tables, and an app without `log_db` configured gets a 403 naming the key instead.
 
 - Cache-format versioning and consolidation hardening. Stored cache rows carry
   a format version; when the rules that decide what may be stored change, the
