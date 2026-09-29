@@ -19,6 +19,7 @@ final class RequestLog
             ip TEXT NOT NULL,
             user_id INTEGER
         )');
+        $this->db->query('CREATE INDEX IF NOT EXISTS idx_requests_retention ON requests(julianday(created_at))');
     }
 
     /** Best-effort: a logging failure must never break the response. */
