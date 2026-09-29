@@ -161,6 +161,19 @@ the migration commands, so a broken Features layout never breaks `logs` or
 `backup`. See [chapter 5](05-database-and-migrations.md) and
 [chapter 8](08-cli.md).
 
+**Tests can live in the feature too.** Nothing about tests is wired into
+the framework; the layout is yours. The pattern that keeps a slice whole:
+a capitalized `Tests/` directory inside the feature
+(`app/Features/Billing/Tests/`) with test classes namespaced
+`App\Features\Billing\Tests`, which the PSR-4 prefix above already
+resolves with no composer change (the capitalization matters on
+case-sensitive filesystems). Add the features root as a second directory
+in your PHPUnit testsuite alongside `tests/`, and keep tests whose subject
+spans features or belongs to the kernel (schema contracts, CLI, budget
+guards) in the plain `tests/` tree beside the support helpers they share.
+An agent picking up one feature folder then edits code, templates,
+migrations and tests without touching any other feature's files.
+
 **Resolution order and precedence.** Plain controller namespaces win over
 feature folders: the router tries `controller_namespace` (and the built-in
 admin namespace when the admin panel is on) first, the feature form only when
