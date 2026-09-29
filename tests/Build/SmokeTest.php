@@ -31,13 +31,21 @@ final class SmokeTest extends TestCase
         foreach ([$this->scratch, $this->okRoot, $this->failRoot] as $d) mkdir($d, 0777, true);
         file_put_contents($this->okRoot . '/index.php', '<?php http_response_code(200); echo "fake ok";');
         file_put_contents($this->failRoot . '/index.php', '<?php http_response_code(500); echo "fake broken";');
-        // The fake artifact: exec-chain so one SIGTERM from Smoke kills the server.
+        // The fake artifact: exec-chain so one SIGTERM from Smoke kills the
+        // server. It speaks the real artifact's argv contract: php-server
+        // takes --listen=<addr> (confirmed on the real binary), php-cli gets
+        // the embedded script path relatively.
         file_put_contents($this->artifact, <<<SH
         #!/bin/sh
         case "\$1" in
           php-server)
             [ "\$FAKE_MODE" = die ] && exit 9
-            port="\${SERVER_NAME##*:}"
+            listen=""
+            for arg in "\$@"; do
+              case "\$arg" in --listen=*) listen="\${arg#--listen=}" ;; esac
+            done
+            [ -n "\$listen" ] || { echo "fake: php-server needs --listen=<addr>" >&2; exit 3; }
+            port="\${listen##*:}"
             if [ "\$FAKE_MODE" = 500 ]; then root="\$FAKE_FAILROOT"; else root="\$FAKE_OKROOT"; fi
             exec php -S 127.0.0.1:"\$port" -t "\$root"
             ;;
@@ -159,14 +167,17 @@ final class SmokeTest extends TestCase
         $this->assertStringEndsWith('/data', $env['KIP_DATA_DIR']);
     }
 
-    /** Pure command assembly, nothing executes: the Linux boot is a bare exec with env. */
+    /** Pure command assembly, nothing executes: the Linux boot is a bare exec with env, listening on 127.0.0.1:<port>. */
     public function test_linux_plan_execs_the_artifact_directly(): void
     {
         $plan = $this->smoke()->plan(8095);
         [$serverCmd, $serverCwd, $serverEnv] = $plan['server'];
         $this->assertStringContainsString('exec', $serverCmd);
         $this->assertStringContainsString(escapeshellarg($this->artifact) . ' php-server', $serverCmd);
-        $this->assertSame('127.0.0.1:8095', $serverEnv['SERVER_NAME']);
+        // The listener is the --listen flag, confirmed on the real artifact:
+        // SERVER_NAME only names the server, the default listener is :80.
+        $this->assertStringContainsString('--listen=127.0.0.1:8095', $serverCmd);
+        $this->assertStringNotContainsString('SERVER_NAME', $serverCmd);
         $this->assertStringEndsWith('/http', $serverEnv['KIP_DATA_DIR']);
         $this->assertSame($this->scratch, $serverCwd);
     }
@@ -184,7 +195,10 @@ final class SmokeTest extends TestCase
         // container serving on the port after kip build exits.
         $this->assertStringContainsString('--name kip-smoke-8095', $serverCmd);
         $this->assertStringContainsString('-p 127.0.0.1:8095:8095', $serverCmd);
-        $this->assertStringContainsString('-e SERVER_NAME=127.0.0.1:8095', $serverCmd);
+        // All interfaces inside the container: the published port reaches the
+        // container's own address, never its loopback.
+        $this->assertStringContainsString('--listen=:8095', $serverCmd);
+        $this->assertStringNotContainsString('SERVER_NAME', $serverCmd);
         $this->assertStringContainsString(escapeshellarg($this->artifact) . ':/kip-app:ro', $serverCmd);
         $this->assertStringContainsString('/kip-app php-server', $serverCmd);
         [$migrateCmd] = $plan['migrate'];

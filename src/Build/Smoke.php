@@ -48,6 +48,11 @@ final class Smoke
     /**
      * The exact commands the smoke step runs, assembled before anything
      * executes: server [command, cwd, env] and migrate [command, cwd, env].
+     * The listener address comes from the php-server --listen flag (it exists
+     * on the real artifact, confirmed empirically by the first real build;
+     * SERVER_NAME only names the server, the default listener is :80). Inside
+     * the smoke container the bind is :<port> on all interfaces, because the
+     * published port reaches the container's own address, not its loopback.
      *
      * @return array{server: array{0: string, 1: ?string, 2: array<string,string>}, migrate: array{0: string, 1: ?string, 2: array<string,string>}}
      */
@@ -56,10 +61,10 @@ final class Smoke
         if ($this->platform === 'Linux') {
             return [
                 'server' => [
-                    'exec env SERVER_NAME=127.0.0.1:' . $port . ' KIP_DATA_DIR=' . escapeshellarg($this->scratchDir . '/http')
-                        . ' ' . escapeshellarg($this->artifact) . ' php-server',
+                    'exec env KIP_DATA_DIR=' . escapeshellarg($this->scratchDir . '/http')
+                        . ' ' . escapeshellarg($this->artifact) . ' php-server --listen=127.0.0.1:' . $port,
                     $this->scratchDir,
-                    ['SERVER_NAME' => '127.0.0.1:' . $port, 'KIP_DATA_DIR' => $this->scratchDir . '/http'],
+                    ['KIP_DATA_DIR' => $this->scratchDir . '/http'],
                 ],
                 'migrate' => [
                     escapeshellarg($this->artifact) . ' php-cli bin/kip migrate',
@@ -72,10 +77,10 @@ final class Smoke
         return [
             'server' => [
                 'docker run --rm --name kip-smoke-' . $port . ' -p 127.0.0.1:' . $port . ':' . $port . ' ' . $mounts
-                    . ' -e SERVER_NAME=127.0.0.1:' . $port . ' -e KIP_DATA_DIR=/smoke/http '
-                    . self::SMOKE_IMAGE . ' /kip-app php-server',
+                    . ' -e KIP_DATA_DIR=/smoke/http '
+                    . self::SMOKE_IMAGE . ' /kip-app php-server --listen=:' . $port,
                 null,
-                ['SERVER_NAME' => '127.0.0.1:' . $port, 'KIP_DATA_DIR' => '/smoke/http'],
+                ['KIP_DATA_DIR' => '/smoke/http'],
             ],
             'migrate' => [
                 'docker run --rm ' . $mounts . ' -e KIP_DATA_DIR=/smoke/data '
