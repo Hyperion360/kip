@@ -7,6 +7,11 @@ schema-driven admin panel. It has **zero runtime dependencies** (Composer is
 used only for autoloading), **zero JavaScript**, and one dependency you
 already have: PHP 8.3+.
 
+Kip's deployment contract is part of the pitch: it runs unchanged on ordinary
+shared hosting (cPanel-style PHP 8.3 accounts) and on the cheapest VPS tier,
+with no build step, no Node, and no config wrangling. One server, one SQLite
+file, PHP-FPM or Apache.
+
 It exists because the PHP world splits into two corners that leave a real gap
 between them. Full-stack frameworks ship everything (queues, broadcast
 channels, build pipelines, an SPA-era front end) at the cost of a dependency
@@ -16,6 +21,11 @@ needs auth, migrations, CSRF, throttling, password reset, backups, and an
 admin panel, written by hand, badly, one more time. Kip takes the middle: the
 batteries are decided, included, and tested, and the ceiling is deliberately
 low. One server, one SQLite database, HTML over the wire.
+
+Zero JavaScript means the framework: no build step, no bundler, no npm, and
+every framework feature works with scripting disabled. Your app is free to
+add plain JavaScript where it earns its keep; the default Content-Security-
+Policy permits it, and Kip will never require a JS framework or ship one.
 
 Kip grew out of a 2011 framework called MVC-Lite, written by
 [Danilo Stern-Sapad](https://danilosapad.com/); this is its modern

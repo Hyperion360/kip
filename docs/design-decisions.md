@@ -46,6 +46,18 @@ server, vertically scaled.
 Horizontal scale-out is out of scope; if you need it, you need a different
 framework, and that's fine.
 
+## The deployment contract: ordinary hosting
+
+Kip runs unchanged on ordinary shared hosting and the cheapest VPS tier.
+That is a design constraint, not an accident: the runtime requirement list
+(PHP 8.3 and the PDO extension) is the whole server spec, because zero
+dependencies and zero JavaScript mean there is nothing to compile, bundle,
+or configure before serving. Copy the app tree, point the host at
+`public/`, run `php bin/kip migrate`, and the app is live. One server, one
+SQLite file, no build step, no config wrangling. The one-server ceiling
+above is the same bet read from the operations side: what keeps the
+architecture simple is also what keeps the hosting bill flat.
+
 ## Code-first migrations, never a schema designer
 
 The migration system is files you write, plain `.sql` with `-- up` /
@@ -90,6 +102,18 @@ no breakage for cosmetic gain. Deprecations are announced one minor
 release before removal, and every removal is listed in the CHANGELOG.
 The model is the small framework that stays dependable for a decade;
 frameworks that chase every paradigm don't get to be infrastructure.
+
+## Built for agent-parallel development
+
+The layout is shaped so many features ship at once, whether the writers are
+people or AI agents: a worktree per feature keeps every slice its own
+checkout; feature folders (`app/Features/<Name>/` with code, templates,
+migrations and tests inside) keep parallel agents on disjoint trees; and
+the one-query page budget is enforced by tests, so a change that adds a
+second query to a page fails that render at the gate instead of eroding
+quietly. The discipline that keeps agents from colliding also keeps
+contributors from colliding: disjoint trees, a review between merges, one
+gate.
 
 ## What we will never build
 

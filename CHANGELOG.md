@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 Response construction refuses header values that are not strings or that contain CR/LF, with a clear exception at the boundary; previously a malformed value survived until send time (or was silently skipped when the page cache stored it).
 A session user id that is not integer-shaped (a fractional string like '1.5', an array) is audited as a guest instead of being truncated to an integer.
 The Migrator unwinds nested savepoints a failed migration left open, so a migration that opens a transaction and throws can no longer leak transaction depth past the failure.

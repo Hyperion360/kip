@@ -2,7 +2,7 @@
   "name": "kip/example-blog",
   "description": "Kip tutorial end-state: a complete, runnable blog app",
   "license": "MIT",
-  "require": { "php": ">=8.3", "kip/framework": "^0.2@dev" },
+  "require": { "php": ">=8.3", "kip/framework": "^0.5@dev" },
   "repositories": [
     { "type": "path", "url": "../../", "options": { "symlink": true } }
   ],
