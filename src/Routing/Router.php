@@ -123,7 +123,11 @@ final class Router
         return null;
     }
 
-    /** Bare = no arguments; one non-empty string (named policy: or positional) = that policy; anything else fails loud. */
+    /**
+     * Bare = no arguments; one non-empty string (named policy: or positional) = that policy; anything else fails loud.
+     *
+     * @param \ReflectionAttribute<object> $attr
+     */
     private static function authPolicyOf(\ReflectionAttribute $attr): ?string
     {
         try {
