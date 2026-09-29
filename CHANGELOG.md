@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.4.0
+Configured fixed-window rate limiting ships as a battery: a `rate_limit` config maps a URL prefix (the first segment, canonicalized through the router's separator rule so dashed and underscored spellings share a bucket, `''` for `POST /`) to a `max`/`window` pair, the kernel counts every non-GET/HEAD request to a configured prefix before routing (one upsert; page renders and unconfigured apps issue zero limiter queries), and answers over-limit requests 429 with `Retry-After`. The `rate_limits` table ships as migration 009 in both bundled apps with `window_start` a unix integer so the retiring DELETE seeks its index; SQLite 3.35+ or PostgreSQL 9.5+ is checked at boot, and a counted request never joins an open transaction (the Jobs::claim contract).
+Equivalent IPv6 spellings share one rate-limit bucket; an address-less request shares one bucket per prefix, the safe direction.
+The page cache's table extractor no longer reads `ON CONFLICT ... DO UPDATE SET` as a write to a table named `set`, so app upserts keep purging exactly the tables they write, and the limiter's counter writes never purge cached pages.
+`Database::serverVersion()` reports the version PDO cached at connect, for boot-time capability checks without a query.
 The `#[Json]` route attribute (on a method or a controller class) makes the kernel wrap the action's non-`Response` return value as `application/json`, encoded with `JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES`; a `Response` return passes through untouched.
 `Request` carries the raw request body and a `json()` parser (an array for object and array documents, null for an empty, malformed, invalid-UTF-8, or scalar body); `TestClient::request()` accepts a body and a new `postJson()` posts JSON payloads.
 Non-GET requests may present the CSRF token in an `X-Csrf-Token` request header, equivalent to the `_token` POST field.
