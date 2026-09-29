@@ -28,8 +28,12 @@ final class Preparer
     /** Paths relative to the app root never copied. */
     private const SKIP_PATHS = ['app/backups'];
 
-    /** Directory names pruned from vendor package roots after install. */
-    private const VENDOR_PRUNE_DIRS = ['tests', 'Tests', 'docs'];
+    /**
+     * Directory names pruned from vendor package roots after install. A path
+     * repository materializes with its .git directory beside tests and docs,
+     * and none of those belong inside an artifact that embeds vendor.
+     */
+    private const VENDOR_PRUNE_DIRS = ['.git', 'tests', 'Tests', 'docs'];
 
     /**
      * @param string $sourceAppDir the app root (holds bin/, config.php, composer.json)

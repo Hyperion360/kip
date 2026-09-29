@@ -79,8 +79,8 @@ final class PreparerTest extends TestCase
         $staging = escapeshellarg($this->staging);
         $extra = match ($action) {
             'drop-features' => "rm -rf {$staging}/app/Features\n",
-            'dirty-vendor' => "mkdir -p {$staging}/vendor/acme/pkg/tests {$staging}/vendor/acme/pkg/docs {$staging}/vendor/acme/pkg/src\n"
-                . "touch {$staging}/vendor/acme/pkg/tests/a.php {$staging}/vendor/acme/pkg/docs/b.md {$staging}/vendor/acme/pkg/src/keep.php\n",
+            'dirty-vendor' => "mkdir -p {$staging}/vendor/acme/pkg/tests {$staging}/vendor/acme/pkg/docs {$staging}/vendor/acme/pkg/src {$staging}/vendor/acme/pkg/.git\n"
+                . "touch {$staging}/vendor/acme/pkg/tests/a.php {$staging}/vendor/acme/pkg/docs/b.md {$staging}/vendor/acme/pkg/src/keep.php {$staging}/vendor/acme/pkg/.git/HEAD\n",
             'fail' => "echo 'composer blew up: no disk'\nexit 22\n",
             default => '',
         };
@@ -123,6 +123,7 @@ final class PreparerTest extends TestCase
 
         $this->assertFileDoesNotExist($this->staging . '/vendor/acme/pkg/tests/a.php');
         $this->assertFileDoesNotExist($this->staging . '/vendor/acme/pkg/docs/b.md');
+        $this->assertFileDoesNotExist($this->staging . '/vendor/acme/pkg/.git/HEAD', 'a materialized path repo carries .git; it must not embed into the artifact');
         $this->assertFileExists($this->staging . '/vendor/acme/pkg/src/keep.php');
     }
 
