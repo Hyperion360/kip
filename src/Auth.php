@@ -311,7 +311,7 @@ final class Auth
         if (!$this->oauthIdentitiesPresent()) {
             throw new \RuntimeException(
                 'the oauth_identities table is missing; apply the bundled app migration '
-                . '008_create_oauth_identities before using OAuth sign-in'
+                . '009_create_oauth_identities before using OAuth sign-in'
             );
         }
     }

@@ -26,7 +26,7 @@ final class AuthOAuthTest extends TestCase
     /** Runs the real bundled migration, so the tests pin its actual schema. */
     private function migrateIdentities(): void
     {
-        $migration = require dirname(__DIR__) . '/skeleton/app/migrations/008_create_oauth_identities.php';
+        $migration = require dirname(__DIR__) . '/skeleton/app/migrations/009_create_oauth_identities.php';
         $migration->up($this->db);
     }
 
