@@ -56,12 +56,74 @@ final class Preparer
                 $this->sourceAppDir
             ));
         }
+        $this->stagingDir = $this->stagingOutsidePathPackages();
         $this->wipeStaging();
         $this->copyTree($this->sourceAppDir, $this->stagingDir, true);
         $this->installDependencies();
         $this->pruneVendor();
         $this->assertShipped();
         return $this->stagingDir;
+    }
+
+    /**
+     * A staging copy that sits inside a path package's own source tree makes
+     * composer refuse to install the package into itself (the bundled apps pin
+     * the framework exactly that way, app/build under the framework checkout).
+     * When any resolved path package is an ancestor of the staging directory,
+     * staging moves to a per-app directory in the system temp dir; prepare()
+     * returns the location actually used.
+     */
+    private function stagingOutsidePathPackages(): string
+    {
+        $jsonPath = $this->sourceAppDir . '/composer.json';
+        try {
+            $json = json_decode((string) file_get_contents($jsonPath), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new \RuntimeException("composer.json in {$this->sourceAppDir} is not valid JSON: {$e->getMessage()}");
+        }
+        foreach ((is_array($json['repositories'] ?? null) ? $json['repositories'] : []) as $repo) {
+            if (!is_array($repo) || ($repo['type'] ?? '') !== 'path' || !is_string($repo['url'] ?? null)) continue;
+            $url = $repo['url'];
+            if (!str_starts_with($url, '/') && !str_starts_with($url, 'file://')) $url = $this->sourceAppDir . '/' . $url;
+            $resolved = realpath($url);
+            if ($resolved === false) {
+                throw new \RuntimeException(sprintf(
+                    'composer.json pins a path repository at %s that does not exist (looked from %s). '
+                    . 'Fix the repository URL or remove the repository before building.',
+                    $url,
+                    $this->sourceAppDir
+                ));
+            }
+            if ($this->pathIsInside($this->stagingDir, $resolved)) {
+                return sys_get_temp_dir() . '/kip-build-staging-' . hash('sha1', $this->sourceAppDir);
+            }
+        }
+        return $this->stagingDir;
+    }
+
+    /**
+     * Containment on canonical spellings: macOS hands out /var/... paths while
+     * realpath() answers /private/var/..., and a raw prefix compare between
+     * the two spellings silently misses the overlap. The deepest existing
+     * ancestor of the path is canonicalized (the non-existent tail cannot
+     * carry symlinks) before the prefix check.
+     */
+    private function pathIsInside(string $path, string $ancestor): bool
+    {
+        $ancestor = (string) realpath(rtrim($ancestor, '/'));
+        if ($ancestor === '') return false;
+        $tail = [];
+        $probe = rtrim($path, '/');
+        while ($probe !== '' && $probe !== '/' && $probe !== '.') {
+            $real = realpath($probe);
+            if ($real !== false) {
+                $canonical = $tail === [] ? $real : $real . '/' . implode('/', $tail);
+                return str_starts_with($canonical, $ancestor . '/');
+            }
+            $tail[] = basename($probe);
+            $probe = dirname($probe);
+        }
+        return false;
     }
 
     /**
@@ -217,7 +279,7 @@ final class Preparer
         file_put_contents($jsonPath, json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
         if (is_file($this->stagingDir . '/composer.lock')) {
             /** @var array{0: int, 1: string} $lock */
-            $lock = ($this->runner)(escapeshellarg($this->composerBinary) . ' update --lock --no-interaction', $this->stagingDir, []);
+            $lock = ($this->runner)(escapeshellarg($this->composerBinary) . ' update --lock --no-install --no-interaction', $this->stagingDir, []);
             if ($lock[0] !== 0) {
                 throw new \RuntimeException("Refreshing composer.lock for the relocated path repositories failed (exit {$lock[0]}):\n{$lock[1]}");
             }

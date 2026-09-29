@@ -193,6 +193,82 @@ final class PreparerTest extends TestCase
         $this->preparer($this->stubComposer('fail'))->prepare();
     }
 
+    /**
+     * Found by the first real run: the bundled apps pin the framework
+     * through a path repository whose source IS the repo root, so a staging
+     * copy under app/build would sit inside the package's own source and
+     * composer refuses to install a package into itself. The staging copy
+     * relocates outside every path package, and prepare() returns the real
+     * location it used.
+     */
+    public function test_staging_relocates_out_of_a_path_package_source(): void
+    {
+        // The bundled-app shape: the path package (url ".." from the app) is
+        // an ancestor of app/build/staging, and composer refuses to install a
+        // package into its own source tree.
+        $packageRoot = dirname($this->src);
+        file_put_contents($this->src . '/composer.json', <<<'JSON'
+        {
+            "name": "test/app",
+            "require": { "php": ">=8.3" },
+            "repositories": [ { "type": "path", "url": ".." } ],
+            "autoload": { "psr-4": { "App\\": "app/src/" } }
+        }
+        JSON);
+        // The bundled apps carry a lock; the relocation must refresh it without
+        // a second full install (--no-install).
+        file_put_contents($this->src . '/composer.lock', "{\n  \"packages\": []\n}\n");
+
+        $stub = $this->stubComposer();
+        $actual = $this->preparer($stub)->prepare();
+
+        try {
+            $this->assertStringStartsWith(sys_get_temp_dir(), $actual, 'staging leaves the package tree');
+            $this->assertStringStartsNotWith($packageRoot . '/', $actual, 'staging never sits inside the path package source');
+            $this->assertFileExists($actual . '/app/Features/Billing/migrations/008_billing.php', 'the relocated copy is complete');
+            $log = (string) file_get_contents($stub . '.log');
+            $this->assertStringContainsString('cwd=' . $actual, $log, 'composer runs in the relocated staging');
+            $this->assertStringContainsString('--no-install', $log, 'the lock refresh never installs (the --no-dev install does)');
+        } finally {
+            $rm = static function (string $dir) use (&$rm): void {
+                foreach (glob($dir . '/*') ?: [] as $f) {
+                    if (is_dir($f) && !is_link($f)) $rm($f); else unlink($f);
+                }
+                rmdir($dir);
+            };
+            if (is_dir($actual) && str_starts_with(basename($actual), 'kip-build-staging-')) $rm($actual);
+        }
+    }
+
+    public function test_prepare_names_a_source_composer_json_that_is_not_valid_json(): void
+    {
+        file_put_contents($this->src . '/composer.json', "{ not json");
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('not valid JSON');
+        $this->preparer($this->stubComposer())->prepare();
+    }
+
+    public function test_prepare_names_a_path_repository_that_does_not_exist(): void
+    {
+        file_put_contents($this->src . '/composer.json', <<<'JSON'
+        {
+            "name": "test/app",
+            "require": { "php": ">=8.3" },
+            "repositories": [ { "type": "path", "url": "../gone" } ],
+            "autoload": { "psr-4": { "App\\": "app/src/" } }
+        }
+        JSON);
+
+        try {
+            $this->preparer($this->stubComposer())->prepare();
+            $this->fail('a missing path repository must fail the build by name');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('../gone', $e->getMessage());
+            $this->assertStringContainsString('does not exist', $e->getMessage());
+        }
+    }
+
     public function test_prepare_rewrites_path_repositories_to_absolute_materialized_copies(): void
     {
         $base = dirname($this->src);
