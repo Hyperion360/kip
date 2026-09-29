@@ -179,6 +179,10 @@ final class SmokeTest extends TestCase
 
         [$serverCmd] = $plan['server'];
         $this->assertStringContainsString('docker run --rm', $serverCmd);
+        // The smoke container is named per port so the run's cleanup can
+        // remove it by force: killing the attached CLI alone can leave the
+        // container serving on the port after kip build exits.
+        $this->assertStringContainsString('--name kip-smoke-8095', $serverCmd);
         $this->assertStringContainsString('-p 127.0.0.1:8095:8095', $serverCmd);
         $this->assertStringContainsString('-e SERVER_NAME=127.0.0.1:8095', $serverCmd);
         $this->assertStringContainsString(escapeshellarg($this->artifact) . ':/kip-app:ro', $serverCmd);

@@ -65,7 +65,7 @@ final class Smoke
         $mounts = '-v ' . escapeshellarg($this->artifact) . ':/kip-app:ro -v ' . escapeshellarg($this->scratchDir) . ':/smoke -w /smoke';
         return [
             'server' => [
-                'docker run --rm -p 127.0.0.1:' . $port . ':' . $port . ' ' . $mounts
+                'docker run --rm --name kip-smoke-' . $port . ' -p 127.0.0.1:' . $port . ':' . $port . ' ' . $mounts
                     . ' -e SERVER_NAME=127.0.0.1:' . $port . ' -e KIP_DATA_DIR=/smoke/http '
                     . self::SMOKE_IMAGE . ' /kip-app php-server',
                 null,
@@ -101,6 +101,12 @@ final class Smoke
         } finally {
             proc_terminate($proc);
             proc_close($proc);
+            if ($this->platform !== 'Linux') {
+                // Killing the attached docker CLI does not reliably stop the
+                // container; it is named per port and removed by force so the
+                // smoke server never outlives the run holding the port.
+                ($this->runner)('docker rm -f kip-smoke-' . $port, null, []);
+            }
         }
         if ($status !== 200) {
             throw new \RuntimeException("Smoke check failed: route / answered HTTP {$status}, expected 200. Server log tail:\n"
