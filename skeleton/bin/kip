@@ -30,6 +30,30 @@ try {
         return $dirs;
     };
 
+    // The plain-controller directory for make:controller and make:feature's
+    // shadowing guard: where the app's own autoloader maps the controller
+    // namespace (composer.json psr-4, longest prefix, the Composer rule),
+    // falling back to the documented convention app/src/Controllers when
+    // there is no composer.json to read. An unmapped or ambiguously mapped
+    // namespace is a refusal, never a guess.
+    $plain_controller_dir = static function () use ($config): string {
+        $namespace = $config['controller_namespace'] ?? 'App\\Controllers\\';
+        if (!is_string($namespace)) {
+            throw new RuntimeException('config controller_namespace must be a namespace prefix string.');
+        }
+        $composer = dirname(__DIR__) . '/composer.json';
+        if (is_file($composer)) {
+            $paths = Kip\Scaffold::autoloadPaths($composer, $namespace . 'Placement');
+            if (count($paths) > 1) {
+                throw new RuntimeException("composer.json maps {$namespace} to more than one directory; kip make: refuses to guess. Disambiguate the psr-4 mapping or scaffold by hand.");
+            }
+            if ($paths !== []) return dirname($paths[0]);
+            throw new RuntimeException("composer.json maps no psr-4 prefix covering {$namespace}; fix autoload before scaffolding.");
+        }
+        if ($namespace === 'App\\Controllers\\') return $config['app_dir'] . '/src/Controllers';
+        throw new RuntimeException("no composer.json to resolve {$namespace} from; kip make:controller places the default App\\Controllers\\ in app/src/Controllers (guide ch. 3).");
+    };
+
     match ($argv[1] ?? 'help') {
     'migrate' => (function () use ($config, $migration_dirs) {
         $db = new Kip\Database($config['db']['dsn']);
@@ -182,7 +206,109 @@ try {
             }
         }
     })(),
-    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]]\n"),
+    'make:feature' => (function () use ($config, $argv, $plain_controller_dir) {
+        $name = $argv[2] ?? '';
+        if ($name === '') {
+            fwrite(STDERR, "Usage: kip make:feature <Name>\n");
+            exit(1);
+        }
+        $appDir = $config['app_dir'];
+        // ONE features root: app_dir/Features, the same root the migration
+        // commands discover. A features_dir pointing elsewhere would emit
+        // migrations kip migrate never reads, so it is a refusal, not a guess.
+        $configured = $config['features_dir'] ?? null;
+        if (is_string($configured) && rtrim($configured, '/') !== rtrim($appDir . '/Features', '/')) {
+            throw new RuntimeException("config.php sets features_dir to {$configured}; kip make: scaffolds only {$appDir}/Features, the one root kip migrate reads. Point features_dir back or scaffold by hand.");
+        }
+        $fn = array_key_exists('feature_namespace', $config) ? $config['feature_namespace'] : 'App\\Features\\';
+        if (!is_string($fn)) {
+            throw new RuntimeException('config.php sets feature_namespace => null (feature routing off); kip make:feature would emit a controller that can never route.');
+        }
+        $root = dirname(__DIR__);
+        $created = Kip\Scaffold::feature($name, $appDir . '/Features', $fn, [
+            'plain_controller_dir' => $plain_controller_dir(),
+            'app_views_dir' => $config['views'] ?? $appDir . '/views',
+            'reserved_studly' => ($config['admin']['enabled'] ?? false) ? ['Admin'] : [],
+        ]);
+        $studly = Kip\Routing\Router::studly($name);
+        foreach ($created as $path) echo 'Created: ' . Kip\Scaffold::relative($path, $root) . "\n";
+        echo 'Route: ' . Kip\Scaffold::routeFor($name) . " ({$studly}Controller::index)\n";
+        // Advisory only (files exist and lint either way): when the app's own
+        // autoloader would look for the generated class somewhere else, say so,
+        // the ch. 3 fix is one psr-4 line plus composer dump-autoload.
+        $composer = $root . '/composer.json';
+        $fqcn = $fn . $studly . '\\' . $studly . 'Controller';
+        if (is_file($composer) && !in_array($appDir . '/Features/' . $studly . '/' . $studly . 'Controller.php', Kip\Scaffold::autoloadPaths($composer, $fqcn), true)) {
+            echo "Note: composer.json's autoload would look for {$fqcn} elsewhere; add a psr-4 prefix for app/Features and run composer dump-autoload (guide ch. 3).\n";
+        }
+    })(),
+    'make:controller' => (function () use ($config, $argv, $plain_controller_dir) {
+        $name = $argv[2] ?? '';
+        if ($name === '') {
+            fwrite(STDERR, "Usage: kip make:controller <Name>\n");
+            exit(1);
+        }
+        $namespace = $config['controller_namespace'] ?? 'App\\Controllers\\';
+        $created = Kip\Scaffold::controller(
+            $name,
+            is_string($namespace) ? $namespace : 'App\\Controllers\\',
+            $plain_controller_dir(),
+            $config['views'] ?? $config['app_dir'] . '/views',
+            $config['app_dir'] . '/Features',
+        );
+        foreach ($created as $path) echo 'Created: ' . Kip\Scaffold::relative($path, dirname(__DIR__)) . "\n";
+        echo 'Route: ' . Kip\Scaffold::routeFor($name) . ' (' . Kip\Routing\Router::studly($name) . "Controller::index)\n";
+    })(),
+    'make:migration' => (function () use ($config, $argv, $migration_dirs) {
+        $label = null;
+        $feature = null;
+        foreach (array_slice($argv, 2) as $arg) {
+            if (preg_match('/^--feature=(.+)$/', $arg, $m)) { $feature = $m[1]; continue; }
+            $label = $arg;
+        }
+        if ($label === null) {
+            fwrite(STDERR, "Usage: kip make:migration <label> [--feature=<Name>]\n");
+            exit(1);
+        }
+        $appDir = $config['app_dir'];
+        $dirs = $migration_dirs();
+        $target = $dirs[0]; // the app's own migrations directory
+        if ($feature !== null) {
+            $studly = Kip\Routing\Router::studly($feature);
+            foreach (scandir($appDir . '/Features') ?: [] as $entry) { // folders are Studly; resolve case-insensitively
+                if ($entry !== '.' && $entry !== '..' && strcasecmp($entry, $studly) === 0) { $studly = $entry; break; }
+            }
+            if (!is_dir($appDir . '/Features/' . $studly)) {
+                throw new RuntimeException("no feature {$studly} under {$appDir}/Features; run: kip make:feature {$studly} first");
+            }
+            $target = $appDir . '/Features/' . $studly . '/migrations';
+            if (!in_array($target, $dirs, true)) $dirs[] = $target; // numbering spans the WHOLE ledger
+        } elseif (getcwd() !== false && str_starts_with(getcwd(), $appDir . '/Features/')) {
+            $head = strtok(substr((string) getcwd(), strlen($appDir . '/Features') + 1), '/'); // run from inside a feature: target it
+            if (is_string($head) && $head !== '') {
+                $target = $appDir . '/Features/' . $head . '/migrations';
+                if (!in_array($target, $dirs, true)) $dirs[] = $target;
+            }
+        }
+        // Names already recorded in _migrations, read strictly read-only (a
+        // deleted migration's ledger row must not be regenerated: migrate
+        // would silently skip the new file). Best effort: no database file
+        // yet, or a non-SQLite app, means no ledger to consult.
+        $applied = [];
+        $dsn = $config['db']['dsn'] ?? null;
+        if (is_string($dsn) && str_starts_with($dsn, 'sqlite:')) {
+            $dbFile = substr($dsn, 7);
+            if (is_file($dbFile)) {
+                try {
+                    $ro = new PDO('sqlite:file:' . $dbFile . '?mode=ro', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                    $applied = $ro->query('SELECT name FROM _migrations')->fetchAll(PDO::FETCH_COLUMN);
+                } catch (\Throwable) { $applied = []; } // no _migrations table yet: nothing was ever applied
+            }
+        }
+        $path = Kip\Scaffold::migration($label, $dirs, $target, $applied);
+        echo 'Created: ' . Kip\Scaffold::relative($path, dirname(__DIR__)) . "\n";
+    })(),
+    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]]\n"),
     };
 } catch (\Throwable $e) {
     // A failed deploy needs a stated failure, not a stack trace on stdout.

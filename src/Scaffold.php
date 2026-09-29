@@ -202,10 +202,11 @@ PHP;
                 $template,
             );
         };
-        // The controller file is written before the view on purpose: a failure
-        // while creating the view folder (a read-only views dir) proves the
-        // cleanup path, and no half-emission survives either way.
+        // The controller is written before the view on purpose: a failure while
+        // creating the view folder (a read-only views dir) proves the cleanup
+        // path, and no half-emission survives either way.
         self::emit([
+            ['dir', $controllerDir],
             ['file', $controller, $fill(self::CONTROLLER, $controller)],
             ['dir', $viewDir],
             ['file', $view, $fill(self::VIEW, $view)],
