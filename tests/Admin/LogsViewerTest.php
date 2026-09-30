@@ -114,6 +114,25 @@ final class LogsViewerTest extends TestCase
         $this->assertStringNotContainsString('/api/orders', $b);
     }
 
+    public function test_active_filters_open_the_disclosure_and_are_summarized(): void
+    {
+        $seed = $this->client->actingAs(1);
+        $plain = $seed->get('/admin/logs');
+        $this->assertStringContainsString('<details class="kip-filters">', $plain->body);
+        $this->assertStringNotContainsString('class="kip-filters" open', $plain->body);
+        $filtered = $seed->get('/admin/logs', ['status' => '4']);
+        $this->assertStringContainsString('<details class="kip-filters" open>', $filtered->body);
+        $this->assertStringContainsString('4xx', $filtered->body);
+    }
+
+    public function test_status_chips_reflect_the_class(): void
+    {
+        $this->seed([['GET', '/ok', 200, null], ['GET', '/warn', 404, null]]);
+        $body = $this->client->actingAs(1)->get('/admin/logs')->body;
+        $this->assertStringContainsString('>200</span>', $body);
+        $this->assertStringContainsString('>404</span>', $body);
+    }
+
     public function test_stored_and_reflected_values_are_escaped(): void // fold 1: XSS pins
     {
         $this->seed([['GET', '<script>alert(1)</script>', 200, null]]);
