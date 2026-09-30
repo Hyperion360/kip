@@ -22,7 +22,7 @@ outcomes and their exit codes.
 
 ```
 $ php bin/kip
-Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]|build]
+Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db ["SELECT ..."]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]|cache:clear|build]
 ```
 
 Exit code 0 -- no argument, or an unrecognized one, prints usage and exits
@@ -346,6 +346,13 @@ not a file-backed SQLite database.
 
 ## `openapi [file]`
 
+The source directories come from the app's own `composer.json` psr-4
+mapping (the same resolver `make:controller` uses, longest prefix
+wins); an unmapped or ambiguously mapped `controller_namespace` is a
+refusal, never a guess, and without a `composer.json` the documented
+`app/src` convention applies. The inventory must describe where the
+autoloader actually loads controllers from.
+
 Emits an OpenAPI 3.1.0 document (`openapi.json` at the app root, or the
 path given) describing the routes your app serves, derived from the same
 conventions the router uses at runtime: controller segments, lowercased
@@ -600,6 +607,17 @@ job holds the lock until it exits, that is the overlap contract.
 
 A flag other than `--due` is a usage error and exits **1**, the same
 contract as `queue:work`: the command refuses to guess.
+
+## `cache:clear`
+
+Deletes the file-backed page cache (`cache_db`) and its WAL sidecars;
+without a file-backed cache configured it prints a note and exits 0.
+The cache is disposable by contract and comes back empty on the next
+request. The deploy rule that motivates it lives in
+[chapter 10](10-deployment.md): a page cached while public stays
+servable until its TTL even after `#[Auth]` is added to its route,
+because the cache answers before routing. Clear on deploy to close
+that window.
 
 ## `build`
 

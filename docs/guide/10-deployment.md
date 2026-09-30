@@ -148,6 +148,13 @@ alternative: one crontab entry after the backup copying `app/backups/`
 to storage the app does not host, with any file-copy tool the platform
 provides.
 
+**Clear the page cache on every deploy.** The page cache answers
+before routing, so a page cached while public stays servable until
+its TTL even after `#[Auth]` is added to its route in a later deploy.
+`php bin/kip cache:clear` in the deploy step (one line, after the
+files land) closes that window; the cache refills itself on the next
+request.
+
 If the app uses the uploads battery, serve `public/uploads` with
 `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`
 at the web-server layer, defense in depth for files the extension
