@@ -29,10 +29,10 @@ if ($highlight !== '') {
       <tbody>
       <?php foreach ($columns as $c): ?>
         <tr>
-          <td class="kip-colname"><?= $this->e($c['name']) ?><?php if ((int) $c['pk'] === 1): ?> <span class="kip-pk">PK</span><?php endif; ?></td>
-          <td class="kip-dim"><?= $this->e($c['type']) ?></td>
-          <td class="kip-dim"><?= (int) $c['notnull'] === 1 ? 'no' : 'yes' ?></td>
-          <td><?php if ($c['dflt_value'] === null): ?><span class="kip-nodata">&mdash;</span><?php else: ?><span class="kip-mono"><?= $this->e((string) $c['dflt_value']) ?></span><?php endif; ?></td>
+          <td class="kip-colname" data-label="Column"><?= $this->e($c['name']) ?><?php if ((int) $c['pk'] === 1): ?> <span class="kip-pk">PK</span><?php endif; ?></td>
+          <td class="kip-dim" data-label="Type"><?= $this->e($c['type']) ?></td>
+          <td class="kip-dim" data-label="Null"><?= (int) $c['notnull'] === 1 ? 'no' : 'yes' ?></td>
+          <td data-label="Default"><?php if ($c['dflt_value'] === null): ?><span class="kip-nodata">&mdash;</span><?php else: ?><span class="kip-mono"><?= $this->e((string) $c['dflt_value']) ?></span><?php endif; ?></td>
         </tr>
       <?php endforeach; ?>
       </tbody>
