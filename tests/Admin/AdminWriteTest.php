@@ -143,4 +143,15 @@ final class AdminWriteTest extends TestCase
         $this->db->query('CREATE TABLE blobs_only (id INTEGER PRIMARY KEY, payload BLOB)');
         $this->assertSame(422, $this->client->postWithToken('/admin/store/blobs_only', [])->status);
     }
+
+    public function test_required_columns_are_marked_and_lockout_warning_shows(): void
+    {
+        $posts = $this->client->get('/admin/create/posts');
+        $this->assertStringContainsString('· required', $posts->body);   // title is NOT NULL, no default
+        $this->assertStringContainsString('New posts row', $posts->body);
+        $users = $this->client->get('/admin/edit/users/1');
+        $this->assertStringContainsString('user:create --admin', $users->body);
+        $this->assertStringContainsString('Set by Kip', $users->body);   // edit-only meta aside
+        $this->assertStringContainsString('form="kip-row-form"', $users->body); // fixed action bar wiring
+    }
 }
