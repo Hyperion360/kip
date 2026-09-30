@@ -152,7 +152,7 @@ h1{margin:0;font-family:var(--kip-serif);font-weight:400;font-size:44px;line-hei
   .kip-card-top{flex:1;min-height:60px;padding:16px 18px;align-items:center}
   .kip-card-count{font-size:24px}
   .kip-card-browse{display:none}
-  .kip-card-new{flex:none;width:60px;min-height:60px;display:flex;align-items:center;justify-content:center;border:0;border-left:1px solid var(--kip-line-soft);font-size:22px}
+  .kip-card-new{flex:none;min-width:60px;min-height:60px;padding:0 14px;display:flex;align-items:center;justify-content:center;white-space:nowrap;border:0;border-left:1px solid var(--kip-line-soft);font-size:15px}
   .kip-card-new:hover{background:var(--kip-accent-soft)}
 }
 
