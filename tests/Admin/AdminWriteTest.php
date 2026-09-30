@@ -154,4 +154,12 @@ final class AdminWriteTest extends TestCase
         $this->assertStringContainsString('Set by Kip', $users->body);   // edit-only meta aside
         $this->assertStringContainsString('form="kip-row-form"', $users->body); // fixed action bar wiring
     }
+
+    public function test_confirm_shows_a_row_preview_without_sensitive_columns(): void
+    {
+        $this->db->query("INSERT INTO posts (title, body, created_at) VALUES ('Guarded', 'B', '2026-01-01')");
+        $res = $this->client->get('/admin/confirmdelete/posts/1');
+        $this->assertStringContainsString('Guarded', $res->body);
+        $this->assertStringContainsString('Keep it', $res->body);
+    }
 }
