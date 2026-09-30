@@ -57,7 +57,7 @@
         <?php elseif (str_starts_with($name, 'is_') && $row[$name] !== null): ?>
         <td data-label="<?= $this->e($name) ?>"><span class="kip-chip<?= (int) $row[$name] === 1 ? '' : ' kip-chip-no' ?>"><?= (int) $row[$name] === 1 ? 'Yes' : 'No' ?></span></td>
         <?php else: ?>
-        <td data-label="<?= $this->e($name) ?>"><?= $this->e($row[$name] ?? '') ?></td>
+        <td data-label="<?= $this->e($name) ?>"<?= strtoupper((string) $c['type']) === 'INTEGER' || str_ends_with($name, '_at') ? ' class="kip-mono"' : '' ?>><?= $this->e($row[$name] ?? '') ?></td>
         <?php endif; ?>
         <?php endforeach; ?>
       </tr>
