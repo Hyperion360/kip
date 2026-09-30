@@ -17,6 +17,8 @@ final class Schema
     private ?array $tables = null;
     /** @var array<string, list<array<array-key, mixed>>> per-table PRAGMA results (same memoization intent) */
     private array $columnsCache = [];
+    /** @var array<string, int> per-table COUNT results (same memoization intent as columnsCache) */
+    private array $countCache = [];
 
     public function __construct(private Database $db) {}
 
@@ -47,7 +49,7 @@ final class Schema
     public function count(string $table): int
     {
         $this->assertKnown($table);
-        return (int) $this->db->one("SELECT COUNT(*) c FROM \"{$table}\"")['c'];
+        return $this->countCache[$table] ??= (int) $this->db->one("SELECT COUNT(*) c FROM \"{$table}\"")['c'];
     }
 
     private function assertKnown(string $table): void

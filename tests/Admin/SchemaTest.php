@@ -50,4 +50,13 @@ final class SchemaTest extends TestCase
         $this->db->query("INSERT INTO posts (title) VALUES ('a'), ('b')");
         $this->assertSame(2, $this->schema->count('posts'));
     }
+
+    public function test_count_runs_one_query_per_table_per_instance(): void
+    {
+        $this->schema->count('posts'); // warms the tables() catalog and the count cache (assertKnown queries once)
+        $queries = 0;
+        $this->db->onQuery(function () use (&$queries): void { $queries++; });
+        $this->assertSame($this->schema->count('posts'), $this->schema->count('posts'));
+        $this->assertSame(0, $queries); // the repeat costs nothing
+    }
 }
