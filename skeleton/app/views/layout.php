@@ -5,6 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?= $this->e($title ?? 'Kip') ?></title>
+  <link rel="icon" href="data:,"><!-- empty data icon: without it browsers request /favicon.ico on every page and log a 404 -->
   <link rel="stylesheet" href="/style.css">
   <style>@media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } }</style>
   <script type="speculationrules">{"prerender": [{"where": {"href_matches": "/*"}, "eagerness": "conservative"}]}</script>
