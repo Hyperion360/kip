@@ -110,12 +110,21 @@ final class AdminController
         // /admin exactly (with or without a query string), or /admin/... : the
         // alternation must bless "?", or a back value like /admin?status=2 loses
         // its query to the fallback. A strict prefix would bless /administrator,
-        // and this keeps the redirect inside the panel's own URL space. Same-origin
-        // is guaranteed by the leading slash either way; this is tidiness plus defense.
-        if (preg_match('#^/admin(/|\?|$)#', $back) !== 1 || preg_match('/[\r\n\\\\]/', $back) === 1) $back = '/admin';
+        // and dot segments would let /admin/../x normalize outside the panel's
+        // URL space, so both are rejected. Same-origin is guaranteed by the
+        // leading slash either way; this is tidiness plus defense.
+        if (preg_match('#^/admin(/|\?|$)#', $back) !== 1
+            || preg_match('/[\r\n\\\\]/', $back) === 1
+            || preg_match('#(?:^|/)\.\.(?:/|\?|$)#', $back) === 1) {
+            $back = '/admin';
+        }
+        // Path is scoped to /admin: the cookie is only ever read there, and any
+        // cookie at Path=/ makes every request personal for the page cache
+        // (App marks cookie-bearing requests BYPASS), which would silently
+        // disable public caching for a year after an admin picks a theme.
         $cookie = $value === 'auto'
-            ? 'kip_theme=; Path=/; Max-Age=0; SameSite=Lax'
-            : 'kip_theme=' . $value . '; Path=/; Max-Age=31536000; SameSite=Lax';
+            ? 'kip_theme=; Path=/admin; Max-Age=0; SameSite=Lax'
+            : 'kip_theme=' . $value . '; Path=/admin; Max-Age=31536000; SameSite=Lax';
         return new Response('', 302, ['Location' => $back, 'Set-Cookie' => $cookie]);
     }
 

@@ -120,8 +120,11 @@ with a UNIQUE violation and exits 1; it cannot re-promote one.
 `/admin/logs` is a read-only viewer over the audit log
 ([chapter 9](09-audit-log.md)). Same gate as the rest of the panel
 (`#[Auth]` plus `deny()`, an admin session only), the same styling,
-and one SELECT per view against `logs.sqlite`, never against your content
-database. The panel header links to it from every page.
+and one SELECT per view against `logs.sqlite`: the log window itself is
+never read from your content database. Like every panel page it also
+runs the shared frame's gate query and per-table sidebar counts against
+the content database (see "Appearance and responsive layout" below).
+The panel header links to it from every page.
 
 It requires the `log_db` config. An app without it gets a 403 naming the
 key, because there is no audit database to read.

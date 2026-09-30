@@ -54,6 +54,29 @@ final class AdminThemeTest extends TestCase
         $this->assertSame('/admin?qa=themeprobe', $res->headers['Location'] ?? null);
     }
 
+    public function test_back_with_dot_segments_falls_back(): void // /admin/../x would normalize outside the panel
+    {
+        $res = $this->client->postWithToken('/admin/theme', ['theme' => 'dark', 'back' => '/admin/../public/secret']);
+        $this->assertSame(302, $res->status);
+        $this->assertSame('/admin', $res->headers['Location'] ?? null);
+    }
+
+    public function test_theme_cookie_is_scoped_to_the_admin_path(): void
+    {
+        $res = $this->client->postWithToken('/admin/theme', ['theme' => 'dark', 'back' => '/admin']);
+        $cookie = $res->headers['Set-Cookie'] ?? '';
+        $this->assertStringContainsString('Path=/admin', $cookie); // any Path=/ cookie makes every request cache-personal
+        $this->assertStringNotContainsString('Path=;', $cookie);
+    }
+
+    public function test_theme_round_trip_renders_data_theme_without_planting_the_cookie(): void
+    {
+        // End-to-end: the POST's Set-Cookie must actually reach the next GET, so a
+        // renamed or re-attributed cookie cannot pass the whole suite silently.
+        $this->client->postWithToken('/admin/theme', ['theme' => 'dark', 'back' => '/admin']);
+        $this->assertStringContainsString('<html lang="en" data-theme="dark">', $this->client->get('/admin')->body);
+    }
+
     public function test_invalid_value_and_offsite_back_fall_back_safely(): void
     {
         $res = $this->client->postWithToken('/admin/theme', ['theme' => 'neon', 'back' => 'https://evil.example/']);
