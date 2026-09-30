@@ -84,6 +84,7 @@ final class AdminFlowTest extends TestCase
         $p2 = $this->client->get('/admin/browse/posts', ['page' => '2']);
         $this->assertSame(200, $p2->status);
         $this->assertStringContainsString('Post 1', $p2->body);      // boundary actually split
+        $this->assertStringContainsString('name="back" value="/admin/browse/posts?page=2"', $p2->body);
     }
 
     public function test_sessions_do_not_leak_across_requests_on_one_app(): void // worker-safety regression guard
@@ -121,5 +122,27 @@ final class AdminFlowTest extends TestCase
             'views' => dirname(__DIR__) . '/Fixtures/views',
         ]);
         $this->assertSame(404, (new TestClient($app))->get('/admin')->status);
+    }
+
+    public function test_frame_renders_identity_theme_and_current_table(): void
+    {
+        $res = $this->client->actingAs(1)->get('/admin/browse/posts');
+        $this->assertSame(200, $res->status);
+        $this->assertStringContainsString('Signed in as <strong>admin@x.com</strong>', $res->body);
+        $this->assertStringContainsString('action="/admin/theme"', $res->body);
+        $this->assertStringContainsString('name="back" value="/admin/browse/posts"', $res->body); // return path built by the frame
+        $this->assertStringContainsString('aria-current="page"', $res->body); // posts marked in the sidebar
+        $this->assertStringContainsString('<html lang="en">', $res->body);    // auto: attribute absent (the stylesheet itself mentions data-theme, so pin the tag)
+    }
+
+    public function test_forced_theme_renders_data_theme_on_html(): void
+    {
+        $client = $this->client->actingAs(1);
+        $client->cookie('kip_theme', 'dark');
+        $this->assertStringContainsString('<html lang="en" data-theme="dark">', $client->get('/admin')->body);
+        $client->cookie('kip_theme', 'light');
+        $this->assertStringContainsString('data-theme="light"', $client->get('/admin')->body);
+        $client->cookie('kip_theme', 'neon');
+        $this->assertStringContainsString('<html lang="en">', $client->get('/admin')->body); // garbage reads as auto
     }
 }

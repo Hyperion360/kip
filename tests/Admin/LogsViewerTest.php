@@ -92,7 +92,7 @@ final class LogsViewerTest extends TestCase
         $b = $body(['method' => 'POST']);
         $this->assertStringContainsString('422', $b);
         $this->assertStringNotContainsString('/posts', $b);
-        $this->assertStringNotContainsString('500', $b);
+        $this->assertStringNotContainsString('>500<', $b); // status cell only: a bare '500' also matches the frame CSS (font-weight:500)
 
         $b = $body(['status' => '5']);
         $this->assertStringContainsString('/api/orders', $b);
