@@ -249,6 +249,10 @@ textarea{min-height:8rem}
 .kip-filters > summary{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:50px;padding:0 16px;cursor:pointer;font-size:15px;font-weight:600;color:var(--kip-text);list-style:none}
 .kip-filters > summary::-webkit-details-marker{display:none}
 .kip-filters[open] > summary{border-bottom:1px solid var(--kip-line-soft)}
+/* the native marker is suppressed; on mobile the panel must still say it toggles.
+   Desktop hides the summary entirely when ::details-content pins the panel open. */
+.kip-filters > summary::after{content:'+';font-size:18px;line-height:1;font-weight:400;color:var(--kip-faint)}
+.kip-filters[open] > summary::after{content:'\2212'}
 .kip-filters-active{font-weight:500;font-size:13px;color:var(--kip-accent)}
 @supports selector(.kip-filters::details-content){
   @media (min-width:800px){
