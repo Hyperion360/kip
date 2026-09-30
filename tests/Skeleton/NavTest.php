@@ -58,4 +58,13 @@ final class NavTest extends TestCase
         $this->assertStringContainsString('Log out', $body);
         $this->assertStringNotContainsString('href="/admin"', $body);
     }
+
+    /** The home page points newcomers at the tutorial, the example app, and a full product built on Kip. */
+    public function test_home_links_the_tutorial_example_app_and_kiption(): void
+    {
+        $body = $this->client->get('/')->body;
+        $this->assertStringContainsString('https://github.com/Hyperion360/kip/blob/main/docs/tutorial.md', $body);
+        $this->assertStringContainsString('https://github.com/Hyperion360/kip/tree/main/examples/blog', $body);
+        $this->assertStringContainsString('https://github.com/Hyperion360/kiption', $body);
+    }
 }

@@ -6,7 +6,11 @@
   wired up (login, logout, throttling, CSRF) and nothing else opinionated.
 </p>
 <p>
-  Follow <code>docs/tutorial.md</code> to build your first feature on top of
-  this skeleton, or look at <code>examples/blog</code> for a complete
-  end-to-end app built the same way.
+  New to Kip? Follow the
+  <a href="https://github.com/Hyperion360/kip/blob/main/docs/tutorial.md" rel="noopener" target="_blank">tutorial</a>,
+  study the finished
+  <a href="https://github.com/Hyperion360/kip/tree/main/examples/blog" rel="noopener" target="_blank">example blog app</a>,
+  or see a full product built end to end on Kip:
+  <a href="https://github.com/Hyperion360/kiption" rel="noopener" target="_blank">Kiption</a>,
+  a self-hosted fiction archive.
 </p>
