@@ -174,6 +174,25 @@ try {
         ]), $config['app_dir'] . '/backups', 14, $s3))->run(date('Ymd-His'));
         echo "Backup written: {$result}\n";
     })(),
+    'cache:clear' => (function () use ($config) {
+        // Deploy-time cache invalidation (guide ch. 10): a page cached while
+        // public stays servable until its TTL even after #[Auth] is added to
+        // its route, because the cache answers before routing. Clearing on
+        // deploy closes that window. The cache database is disposable by
+        // contract; unlinking it (and its WAL sidecars) is the whole clear,
+        // recreated empty on the next request. No cache_db configured is a
+        // clean no-op with a note, not an error.
+        $dsn = $config['cache_db']['dsn'] ?? null;
+        if (!is_string($dsn) || !str_starts_with($dsn, 'sqlite:') || str_contains($dsn, ':memory:')) {
+            echo "No file-backed page cache configured; nothing to clear.\n";
+            return;
+        }
+        $file = substr($dsn, strlen('sqlite:'));
+        foreach ([$file, $file . '-wal', $file . '-shm'] as $f) {
+            if (is_file($f)) @unlink($f);
+        }
+        echo "Page cache cleared: {$file}\n";
+    })(),
     'queue:work' => (function () use ($config, $argv) {
         // The durable-jobs runner (Kip\Jobs, guide ch. 8). Any flag other than
         // --once is a usage error: a typo like --onces must never fall through
@@ -243,11 +262,28 @@ try {
         // keeps the feature form off, the same array_key_exists rule App uses.
         $appDir = $config['app_dir'] ?? '.';
         $ns = $config['controller_namespace'] ?? 'App\\Controllers\\';
-        if (!str_starts_with($ns, 'App\\')) {
-            throw new RuntimeException("controller_namespace {$ns} is not App\\-rooted; kip openapi maps App\\ namespaces onto app_dir/src (PSR-4)");
+        if (!is_string($ns) || !str_starts_with($ns, 'App\\')) {
+            throw new RuntimeException("controller_namespace {$ns} is not App\\-rooted; kip openapi maps App\\ namespaces through composer.json (PSR-4)");
         }
-        $rel = trim(str_replace('\\', '/', substr($ns, strlen('App\\'))), '/');
-        $sources = [$ns => $appDir . '/src' . ($rel !== '' ? '/' . $rel : '')];
+        // Same resolver as make:controller (the Composer rule, longest
+        // prefix): the inventory must scan where the autoloader actually
+        // loads controllers from, not a hardcoded app/src. An unmapped or
+        // ambiguously mapped namespace is a refusal, never a guess; without
+        // a composer.json the documented convention app_dir/src applies.
+        $composer = dirname(__DIR__) . '/composer.json';
+        if (is_file($composer)) {
+            $paths = Kip\Scaffold::autoloadPaths($composer, $ns . 'Placement');
+            if (count($paths) > 1) {
+                throw new RuntimeException("composer.json maps {$ns} to more than one directory; kip openapi refuses to guess. Disambiguate the psr-4 mapping.");
+            }
+            if ($paths === []) {
+                throw new RuntimeException("composer.json maps no psr-4 prefix covering {$ns}; fix autoload before generating the API inventory.");
+            }
+            $sources = [$ns => dirname($paths[0])];
+        } else {
+            $rel = trim(str_replace('\\', '/', substr($ns, strlen('App\\'))), '/');
+            $sources = [$ns => $appDir . '/src' . ($rel !== '' ? '/' . $rel : '')];
+        }
         if (($config['admin']['enabled'] ?? false) && isset($config['db']['dsn'])) {
             $sources['Kip\\Admin\\Controllers\\'] = dirname((new ReflectionClass(Kip\Admin\Controllers\AdminController::class))->getFileName());
         }
@@ -404,7 +440,7 @@ try {
         );
         echo "Artifact ready: {$artifact}\n";
     })(),
-    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]|build]\n"),
+    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]|cache:clear|build]\n"),
     };
 } catch (\Throwable $e) {
     // A failed deploy needs a stated failure, not a stack trace on stdout.

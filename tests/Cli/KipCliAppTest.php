@@ -403,6 +403,60 @@ final class KipCliAppTest extends TestCase
             '<?php namespace App\Controllers; final class PostsController { public function index(): array { return []; } public function show(string $id): array { return []; } }');
     }
 
+
+    /** kip openapi must scan where composer's psr-4 actually maps App\, not a hardcoded app/src (closing-pass finding). */
+    public function test_openapi_reads_the_composer_psr4_mapping(): void
+    {
+        mkdir($this->cliApp . '/app/code/Controllers', 0777, true);
+        file_put_contents($this->cliApp . '/composer.json', json_encode(
+            ['autoload' => ['psr-4' => ['App\\' => 'app/code/']]], JSON_UNESCAPED_SLASHES
+        ));
+        file_put_contents($this->cliApp . '/app/code/Controllers/PostsController.php',
+            '<?php namespace App\Controllers; final class PostsController { public function index(): array { return []; } }');
+        [$out, $code] = $this->cli(['openapi']);
+        $this->assertSame(0, $code, $out);
+        $doc = json_decode((string) file_get_contents($this->cliApp . '/openapi.json'), true);
+        $this->assertArrayHasKey('/posts', $doc['paths'], 'the inventory must come from the psr-4 mapped directory');
+    }
+
+    public function test_openapi_refuses_a_mapping_that_covers_nothing(): void
+    {
+        file_put_contents($this->cliApp . '/composer.json',
+            '{"autoload": {"psr-4": {"Other\\": "src/"}}}');
+        [$out, $code] = $this->cli(['openapi']);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringStartsWith('kip: ', $out);
+        $this->assertStringContainsString('no psr-4 prefix covering', $out);
+    }
+
+    /** kip cache:clear removes the file-backed page cache and its WAL sidecars. */
+    public function test_cache_clear_removes_the_page_cache_files(): void
+    {
+        $file = $this->cliApp . '/app/cache.sqlite';
+        touch($file);
+        touch($file . '-wal');
+        [$out, $code] = $this->cli(['cache:clear']);
+        $this->assertSame(0, $code, $out);
+        $this->assertStringContainsString('Page cache cleared', $out);
+        $this->assertFileDoesNotExist($file);
+        $this->assertFileDoesNotExist($file . '-wal');
+    }
+
+    public function test_cache_clear_without_a_file_backed_cache_is_a_clean_no_op(): void
+    {
+        $config = $this->cliApp . '/config.php';
+        // Single-quoted needle: $dataDir must stay literal (the config's own
+        // variable), not interpolate here.
+        file_put_contents($config, str_replace(
+            '$dataDir . \'/cache.sqlite\'',
+            "':memory:'",
+            (string) file_get_contents($config)
+        ));
+        [$out, $code] = $this->cli(['cache:clear']);
+        $this->assertSame(0, $code, $out);
+        $this->assertStringContainsString('nothing to clear', $out);
+    }
+
     /** kip openapi: the document lands at the app root by default, assembled from the app's own conventions. */
     public function test_openapi_writes_the_document_from_app_conventions(): void
     {
