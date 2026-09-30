@@ -63,6 +63,7 @@ body{background:var(--kip-bg);color:var(--kip-text);font:16px/1.6 system-ui,-app
 a{color:var(--kip-accent);text-decoration:none}
 a:hover{color:var(--kip-accent-hover)}
 :focus-visible{outline:2px solid var(--kip-accent);outline-offset:2px}
+::selection{background:var(--kip-accent-soft)} /* theme the browser surface, not just the page */
 code{font-family:var(--kip-mono);font-size:.92em}
 .kip-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 
@@ -174,7 +175,7 @@ tbody tr:last-child td{border-bottom:0}
 .kip-dim{color:var(--kip-body)}
 .kip-strong{font-weight:500}
 .kip-right{text-align:right}
-.kip-nodata{color:var(--kip-faintest)}
+.kip-nodata{color:var(--kip-faint)} /* informational (a NULL placeholder), so AA on panel and head surfaces; the disabled pager keeps --kip-faintest, which 1.4.3 exempts */
 .kip-empty{margin:0;padding:32px 24px;color:var(--kip-faint);text-align:center}
 .kip-rowactions{white-space:nowrap;text-align:right}
 .kip-edit{padding:6px 10px;color:var(--kip-accent);font-weight:500}
@@ -189,7 +190,7 @@ tbody tr:last-child td{border-bottom:0}
 
 .kip-pager{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;font-size:14px;color:var(--kip-faint)}
 .kip-pager-group{display:flex;gap:8px}
-.kip-pager-link{padding:9px 14px;border:1px solid var(--kip-btn-line);background:var(--kip-panel);color:var(--kip-text);font-weight:500}
+.kip-pager-link{display:inline-flex;align-items:center;min-height:44px;padding:9px 14px;border:1px solid var(--kip-btn-line);background:var(--kip-panel);color:var(--kip-text);font-weight:500}
 .kip-pager-link:hover{border-color:var(--kip-accent);color:var(--kip-accent)}
 .kip-pager-link[aria-disabled="true"]{border-color:var(--kip-line);color:var(--kip-faintest);pointer-events:none}
 .kip-text-link{padding:9px 14px;color:var(--kip-accent);font-weight:500}
