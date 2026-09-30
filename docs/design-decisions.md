@@ -82,9 +82,11 @@ migrations as the feature, not the gap.
 ## No bundled CSS or JS frameworks, no build step
 
 No Tailwind, no npm, nothing to compile. The admin panel styles itself
-with a small inline classless stylesheet. Semantic HTML that looks
-acceptable with zero classes to learn. Users who want a CSS framework add
-one themselves; Kip never ships or depends on one.
+with a small inline stylesheet: a narrow set of `kip-`-prefixed classes
+over semantic HTML, square corners, system font stacks, light and dark
+without JavaScript. Below 800px the same markup restyles: the sidebar
+becomes a top bar and tables become cards, all CSS. Users who want a CSS
+framework add one themselves; Kip never ships or depends on one.
 
 ## Batteries where the design space agrees, delegation where it doesn't
 

@@ -5,8 +5,10 @@ every user table gets a browser, a create form, an edit form, and a
 delete button, no code generation, nothing configured per table. The
 panel reads the live SQLite schema (`sqlite_master` for the table
 list, `PRAGMA table_info` for columns) and derives the rest from
-conventions. There is no JavaScript: 9 plain-PHP templates plusone inline classless stylesheet (`src/Admin/views/layout.php`), and
-no build step.
+conventions. There is no JavaScript: 9 plain-PHP templates and one inline stylesheet
+(`src/Admin/views/layout.php`), and no build step. Light and dark themes
+and the sub-800px layout are CSS; the only state the browser holds is a
+`kip_theme` cookie.
 
 ## Enabling it
 
@@ -50,6 +52,7 @@ password and the prompt hides input ([chapter 8](08-cli.md)).
 | `/admin/update/<table>/<rowid>` | POST | update, redirect to browse |
 | `/admin/delete/<table>/<rowid>` | POST | delete, redirect to browse |
 | `/admin/logs` | GET | audit-log viewer, filters + cursor paging, read only |
+| `/admin/theme` | POST | set the appearance cookie (`light`/`dark`, `auto` clears it), redirect back |
 
 Rows are addressed by SQLite **rowid**, never by primary-key value. An
 email PK (`a@b.com`) could never survive the router's `[a-z0-9_-]`
@@ -116,7 +119,7 @@ with a UNIQUE violation and exits 1; it cannot re-promote one.
 
 `/admin/logs` is a read-only viewer over the audit log
 ([chapter 9](09-audit-log.md)). Same gate as the rest of the panel
-(`#[Auth]` plus `deny()`, an admin session only), same classless styling,
+(`#[Auth]` plus `deny()`, an admin session only), the same styling,
 and one SELECT per view against `logs.sqlite`, never against your content
 database. The panel header links to it from every page.
 
@@ -218,6 +221,44 @@ column of any table through a subquery or a UNION, including
 `password_hash`, which would break that same contract. The panel
 gets a fixed filter; ad-hoc SQL belongs to `kip db` on the shell,
 where the operator already owns the machine.
+
+## Appearance and responsive layout
+
+The panel ships three appearance modes. **Auto** (the default) follows the
+operating system through `prefers-color-scheme`, which is pure CSS. **Light**
+and **Dark** are submit buttons in a small POST form in the sidebar: they
+target `POST /admin/theme`, which sets a `kip_theme` cookie
+(`Path=/; SameSite=Lax`, one year) and redirects back to the page that
+posted. The next render puts `data-theme="light"` or `data-theme="dark"`
+on `<html>`; with no cookie (or an unknown value, which reads as auto) the
+attribute is absent and the media query decides. `auto` clears the cookie
+with `Max-Age=0`. The endpoint validates both inputs: the theme must be one
+of the three words, and the return path must start with `/admin`, so the
+form cannot be aimed at another site.
+
+Below 800px the sidebar becomes a 56px top bar. The table list, the theme
+switcher, and the signed-in identity move into a menu that opens over the
+page; the menu and the two filter panels (logs, data view) are native
+`<details>` disclosures, closed or opened by the server (`open` renders
+when a filter is active) and toggled by the user. On desktop,
+`::details-content` support is detected with `@supports` and the panels
+are pinned open with their summary hidden; engines without it keep the
+summary as a working toggle, so the panel is always reachable. Data
+tables keep their real `<table>` markup and
+restyle into cards with `display:block`; each cell carries a `data-label`
+attribute so CSS can show the column name next to the value. Tap targets
+are at least 44px and form inputs render at 16px on small screens so iOS
+Safari does not zoom.
+
+The sidebar's per-table row counts now run on every admin page. That is
+the same query pattern the tables home has always used (one catalog read,
+one indexed COUNT per table), on an authenticated admin-only surface; the
+one-query budget in [chapter 15](15-performance-contract.md) governs app
+pages, and nothing in the panel is page-cached. On the SQL browser pages
+the counts are sidebar chrome over the content database; the browser's
+own data surface still reads only through the read-only handle. `deny()`
+reuses its single gate query to also fetch the signed-in email, so the
+identity line costs nothing extra.
 
 ## How it works
 

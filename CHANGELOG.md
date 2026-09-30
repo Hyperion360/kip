@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.4.0
+The admin panel ships a full visual redesign of its nine views: a warm,
+square-cornered design system on CSS custom properties, light and dark
+themes without JavaScript (a `kip_theme` cookie set by a new
+`POST /admin/theme`, which validates the theme word and the return path),
+and a responsive sub-800px layout where the sidebar becomes a top bar,
+menus and filters open through CSS only, and data tables restyle into
+labeled cards. Routes, guard model, and field conventions are unchanged.
 kip openapi resolves controller source directories through the app composer.json psr-4 mapping (the make: resolver), refusing unmapped or ambiguous namespaces instead of scanning a hardcoded app/src; without a composer.json the documented convention applies.
 New `kip cache:clear` deletes the file-backed page cache and its WAL sidecars, and the deployment chapter adds the matching rule: clear on every deploy, because a page cached while public stays servable until its TTL even after auth is added to its route.
 `kip build` assembles, compiles, and smoke-verifies a single-file server artifact of the app, manually and locally: the prepare step stages a copy with `composer install --no-dev`, rewrites path repositories to absolute materialized copies, prunes tests/docs/.git from vendor, and ends with a shipped-inventory assertion that refuses a partial artifact by name (app/Features missing means feature migrations would be silently skipped while migrate reports success); the compile step is a native script on Linux with no Docker, and the official builder image through a feature-detected Docker daemon elsewhere (no daemon: both alternatives printed, exit 1, nothing built); the smoke step boots the artifact on a port from 8093 up, requires 200 from a known route, and runs migrate through the artifact against a scratch data directory. Nothing automatic ever invokes it and no app needs it to deploy.
