@@ -95,6 +95,8 @@ code{font-family:var(--kip-mono);font-size:.92em}
   .kip-sidebar > summary{position:fixed;top:6px;right:12px;z-index:30}
   .kip-sidebar[open]{position:fixed;inset:56px 0 0 0;background:var(--kip-side);padding:20px 16px;overflow:auto;z-index:30;flex-direction:column;gap:24px}
   .kip-sidebar[open]::details-content{display:contents}
+  /* the top bar already brands the overlay; the sidebar's own brand would double it */
+  .kip-sidebar[open] > .kip-brand{display:none}
 }
 .kip-nav{display:flex;flex-direction:column;gap:2px}
 .kip-nav-title{margin:0 0 6px;padding:0 10px;font-size:11px;font-weight:400;letter-spacing:.1em;text-transform:uppercase;color:var(--kip-faint)}
