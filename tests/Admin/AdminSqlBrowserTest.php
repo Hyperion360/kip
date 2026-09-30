@@ -179,4 +179,11 @@ final class AdminSqlBrowserTest extends TestCase
             $this->assertStringContainsString('file-backed SQLite', $res->body, $url);
         }
     }
+
+    public function test_sql_browser_renders_schema_and_data_links_per_table(): void
+    {
+        $res = $this->client->get('/admin/sql');
+        $this->assertStringContainsString('href="/admin/schema/users"', $res->body);
+        $this->assertStringContainsString('>Data</a>', $res->body);
+    }
 }

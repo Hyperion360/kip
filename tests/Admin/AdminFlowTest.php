@@ -145,4 +145,12 @@ final class AdminFlowTest extends TestCase
         $client->cookie('kip_theme', 'neon');
         $this->assertStringContainsString('<html lang="en">', $client->get('/admin')->body); // garbage reads as auto
     }
+
+    public function test_tables_home_renders_cards_and_callout(): void
+    {
+        $res = $this->client->actingAs(1)->get('/admin');
+        $this->assertStringContainsString('href="/admin/create/posts"', $res->body);
+        $this->assertStringContainsString('href="/admin/sql"', $res->body);
+        $this->assertStringContainsString('read-only', $res->body); // the callout states the contract
+    }
 }
