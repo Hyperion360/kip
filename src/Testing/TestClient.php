@@ -17,6 +17,8 @@ final class TestClient
 {
     /** @var array<string, mixed> */
     private array $store = [];
+    /** @var array<string, string> cookies this client presents on every request (theme preference, consent flags) */
+    private array $cookies = [];
     public readonly Session $session;
 
     public function __construct(private App $app)
@@ -59,6 +61,12 @@ final class TestClient
         return $this->request('POST', $path, [], [], $headers + ['content-type' => 'application/json'], [], $body);
     }
 
+    /** Present a cookie on every subsequent request, like a browser that received one. */
+    public function cookie(string $name, string $value): void
+    {
+        $this->cookies[$name] = $value;
+    }
+
     /**
      * @param array<array-key, mixed> $get
      * @param array<array-key, mixed> $post
@@ -69,9 +77,10 @@ final class TestClient
     {
         // A client whose session holds state sends a cookie, like a real browser.
         // This keeps the page cache honest: fresh clients are cookieless guests
-        // (cacheable), stateful clients are BYPASS.
+        // (cacheable), stateful clients are BYPASS. Explicitly presented cookies
+        // ride along either way.
         $cookies = $this->store === [] ? [] : ['kip_test_session' => '1'];
-        $response = $this->app->handle(new Request($method, $path, $get, $post, $cookies, '127.0.0.1', $headers, $files, $body), $this->session);
+        $response = $this->app->handle(new Request($method, $path, $get, $post, $this->cookies + $cookies, '127.0.0.1', $headers, $files, $body), $this->session);
         $this->app->runDeferred(); // as the front controller does after send()
         return $response;
     }
