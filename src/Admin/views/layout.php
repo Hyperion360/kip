@@ -277,7 +277,7 @@ textarea{min-height:8rem}
 @media (max-width:799px){.kip-schema-grid{grid-template-columns:1fr}}
 .kip-colname{font-family:var(--kip-mono);font-size:13px;font-weight:600}
 .kip-pk{margin-left:6px;padding:1px 7px;background:var(--kip-btn);color:#fff;font-family:system-ui,sans-serif;font-size:11px;font-weight:600}
-.kip-create{margin:0;display:flex;flex-direction:column;gap:10px}
+.kip-create{margin:0;display:flex;flex-direction:column;gap:10px;min-width:0} /* min-width:0: the pre's longest line must not set the grid track's min-content width, or mobile overflows */
 .kip-create figcaption{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--kip-faint)}
 .kip-create pre{margin:0;padding:22px 24px;background:var(--kip-code-bg);color:var(--kip-code-text);font-family:var(--kip-mono);font-size:13px;line-height:1.75;overflow:auto;white-space:pre}
 .kip-sql-t{color:var(--kip-code-type)}
