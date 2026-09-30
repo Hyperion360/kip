@@ -9,7 +9,6 @@ use Kip\App;
 use Kip\Database;
 use Kip\Http\Request;
 use Kip\Http\Response;
-use Kip\Migrations\Migrator;
 use Kip\RequestLog;
 use Kip\Routing\Auth;
 use Kip\Routing\Post;
@@ -22,6 +21,7 @@ final class AdminController
     private const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
     private View $view;
     private Schema $schema;
+    private string $adminEmail = '';
 
     public function __construct(private Database $db, private Session $session, private Request $request, private App $app)
     {
@@ -41,13 +41,80 @@ final class AdminController
     private function deny(?string $table = null): ?Response
     {
         try {
-            $row = $this->db->one('SELECT is_admin FROM users WHERE id = ?', [$this->session->get('user_id')]);
+            $row = $this->db->one('SELECT is_admin, email FROM users WHERE id = ?', [$this->session->get('user_id')]);
         } catch (\PDOException) {
-            return new Response('Admin requires a users table with an is_admin column: see the admin guide chapter.', 403);
+            // An email-less users table (or a genuinely missing table/column) falls
+            // back to the minimal gate query; only its failure denies. The broad
+            // catch is inherited from the original gate: a real database failure
+            // denies with the same message, it never passes.
+            try {
+                $row = $this->db->one('SELECT is_admin FROM users WHERE id = ?', [$this->session->get('user_id')]);
+            } catch (\PDOException) {
+                return new Response('Admin requires a users table with an is_admin column: see the admin guide chapter.', 403);
+            }
         }
         if ((int) ($row['is_admin'] ?? 0) !== 1) return new Response('Forbidden', 403);
+        $this->adminEmail = (string) ($row['email'] ?? '');
         if ($table !== null && !$this->schema->has($table)) return new Response('Unknown table', 404);
         return null;
+    }
+
+    /**
+     * Render an admin view with the frame every page shares: sidebar tables,
+     * signed-in identity, theme, CSRF token, return path. Actions pass only
+     * what is theirs. activeTable comes from the action's own 'table' key so
+     * the sidebar can mark the current table; inspect marks SQL browser / log.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function render(string $template, array $data = []): string
+    {
+        $tables = [];
+        foreach ($this->schema->tables() as $t) {
+            $tables[$t] = $this->schema->count($t);
+        }
+        $back = $this->request->path;
+        if ($this->request->get !== []) $back .= '?' . http_build_query($this->request->get);
+        return $this->view->render($template, $data + [
+            'tables' => $tables,
+            'email' => $this->adminEmail,
+            'theme' => $this->currentTheme(),
+            'csrf' => $this->session->csrfToken(),
+            'back' => $back,
+            'activeTable' => $data['table'] ?? null,
+            'inspect' => $data['inspect'] ?? '',
+            'perPage' => self::PER_PAGE,
+        ]);
+    }
+
+    /** '' = follow the OS (prefers-color-scheme); anything else is a forced theme. */
+    private function currentTheme(): string
+    {
+        $v = $this->request->cookies['kip_theme'] ?? null;
+        return in_array($v, ['light', 'dark'], true) ? $v : '';
+    }
+
+    /**
+     * Zero-JS appearance switch: the sidebar's three submit buttons land here,
+     * the answer is a cookie plus a redirect back to the page that posted.
+     * back is a path whitelist, not an open redirect: it must start with /admin,
+     * and CR/LF/backslash fall back (Response rejects header injection anyway).
+     */
+    #[Auth] #[Post]
+    public function theme(): Response
+    {
+        if ($r = $this->deny()) return $r;
+        $value = $this->request->postStr('theme');
+        if (!in_array($value, ['auto', 'light', 'dark'], true)) $value = 'auto';
+        $back = $this->request->postStr('back');
+        // /admin exactly, or /admin/... : a strict prefix would bless /administrator,
+        // and this keeps the redirect inside the panel's own URL space. Same-origin
+        // is guaranteed by the leading slash either way; this is tidiness plus defense.
+        if (preg_match('#^/admin(/|$)#', $back) !== 1 || preg_match('/[\r\n\\\\]/', $back) === 1) $back = '/admin';
+        $cookie = $value === 'auto'
+            ? 'kip_theme=; Path=/; Max-Age=0; SameSite=Lax'
+            : 'kip_theme=' . $value . '; Path=/; Max-Age=31536000; SameSite=Lax';
+        return new Response('', 302, ['Location' => $back, 'Set-Cookie' => $cookie]);
     }
 
     /**
@@ -65,11 +132,7 @@ final class AdminController
     public function index(): Response|string
     {
         if ($r = $this->deny()) return $r;
-        $tables = [];
-        foreach ($this->schema->tables() as $t) {
-            $tables[$t] = $this->schema->count($t);
-        }
-        return $this->view->render('index', ['tables' => $tables, 'title' => 'Tables']);
+        return $this->render('index', ['title' => 'Tables']);
     }
 
     #[Auth]
@@ -82,13 +145,13 @@ final class AdminController
             [self::PER_PAGE + 1, ($page - 1) * self::PER_PAGE]
         );
         $hasNext = count($rows) > self::PER_PAGE;
-        return $this->view->render('browse', [
+        return $this->render('browse', [
             'table' => $table,
             'columns' => $this->schema->columns($table),
             'rows' => array_slice($rows, 0, self::PER_PAGE),
             'page' => $page,
             'hasNext' => $hasNext,
-            'csrf' => $this->session->csrfToken(),
+            'total' => $this->schema->count($table),
             'title' => "Browse {$table}",
         ]);
     }
@@ -115,14 +178,11 @@ final class AdminController
     public function sql(): Response|string
     {
         if ($r = $this->deny()) return $r;
-        $ro = $this->browser();
-        if ($ro === null) return self::needsFileBackedDb();
-        $tables = [];
-        // The panel view of the world: the migration ledger is machinery, not content.
-        foreach (array_diff($ro->tables(), [Migrator::LEDGER_TABLE]) as $t) {
-            $tables[$t] = $ro->count($t);
-        }
-        return $this->view->render('sql', ['tables' => $tables, 'title' => 'SQL browser']);
+        if ($this->browser() === null) return self::needsFileBackedDb();
+        // The frame's Schema list is the same membership the browser would list
+        // (ledger excluded on both sides), so the home page reuses it instead of
+        // counting every table twice.
+        return $this->render('sql', ['title' => 'SQL browser', 'inspect' => 'sql']);
     }
 
     #[Auth]
@@ -131,12 +191,13 @@ final class AdminController
         if ($r = $this->deny($table)) return $r;
         $ro = $this->browser();
         if ($ro === null) return self::needsFileBackedDb();
-        return $this->view->render('schema', [
+        return $this->render('schema', [
             'table' => $table,
             'columns' => $ro->columns($table),
             'create' => $ro->createSql($table),
             'count' => $ro->count($table),
             'title' => "Schema {$table}",
+            'inspect' => 'sql',
         ]);
     }
 
@@ -162,7 +223,7 @@ final class AdminController
             $ro->columns($table),
             static fn(array $c): bool => $c['name'] !== 'password_hash'
         ));
-        return $this->view->render('data', [
+        return $this->render('data', [
             'table' => $table,
             'columns' => $ro->columns($table),
             'rows' => array_slice($rows, 0, self::PER_PAGE),
@@ -174,6 +235,7 @@ final class AdminController
             'filterColumns' => $filterColumns,
             'operators' => ReadOnlyConnection::OPERATORS,
             'title' => "Data {$table}",
+            'inspect' => 'sql',
         ]);
     }
 
@@ -182,10 +244,11 @@ final class AdminController
     public function confirmdelete(string $table, string $rid): Response|string
     {
         if ($r = $this->deny($table)) return $r;
-        if ($this->row($table, $rid) === null) return new Response('Row not found', 404);
-        return $this->view->render('confirm', [
+        $row = $this->row($table, $rid);
+        if ($row === null) return new Response('Row not found', 404);
+        return $this->render('confirm', [
             'table' => $table, 'rid' => $rid,
-            'csrf' => $this->session->csrfToken(),
+            'preview' => $this->rowPreview($table, $row),
             'title' => "Delete {$table} row {$rid}?",
         ]);
     }
@@ -194,10 +257,10 @@ final class AdminController
     public function create(string $table): Response|string
     {
         if ($r = $this->deny($table)) return $r;
-        return $this->view->render('form', [
+        return $this->render('form', [
             'table' => $table, 'record' => [], 'columns' => $this->editable($table),
             'action' => "/admin/store/{$table}", 'title' => "New {$table} row",
-            'csrf' => $this->session->csrfToken(),
+            'creating' => true,
         ]);
     }
 
@@ -221,10 +284,10 @@ final class AdminController
         if ($r = $this->deny($table)) return $r;
         $record = $this->row($table, $rid);
         if ($record === null) return new Response('Row not found', 404);
-        return $this->view->render('form', [
+        return $this->render('form', [
             'table' => $table, 'record' => $record, 'columns' => $this->editable($table),
             'action' => "/admin/update/{$table}/{$rid}", 'title' => "Edit {$table} row {$rid}",
-            'csrf' => $this->session->csrfToken(),
+            'creating' => false,
         ]);
     }
 
@@ -293,7 +356,7 @@ final class AdminController
         $isAfter = isset($f['after']);
         $first = $shown === [] ? null : (int) $shown[count($shown) - 1]['id'];
         $last = $shown === [] ? null : (int) $shown[0]['id'];
-        return $this->view->render('logs', [
+        return $this->render('logs', [
             'rows' => $shown,
             'title' => 'Requests',
             'filters' => [
@@ -308,6 +371,7 @@ final class AdminController
                 'prev' => $shown !== [] && ($isAfter ? $beyond : isset($f['before'])) ? $url(['after' => (string) $last]) : null,
                 'newest' => ($isAfter || isset($f['before']) || $shown === []) ? $url([]) : null,
             ],
+            'inspect' => 'logs',
         ]);
     }
 
@@ -362,6 +426,27 @@ final class AdminController
                 && !str_ends_with($c['name'], '_at')
                 && strtoupper((string) $c['type']) !== 'BLOB';
         }));
+    }
+
+    /**
+     * The confirm page's dl: the row's first three human-meaningful columns,
+     * the ones the panel never edits (pk, password, BLOB) excluded. Values are
+     * display strings; null stays null so the view can render its em dash.
+     *
+     * @param array<array-key, mixed> $row
+     * @return list<array{label:string,value:?string}>
+     */
+    private function rowPreview(string $table, array $row): array
+    {
+        $out = [];
+        foreach ($this->schema->columns($table) as $c) {
+            $name = (string) $c['name'];
+            if ((int) $c['pk'] === 1 || $name === 'password_hash' || strtoupper((string) $c['type']) === 'BLOB') continue;
+            if (!array_key_exists($name, $row)) continue;
+            $out[] = ['label' => $name, 'value' => $row[$name] === null ? null : (string) $row[$name]];
+            if (count($out) === 3) break;
+        }
+        return $out;
     }
 
     /**
