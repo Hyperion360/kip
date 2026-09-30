@@ -107,10 +107,12 @@ final class AdminController
         $value = $this->request->postStr('theme');
         if (!in_array($value, ['auto', 'light', 'dark'], true)) $value = 'auto';
         $back = $this->request->postStr('back');
-        // /admin exactly, or /admin/... : a strict prefix would bless /administrator,
+        // /admin exactly (with or without a query string), or /admin/... : the
+        // alternation must bless "?", or a back value like /admin?status=2 loses
+        // its query to the fallback. A strict prefix would bless /administrator,
         // and this keeps the redirect inside the panel's own URL space. Same-origin
         // is guaranteed by the leading slash either way; this is tidiness plus defense.
-        if (preg_match('#^/admin(/|$)#', $back) !== 1 || preg_match('/[\r\n\\\\]/', $back) === 1) $back = '/admin';
+        if (preg_match('#^/admin(/|\?|$)#', $back) !== 1 || preg_match('/[\r\n\\\\]/', $back) === 1) $back = '/admin';
         $cookie = $value === 'auto'
             ? 'kip_theme=; Path=/; Max-Age=0; SameSite=Lax'
             : 'kip_theme=' . $value . '; Path=/; Max-Age=31536000; SameSite=Lax';

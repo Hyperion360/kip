@@ -47,6 +47,13 @@ final class AdminThemeTest extends TestCase
         $this->assertStringContainsString('Max-Age=0', $res->headers['Set-Cookie'] ?? '');
     }
 
+    public function test_back_query_string_on_the_bare_admin_path_is_preserved(): void
+    {
+        $res = $this->client->postWithToken('/admin/theme', ['theme' => 'dark', 'back' => '/admin?qa=themeprobe']);
+        $this->assertSame(302, $res->status);
+        $this->assertSame('/admin?qa=themeprobe', $res->headers['Location'] ?? null);
+    }
+
     public function test_invalid_value_and_offsite_back_fall_back_safely(): void
     {
         $res = $this->client->postWithToken('/admin/theme', ['theme' => 'neon', 'back' => 'https://evil.example/']);
