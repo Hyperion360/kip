@@ -186,4 +186,24 @@ final class AdminSqlBrowserTest extends TestCase
         $this->assertStringContainsString('href="/admin/schema/users"', $res->body);
         $this->assertStringContainsString('>Data</a>', $res->body);
     }
+
+    public function test_schema_view_has_tabs_pk_badge_and_keeps_create_readable(): void
+    {
+        $res = $this->client->get('/admin/schema/posts');
+        $this->assertStringContainsString('CREATE TABLE posts', $res->body); // highlighted types must not break the statement
+        $this->assertStringContainsString('kip-sql-t', $res->body);          // type tokens are colored
+        $this->assertStringContainsString('>PK</span>', $res->body);
+        $this->assertStringContainsString('aria-current="page">Schema</a>', $res->body);
+        $this->assertStringContainsString('Edit rows', $res->body);
+    }
+
+    public function test_data_view_opens_filter_disclosure_when_active(): void
+    {
+        $plain = $this->client->get('/admin/data/posts');
+        $this->assertStringContainsString('<details class="kip-filters">', $plain->body);
+        $this->assertStringNotContainsString('class="kip-filters" open', $plain->body);
+        $filtered = $this->client->get('/admin/data/posts', ['col' => 'title', 'op' => 'LIKE', 'val' => 'A%']);
+        $this->assertStringContainsString('<details class="kip-filters" open>', $filtered->body);
+        $this->assertStringContainsString('title LIKE', $filtered->body); // active-filter summary
+    }
 }
