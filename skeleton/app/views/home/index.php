@@ -10,9 +10,3 @@
   this skeleton, or look at <code>examples/blog</code> for a complete
   end-to-end app built the same way.
 </p>
-<?php if ($loggedIn): ?>
-<form method="post" action="/auth/logout">
-  <input type="hidden" name="_token" value="<?= $this->e($csrf) ?>">
-  <button>Log out</button>
-</form>
-<?php endif; ?>
