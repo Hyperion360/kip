@@ -153,4 +153,17 @@ final class AdminFlowTest extends TestCase
         $this->assertStringContainsString('href="/admin/sql"', $res->body);
         $this->assertStringContainsString('read-only', $res->body); // the callout states the contract
     }
+
+    public function test_browse_renders_yes_no_chips_and_page_of_total(): void
+    {
+        $this->db->query("INSERT INTO posts (title, body, created_at) VALUES ('Chip test', 'B', '2026-01-02')");
+        // The users fixture has no is_* column; posts has none either, so pin the
+        // chip through the users table which does.
+        $users = $this->client->actingAs(1)->get('/admin/browse/users');
+        $this->assertStringContainsString('>Yes</span>', $users->body);
+        $this->assertStringContainsString('>No</span>', $users->body);
+        $posts = $this->client->actingAs(1)->get('/admin/browse/posts');
+        $this->assertStringContainsString('Page 1 of 1', $posts->body);
+        $this->assertStringContainsString('aria-disabled="true"', $posts->body); // single page: both pager ends disabled
+    }
 }
