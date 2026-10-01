@@ -23,3 +23,6 @@ GEMINI.md
 .agents/
 .aider*
 .codex/
+
+# qa-full pipeline reports (workspace-private, like plans and QA notes)
+/qa-full-reports/
