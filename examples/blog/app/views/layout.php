@@ -36,7 +36,7 @@ $isPosts = !$isWrite && str_starts_with($path, '/posts');
   <main class="column<?= !empty($wide) ? ' column-wide' : '' ?><?= !empty($narrow) ? ' column-narrow' : '' ?>"><?= $content ?></main>
   <footer class="site-footer">
     <div class="footer-inner">
-      <span>My Blog · built with Kip</span>
+      <span>My Blog · <a href="https://github.com/Hyperion360/kip">Built with Kip</a></span>
       <?php if (!$isWrite): // submitting the switch reloads the page; never discard an unsaved draft ?>
       <form class="theme-switch" method="post" action="/theme" aria-label="Appearance">
         <input type="hidden" name="back" value="<?= $this->e($back) ?>">

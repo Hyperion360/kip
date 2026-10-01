@@ -638,6 +638,19 @@ a { color: var(--link); }
   color: var(--faint);
 }
 
+/* The credit link stays as quiet as the line it sits in: footer-colored with
+   a hairline underline, brightening to the accent only on hover. */
+.footer-inner a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.footer-inner a:hover {
+  color: var(--link);
+}
+
 .theme-switch { margin: 0; display: flex; border: 1px solid var(--border); }
 
 .theme-option {
