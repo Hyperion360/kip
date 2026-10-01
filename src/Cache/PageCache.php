@@ -81,9 +81,13 @@ final class PageCache
             // A noindexed page (an empty listing, say) must not consume cache rows:
             // junk URLs would otherwise each write one TTL-bounded row. The header
             // name is matched case-insensitively; the value only has to contain
-            // the directive (comma lists included). Cast, not trust: the
-            // array<string,string> docblock is a contract PHP does not enforce.
-            if (strcasecmp((string) $n, 'X-Robots-Tag') === 0 && stripos((string) $v, 'noindex') !== false) return;
+            // the directive (comma lists included). A list value (multi-value
+            // headers) is scanned per leaf: noindex in any leaf refuses the row.
+            // Cast, not trust: the docblock shape is a contract PHP does not enforce.
+            $leaves = is_array($v) ? $v : [$v];
+            foreach ($leaves as $leaf) {
+                if (strcasecmp((string) $n, 'X-Robots-Tag') === 0 && stripos((string) $leaf, 'noindex') !== false) return;
+            }
             // The cache key is path plus query string; a Vary header declares a
             // representation variance this key does not model, so the row is
             // refused rather than shared across the varied requests.
@@ -110,7 +114,8 @@ final class PageCache
         // tag replaced by the body hash (App::conditional scans the same way).
         $etag = null;
         foreach ($response->headers as $n => $v) {
-            if (strcasecmp((string) $n, 'ETag') === 0) { $etag = (string) $v; break; }
+            // A list ETag takes its first leaf: the validator column is one tag.
+            if (strcasecmp((string) $n, 'ETag') === 0) { $etag = (string) (is_array($v) ? ($v[0] ?? '') : $v); break; }
         }
         $etag ??= '"' . hash('sha256', $response->body) . '"';
         $defaults = Response::defaultHeaders();

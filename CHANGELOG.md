@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.4.0
+`Response` header values may now be a flat list of strings beside the single string (two `Set-Cookie` fields on one response is the first consumer): the constructor and `withHeader()` accept the list shape and still refuse nested arrays, non-string leaves, and CR/LF in any leaf at construction, where the rejection belongs; the new `withAddedHeader()` appends one value under the same name, an existing scalar becoming the list's first leaf; `send()` emits list leaves with `header()` in append mode so every leaf reaches the client; the page cache stores headers as JSON, which roundtrips lists unchanged, its X-Robots-Tag/Vary/ETag scans decide per leaf (a list ETag keeps its first leaf), and the Set-Cookie cache refusal was already name-based and stays that way; `TestClient`'s cookie jar absorbs every leaf of a list-valued Set-Cookie.
 The admin panel ships a full visual redesign of its nine views: a warm,
 square-cornered design system on CSS custom properties, light and dark
 themes without JavaScript (a `kip_theme` cookie set by a new
