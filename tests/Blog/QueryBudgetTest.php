@@ -7,6 +7,7 @@ use PHPUnit\Framework\TestCase;
 
 // The blog's own controller, loaded directly: no other test declares
 // App\Controllers\PostsController, so it cannot collide.
+require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Nav.php';
 require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Controllers/PostsController.php';
 
 /**

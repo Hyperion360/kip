@@ -5,18 +5,20 @@ use Kip\App;
 use Kip\Database;
 use Kip\Migrations\Migrator;
 use Kip\Testing\TestClient;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunClassInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 
-// The blog's own controllers, loaded directly: no other test declares
-// App\Controllers\HomeController or App\Controllers\AuthController, so they
-// cannot collide.
-require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Nav.php';
-require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Controllers/HomeController.php';
-require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Controllers/AuthController.php';
-
+// The blog's controllers share the App\Controllers namespace with the
+// skeleton's, and tests/Skeleton/NavTest.php requires those at file load in
+// the main PHPUnit process, so this file requires its controllers inside
+// setUp() and runs isolated.
+//
 // The blog nav must be session-aware: a logged-in admin gets the Admin link
 // and Log out, a plain user gets Log out without Admin, a guest gets Log in.
 // Mirrors tests/Skeleton/NavTest.php against the example app's controllers.
+#[RunClassInSeparateProcess]
+#[PreserveGlobalState(false)]
 final class NavTest extends TestCase
 {
     private App $app;
@@ -25,6 +27,10 @@ final class NavTest extends TestCase
 
     protected function setUp(): void
     {
+        require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Nav.php';
+        require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Controllers/HomeController.php';
+        require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Controllers/AuthController.php';
+        require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Controllers/PostsController.php';
         $blog = dirname(__DIR__, 2) . '/examples/blog';
         $this->app = new App([
             'env' => 'dev',
