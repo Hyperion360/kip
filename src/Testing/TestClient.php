@@ -87,22 +87,25 @@ final class TestClient
     }
 
     /** Store a response's Set-Cookie in the jar, so a set-then-read flow (the
-     *  admin theme switch) round-trips like a real browser. Only the first
-     *  cookie pair of the header is kept: framework responses carry one. */
+     *  admin theme switch) round-trips like a real browser. The header may be
+     *  a scalar or a flat list (multi-value Set-Cookie): every leaf is one
+     *  cookie, absorbed in order, so a later leaf of the same name wins. */
     private function absorbSetCookie(Response $response): void
     {
-        $header = $response->headers['Set-Cookie'] ?? null;
-        if (!is_string($header)) return;
-        $pair = substr($header, 0, (int) strcspn($header, ';'));
-        $eq = strpos($pair, '=');
-        if ($eq === false || $eq === 0) return;
-        $name = trim(substr($pair, 0, $eq));
-        $value = trim(substr($pair, $eq + 1));
-        if (stripos($header, 'Max-Age=0') !== false || $value === '') {
-            unset($this->cookies[$name]);
-            return;
+        $cookies = $response->headers['Set-Cookie'] ?? null;
+        $cookies = is_array($cookies) ? $cookies : ($cookies === null ? [] : [$cookies]);
+        foreach ($cookies as $header) {
+            $pair = substr($header, 0, (int) strcspn($header, ';'));
+            $eq = strpos($pair, '=');
+            if ($eq === false || $eq === 0) continue;
+            $name = trim(substr($pair, 0, $eq));
+            $value = trim(substr($pair, $eq + 1));
+            if (stripos($header, 'Max-Age=0') !== false || $value === '') {
+                unset($this->cookies[$name]);
+                continue;
+            }
+            $this->cookies[$name] = $value;
         }
-        $this->cookies[$name] = $value;
     }
 
     /** Log in without a password round-trip: seed the session like Auth::attempt() does,
