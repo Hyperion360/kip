@@ -9,10 +9,12 @@ use Kip\App;
 use Kip\Database;
 use Kip\Http\Request;
 use Kip\Http\Response;
+use Kip\Redirects;
 use Kip\RequestLog;
 use Kip\Routing\Auth;
 use Kip\Routing\Post;
 use Kip\Session;
+use Kip\Theme;
 use Kip\View;
 
 final class AdminController
@@ -90,8 +92,7 @@ final class AdminController
     /** '' = follow the OS (prefers-color-scheme); anything else is a forced theme. */
     private function currentTheme(): string
     {
-        $v = $this->request->cookies['kip_theme'] ?? null;
-        return in_array($v, ['light', 'dark'], true) ? $v : '';
+        return Theme::current($this->request, 'kip_theme', ['light', 'dark']) ?? '';
     }
 
     /**
@@ -111,12 +112,13 @@ final class AdminController
         // alternation must bless "?", or a back value like /admin?status=2 loses
         // its query to the fallback. A strict prefix would bless /administrator,
         // and dot segments would let /admin/../x normalize outside the panel's
-        // URL space, so both are rejected. Same-origin is guaranteed by the
-        // leading slash either way; this is tidiness plus defense.
-        if (preg_match('#^/admin(/|\?|$)#', $back) !== 1
-            || preg_match('/[\r\n\\\\]/', $back) === 1
-            || preg_match('#(?:^|/)\.\.(?:/|\?|$)#', $back) === 1) {
+        // URL space, so both are rejected. The prefix rule is the panel's own;
+        // the generic half (leading slash, CR/LF, backslash, dot segments) is
+        // Redirects::safeReturn's, shared with the blog's theme endpoint.
+        if (preg_match('#^/admin(/|\?|$)#', $back) !== 1) {
             $back = '/admin';
+        } else {
+            $back = Redirects::safeReturn($back, '/admin');
         }
         // Path=/ on both public and admin surfaces (Round 4): the theme applies
         // to every page of an app, so one cookie carries one preference. A
@@ -124,8 +126,8 @@ final class AdminController
         // BYPASS), which is correct: a visitor who picked light/dark renders
         // different HTML; auto deletes the cookie and restores caching.
         $cookie = $value === 'auto'
-            ? 'kip_theme=; Path=/; Max-Age=0; SameSite=Lax'
-            : 'kip_theme=' . $value . '; Path=/; Max-Age=31536000; SameSite=Lax';
+            ? Theme::clearCookie('kip_theme')
+            : Theme::cookie('kip_theme', $value);
         return new Response('', 302, ['Location' => $back, 'Set-Cookie' => $cookie]);
     }
 
