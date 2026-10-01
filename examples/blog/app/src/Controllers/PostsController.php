@@ -47,7 +47,7 @@ final class PostsController
     #[Auth]
     public function create(): string
     {
-        return $this->view->render('posts/edit', Nav::frame($this->session, $this->request, $this->db, 'New post') + ['post' => ['id' => null, 'title' => '', 'body' => ''], 'csrf' => $this->session->csrfToken()]);
+        return $this->view->render('posts/edit', Nav::frame($this->session, $this->request, $this->db, 'New post') + ['post' => ['id' => null, 'title' => '', 'body' => ''], 'csrf' => $this->session->csrfToken(), 'wide' => true]);
     }
 
     #[Auth] #[Post]
@@ -63,7 +63,7 @@ final class PostsController
     {
         $post = $this->db->one('SELECT * FROM posts WHERE id = ?', [$id]);
         if ($post === null) return new Response('Post not found', 404);
-        return $this->view->render('posts/edit', Nav::frame($this->session, $this->request, $this->db, 'Edit post') + ['post' => $post, 'csrf' => $this->session->csrfToken()]);
+        return $this->view->render('posts/edit', Nav::frame($this->session, $this->request, $this->db, 'Edit post') + ['post' => $post, 'csrf' => $this->session->csrfToken(), 'wide' => true]);
     }
 
     #[Auth] #[Post]
