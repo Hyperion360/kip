@@ -327,7 +327,10 @@ final class App
         // header etag, so a scan replaces the single-key lookup.
         $etag = null;
         foreach ($response->headers as $n => $v) {
-            if (strcasecmp((string) $n, 'ETag') === 0) { $etag = (string) $v; break; }
+            // A list ETag takes its first leaf, mirroring PageCache::store():
+            // the miss path and the stored/hit path must use the same validator
+            // (a bare cast would produce the string "Array" here).
+            if (strcasecmp((string) $n, 'ETag') === 0) { $etag = (string) (is_array($v) ? ($v[0] ?? '') : $v); break; }
         }
         $etag ??= '"' . hash('sha256', $response->body) . '"';
         // Canonicalize, not append: PHP array keys are case-sensitive, so

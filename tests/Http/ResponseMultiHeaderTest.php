@@ -73,4 +73,75 @@ final class ResponseMultiHeaderTest extends TestCase
         $this->assertNull($cache->get('/n', '')); // refused, and no TypeError
     }
 
+    // RFC 9110 5.1: field names are case-insensitive. The map key an app's
+    // spelling refers to must be found regardless of case, or two spellings
+    // of one field ride the same response.
+    public function test_with_header_replaces_under_the_existing_key_regardless_of_case(): void
+    {
+        $r = (new Response('x', 200, ['etag' => '"one"']))->withHeader('ETag', '"two"');
+        $this->assertSame('"two"', $r->headers['etag']); // the existing key's spelling
+        $this->assertArrayNotHasKey('ETag', $r->headers);
+    }
+
+    public function test_with_header_resolves_case_against_the_defaults_too(): void
+    {
+        // 'content-type' beside the default 'Content-Type' used to emit both.
+        $r = (new Response('x'))->withHeader('content-type', 'text/plain');
+        $this->assertSame('text/plain', $r->headers['Content-Type']);
+        $this->assertArrayNotHasKey('content-type', $r->headers);
+    }
+
+    public function test_with_added_header_appends_into_the_existing_key_regardless_of_case(): void
+    {
+        $r = (new Response('', 302, ['Set-Cookie' => 'a=1']))->withAddedHeader('set-cookie', 'b=2');
+        $this->assertSame(['a=1', 'b=2'], $r->headers['Set-Cookie']);
+        $this->assertArrayNotHasKey('set-cookie', $r->headers);
+    }
+
+    public function test_constructor_rejects_input_names_differing_only_by_case(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new Response('', 200, ['x-foo' => '1', 'X-Foo' => '2']);
+    }
+
+    public function test_constructor_rejects_an_input_name_colliding_with_a_default(): void
+    {
+        // Fail loud at the boundary, the assertHeaderSafe doctrine: an override
+        // must use the default's spelling, or the response carries both.
+        $this->expectException(\InvalidArgumentException::class);
+        new Response('', 200, ['content-type' => 'text/plain']);
+    }
+
+    public function test_exact_case_still_overrides_a_default(): void // the legal override path is unchanged
+    {
+        $r = new Response('ok', 200, ['Content-Type' => 'text/plain']);
+        $this->assertSame('text/plain', $r->headers['Content-Type']);
+    }
+
+    // RFC 9110 6.4.2/14.4: Location names exactly one target; a list would
+    // emit two redirect targets.
+    public function test_a_list_valued_location_is_rejected_at_construction(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new Response('', 302, ['Location' => ['/a', '/b']]);
+    }
+
+    public function test_a_lowercase_list_valued_location_is_rejected_too(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new Response('', 302, ['location' => ['/a', '/b']]);
+    }
+
+    public function test_with_header_rejects_a_list_valued_location(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        Response::redirect('/a')->withHeader('Location', ['/a', '/b']);
+    }
+
+    public function test_with_added_header_rejects_location(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        Response::redirect('/a')->withAddedHeader('Location', '/b');
+    }
+
 }
