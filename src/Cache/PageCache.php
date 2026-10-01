@@ -11,8 +11,11 @@ final class PageCache
 {
     public const DEFAULT_MAX_PAGES = 10000;
     /** Bumped whenever the rules deciding what may be stored change; rows written
-     *  under older rules are cleared once on first open (see the constructor). */
-    private const FORMAT_VERSION = 2;
+     *  under older rules are cleared once on first open (see the constructor).
+     *  3: the 0.4.0 Response hardening rejects case-colliding header maps, so a
+     *  legacy row carrying one (a lowercase content-type beside the default)
+     *  would fail the new constructor on every HIT; stale rows clear once. */
+    private const FORMAT_VERSION = 3;
 
     /** @param int $maxPages row cap: every distinct query string is its own row, so without one junk queries fill the disk */
     public function __construct(private Database $db, private int $ttlSeconds = 3600, private int $maxPages = self::DEFAULT_MAX_PAGES)

@@ -37,4 +37,42 @@ final class TestClientCookieTest extends TestCase
         $this->assertStringContainsString('ja=1', $res->body);
         $this->assertStringContainsString('jb=2', $res->body);
     }
+
+    public function test_jar_absorbs_a_lowercase_set_cookie_spelling(): void
+    {
+        // Field names are case-insensitive (RFC 9110 5.1): the jar scans for
+        // the name, not one exact spelling.
+        $client = new TestClient(self::fixtureApp());
+        $client->get('/lowercase-cookie');
+        $res = $client->get('/echo-cookies');
+        $this->assertStringContainsString('lc=1', $res->body);
+    }
+
+    public function test_a_cookie_value_containing_max_age_zero_text_survives(): void
+    {
+        // token=Max-Age=0; Path=/ is a cookie whose VALUE is that text, not a
+        // deletion: only a real Max-Age ATTRIBUTE equal to 0 deletes.
+        $client = new TestClient(self::fixtureApp());
+        $client->get('/value-looks-like-max-age');
+        $res = $client->get('/echo-cookies');
+        $this->assertStringContainsString('token=Max-Age=0', $res->body);
+    }
+
+    public function test_an_exact_max_age_zero_attribute_deletes_the_jar_entry(): void
+    {
+        $client = new TestClient(self::fixtureApp());
+        $client->cookie('token', 'stale');
+        $client->get('/delete-token');
+        $res = $client->get('/echo-cookies');
+        $this->assertStringNotContainsString('token', $res->body);
+    }
+
+    public function test_a_nonzero_max_age_attribute_does_not_delete(): void
+    {
+        $client = new TestClient(self::fixtureApp());
+        $client->cookie('token', 'keep');
+        $client->get('/long-max-age');
+        $res = $client->get('/echo-cookies');
+        $this->assertStringContainsString('token=x', $res->body);
+    }
 }

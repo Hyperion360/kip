@@ -38,7 +38,9 @@ class CacheHeaderPageController
 }
 
 // The strongest form of the duplicate-validator bug: both spellings on one
-// response. The framework must collapse them into one canonical field.
+// response. Since the 0.4.0 hardening the Response boundary rejects that
+// input loudly; through the kernel the request fails, never a two-validator
+// response.
 class DualEtagPageController
 {
     public function index(): \Kip\Http\Response
@@ -265,8 +267,11 @@ final class CacheFlowTest extends TestCase
         $this->assertSame(304, $res->status); // weak comparison: both sides drop W/
     }
 
-    public function test_both_etag_spellings_collapse_to_one_canonical_field(): void
+    public function test_both_etag_spellings_are_rejected_at_construction(): void
     {
+        // 0.4.0 hardening: differently-cased duplicates are refused at the
+        // Response boundary instead of collapsed; the kernel answers 500 (dev
+        // error page), the two-validator response is no longer representable.
         $app = new App([
             'env' => 'dev',
             'controller_namespace' => 'Kip\\Tests\\App\\',
@@ -275,10 +280,25 @@ final class CacheFlowTest extends TestCase
             'views' => dirname(__DIR__) . '/Fixtures/views',
         ]);
         $res = $app->handle(new Request('GET', '/dual-etag-page', [], [], []));
-        $keys = array_keys(array_filter($res->headers,
-            fn (string $n) => strcasecmp($n, 'etag') === 0, ARRAY_FILTER_USE_KEY));
-        $this->assertSame(['ETag'], $keys); // one field, canonical spelling
-        $this->assertSame('"one"', $res->headers['ETag']); // first spelling in header order wins
+        $this->assertSame(500, $res->status);
+    }
+
+    public function test_a_list_valued_etag_uses_its_first_leaf_on_the_miss_path(): void
+    {
+        // Miss and hit must use the same validator: PageCache::store() keeps
+        // the first leaf, and the App conditional path (the miss) must too,
+        // instead of casting the list to string ("Array").
+        $app = new App([
+            'env' => 'dev',
+            'controller_namespace' => 'Kip\\Tests\\Fixtures\\Controllers\\',
+            'db' => ['dsn' => 'sqlite::memory:'],
+            'cache_db' => ['dsn' => 'sqlite::memory:', 'ttl_seconds' => 3600],
+            'views' => dirname(__DIR__) . '/Fixtures/views',
+        ]);
+        $first = $app->handle(new Request('GET', '/list-etag-page', [], [], []));
+        $this->assertSame('"v1"', $first->headers['ETag']); // first leaf, not "Array"
+        $res = $app->handle(new Request('GET', '/list-etag-page', [], [], [], '', ['if-none-match' => '"v1"']));
+        $this->assertSame(304, $res->status); // the conditional compares with the same validator
     }
 
     public function test_a_get_with_a_body_neither_reads_nor_writes_the_cache(): void

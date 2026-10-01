@@ -92,7 +92,12 @@ final class TestClient
      *  cookie, absorbed in order, so a later leaf of the same name wins. */
     private function absorbSetCookie(Response $response): void
     {
-        $cookies = $response->headers['Set-Cookie'] ?? null;
+        // Field names are case-insensitive (RFC 9110 5.1): the jar scans for
+        // the name, like App and PageCache do, not one exact spelling.
+        $cookies = null;
+        foreach ($response->headers as $n => $v) {
+            if (strcasecmp((string) $n, 'Set-Cookie') === 0) { $cookies = $v; break; }
+        }
         $cookies = is_array($cookies) ? $cookies : ($cookies === null ? [] : [$cookies]);
         foreach ($cookies as $header) {
             $pair = substr($header, 0, (int) strcspn($header, ';'));
@@ -100,12 +105,28 @@ final class TestClient
             if ($eq === false || $eq === 0) continue;
             $name = trim(substr($pair, 0, $eq));
             $value = trim(substr($pair, $eq + 1));
-            if (stripos($header, 'Max-Age=0') !== false || $value === '') {
+            if (self::maxAgeIsZero($header) || $value === '') {
                 unset($this->cookies[$name]);
                 continue;
             }
             $this->cookies[$name] = $value;
         }
+    }
+
+    /** Max-Age deletes only as an ATTRIBUTE equal to 0: the segments after the
+     *  first '; ' are attributes, so a cookie whose VALUE contains the text
+     *  (token=Max-Age=0; Path=/) survives, and Max-Age=10 does not match. */
+    private static function maxAgeIsZero(string $header): bool
+    {
+        foreach (array_slice(explode(';', $header), 1) as $attr) {
+            $eq = strpos($attr, '=');
+            if ($eq === false) continue;
+            if (strcasecmp(trim(substr($attr, 0, $eq)), 'Max-Age') === 0
+                && trim(substr($attr, $eq + 1)) === '0') {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Log in without a password round-trip: seed the session like Auth::attempt() does,

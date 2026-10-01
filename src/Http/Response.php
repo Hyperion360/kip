@@ -28,8 +28,22 @@ final class Response
     ) {
         foreach ($headers as $name => $value) {
             self::assertHeaderSafe((string) $name, $value);
+            self::assertSingleValued((string) $name, $value);
         }
-        $this->headers = [...self::DEFAULT_HEADERS, ...$headers];
+        $merged = [...self::DEFAULT_HEADERS, ...$headers];
+        // Field names are case-insensitive (RFC 9110 5.1), PHP map keys are not:
+        // two spellings of one field would both reach the wire ('content-type'
+        // beside the default 'Content-Type', say). Fail loud at the boundary,
+        // the assertHeaderSafe doctrine, with defaults included after the merge.
+        $spellings = [];
+        foreach ($merged as $name => $_) {
+            $lower = strtolower((string) $name);
+            if (isset($spellings[$lower])) {
+                throw new \InvalidArgumentException("Header names {$spellings[$lower]} and {$name} differ only by case");
+            }
+            $spellings[$lower] = (string) $name;
+        }
+        $this->headers = $merged;
     }
 
     /**
@@ -48,7 +62,11 @@ final class Response
     public function withHeader(string $name, string|array $value): self
     {
         self::assertHeaderSafe($name, $value);
-        return new self($this->body, $this->status, [...$this->headers, $name => $value]);
+        self::assertSingleValued($name, $value);
+        // Field names are case-insensitive (RFC 9110 5.1): the replace lands on
+        // the existing key's spelling, never beside it.
+        $key = $this->keyFor($name) ?? $name;
+        return new self($this->body, $this->status, [...$this->headers, $key => $value]);
     }
 
     /** Append a second value under the same header name (Set-Cookie is the
@@ -57,9 +75,13 @@ final class Response
     public function withAddedHeader(string $name, string $value): self
     {
         self::assertHeaderSafe($name, $value);
-        $existing = $this->headers[$name] ?? [];
+        if (strcasecmp($name, 'Location') === 0) {
+            throw new \InvalidArgumentException("Header {$name} must stay single-valued: Location cannot carry added values");
+        }
+        $key = $this->keyFor($name) ?? $name;
+        $existing = $this->headers[$key] ?? [];
         $merged = is_array($existing) ? [...$existing, $value] : [$existing, $value];
-        return new self($this->body, $this->status, [...$this->headers, $name => $merged]);
+        return new self($this->body, $this->status, [...$this->headers, $key => $merged]);
     }
 
     /** Response splitting dies here, at construction: PHP's header() would
@@ -88,6 +110,26 @@ final class Response
         }
     }
 
+    /** RFC 9110 single-valued fields: Location names exactly one target, and a
+     *  list would emit two redirect targets. Fail loud at the boundary. */
+    private static function assertSingleValued(string $name, mixed $value): void
+    {
+        if (!is_array($value)) return;
+        if (strcasecmp($name, 'Location') === 0) {
+            throw new \InvalidArgumentException("Header {$name} must be a single string: Location does not accept a list");
+        }
+    }
+
+    /** The existing map key this field name refers to, case-insensitively, or
+     *  null when the response carries no such field yet. */
+    private function keyFor(string $name): ?string
+    {
+        foreach ($this->headers as $key => $_) {
+            if (strcasecmp((string) $key, $name) === 0) return (string) $key;
+        }
+        return null;
+    }
+
     public static function redirect(string $to, int $status = 302): self
     {
         return new self('', $status, ['Location' => $to]);
@@ -100,7 +142,10 @@ final class Response
             if (is_array($v)) {
                 foreach ($v as $leaf) { header("$n: $leaf", false); }
             } else {
-                header("$n: $v");
+                // Set-Cookie always appends, a scalar value included: replace
+                // mode would drop every earlier Set-Cookie header, one queued
+                // by a session_start() included, losing the session cookie.
+                header("$n: $v", strcasecmp($n, 'Set-Cookie') !== 0);
             }
         }
         echo $this->body;
