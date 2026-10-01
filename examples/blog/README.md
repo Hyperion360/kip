@@ -3,7 +3,9 @@
 The tutorial's end state: a complete, runnable blog app built on Kip:
 posts with pagination, comments (guest-facing, origin-verified), auth with
 login throttling, the page cache with table-tag invalidation, and ETag/304
-support.
+support. The pages follow the print-like design in the repository's
+`Kip admin panel design/` mock: a serif reading column, light and dark
+themes, and an Auto/Light/Dark switch in the footer (public `POST /theme`).
 
 ## Run
 
