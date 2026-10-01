@@ -232,10 +232,15 @@ operating system through `prefers-color-scheme`, which is pure CSS. **Light**
 and **Dark** are submit buttons in a small POST form in the sidebar: they
 target `POST /admin/theme`, which sets a `kip_theme` cookie
 (`Path=/; SameSite=Lax`, one year) and redirects back to the page that
-posted. The next render puts `data-theme="light"` or `data-theme="dark"`
+posted. The site-root path is deliberate: one cookie carries one
+preference across the panel and the app's public pages, so the two
+surfaces cannot disagree. A cookie-bearing request is personal for the
+page cache, which is correct, because a forced theme renders different
+HTML. The next render puts `data-theme="light"` or `data-theme="dark"`
 on `<html>`; with no cookie (or an unknown value, which reads as auto) the
 attribute is absent and the media query decides. `auto` clears the cookie
-with `Max-Age=0`. The endpoint validates both inputs: the theme must be one
+with `Max-Age=0`, so cookieless, cacheable requests resume. The endpoint
+validates both inputs: the theme must be one
 of the three words, and the return path must start with `/admin`, so the
 form cannot be aimed at another site.
 

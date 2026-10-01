@@ -84,7 +84,10 @@ migrations as the feature, not the gap.
 No Tailwind, no npm, nothing to compile. The admin panel styles itself
 with a small inline stylesheet: a narrow set of `kip-`-prefixed classes
 over semantic HTML, square corners, system font stacks, light and dark
-without JavaScript. Below 800px the same markup restyles: the sidebar
+without JavaScript. The preference itself is one `kip_theme` cookie at
+the site root, shared by the panel and any theme-aware public pages the
+app serves: one choice, one path, so the two surfaces cannot disagree.
+Below 800px the same markup restyles: the sidebar
 becomes a top bar and tables become cards, all CSS. Users who want a CSS
 framework add one themselves; Kip never ships or depends on one.
 

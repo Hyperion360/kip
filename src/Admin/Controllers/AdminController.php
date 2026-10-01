@@ -118,13 +118,14 @@ final class AdminController
             || preg_match('#(?:^|/)\.\.(?:/|\?|$)#', $back) === 1) {
             $back = '/admin';
         }
-        // Path is scoped to /admin: the cookie is only ever read there, and any
-        // cookie at Path=/ makes every request personal for the page cache
-        // (App marks cookie-bearing requests BYPASS), which would silently
-        // disable public caching for a year after an admin picks a theme.
+        // Path=/ on both public and admin surfaces (Round 4): the theme applies
+        // to every page of an app, so one cookie carries one preference. A
+        // cookie-bearing request is personal for the page cache (App marks it
+        // BYPASS), which is correct: a visitor who picked light/dark renders
+        // different HTML; auto deletes the cookie and restores caching.
         $cookie = $value === 'auto'
-            ? 'kip_theme=; Path=/admin; Max-Age=0; SameSite=Lax'
-            : 'kip_theme=' . $value . '; Path=/admin; Max-Age=31536000; SameSite=Lax';
+            ? 'kip_theme=; Path=/; Max-Age=0; SameSite=Lax'
+            : 'kip_theme=' . $value . '; Path=/; Max-Age=31536000; SameSite=Lax';
         return new Response('', 302, ['Location' => $back, 'Set-Cookie' => $cookie]);
     }
 

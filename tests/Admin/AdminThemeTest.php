@@ -44,6 +44,7 @@ final class AdminThemeTest extends TestCase
         $res = $this->client->postWithToken('/admin/theme', ['theme' => 'auto', 'back' => '/admin']);
         $this->assertSame(302, $res->status);
         $this->assertStringContainsString('kip_theme=;', $res->headers['Set-Cookie'] ?? '');
+        $this->assertStringContainsString('Path=/;', $res->headers['Set-Cookie'] ?? '');
         $this->assertStringContainsString('Max-Age=0', $res->headers['Set-Cookie'] ?? '');
     }
 
@@ -61,11 +62,11 @@ final class AdminThemeTest extends TestCase
         $this->assertSame('/admin', $res->headers['Location'] ?? null);
     }
 
-    public function test_theme_cookie_is_scoped_to_the_admin_path(): void
+    public function test_theme_cookie_is_scoped_to_the_site_root(): void
     {
         $res = $this->client->postWithToken('/admin/theme', ['theme' => 'dark', 'back' => '/admin']);
         $cookie = $res->headers['Set-Cookie'] ?? '';
-        $this->assertStringContainsString('Path=/admin', $cookie); // any Path=/ cookie makes every request cache-personal
+        $this->assertStringContainsString('Path=/;', $cookie); // site-wide on purpose: one preference shared with the theme-aware public site
         $this->assertStringNotContainsString('Path=;', $cookie);
     }
 
