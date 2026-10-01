@@ -22,7 +22,7 @@ didn't model.
 
 ## Zero runtime dependencies
 
-`composer.json` requires exactly `php >= 8.3` and `ext-pdo`. Not "few".
+`composer.json` requires exactly `php >= 8.3` and `ext-pdo`. Not "few":
 zero. Composer itself serves two roles only: PSR-4 autoloading and
 distribution via Packagist. The guard that keeps this true: **the runtime
 dependency list never grows.** Optional features may require bundled PHP

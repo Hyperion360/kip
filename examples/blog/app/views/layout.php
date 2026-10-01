@@ -29,7 +29,7 @@ $isPosts = !$isWrite && str_starts_with($path, '/posts');
         <button class="nav-button">Log out</button>
       </form>
       <?php else: ?>
-      <a class="nav-button<?= $path === '/auth/login' ? ' is-active' : '' ?>" href="/auth/login">Log in</a>
+      <a class="nav-button<?= $path === '/auth/login' ? ' is-active' : '' ?>" href="/auth/login"<?= $path === '/auth/login' ? ' aria-current="page"' : '' ?>>Log in</a>
       <?php endif; ?>
     </nav>
   </header>
