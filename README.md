@@ -129,12 +129,6 @@ removable by deleting its `config.php` key. Absence means off.
   inheritance hierarchies to trace. A PHP developer who has never seen Kip
   should understand a controller in one pass.
 
-**Windows:** Kip is developed and tested on macOS and Linux. On Windows,
-develop inside WSL; the CLI's hidden-password prompt needs `stty` and
-falls back to visible input where it is missing. Windows-native PHP will
-probably work, but it is untested, and we would rather tell you that than
-guess.
-
 ## Documentation
 
 - **[Tutorial](docs/tutorial.md)**: build a blog with Kip in about an hour,
