@@ -27,6 +27,7 @@ final class NavTest extends TestCase
 
     protected function setUp(): void
     {
+        require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Text.php';
         require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Nav.php';
         require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Controllers/HomeController.php';
         require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Controllers/AuthController.php';
@@ -81,5 +82,35 @@ final class NavTest extends TestCase
         $guest = (new TestClient($this->app))->get('/auth/login')->body; // logged out: login form token survives the merge
         $this->assertStringContainsString('name="_token"', $guest);
         $this->assertStringContainsString('href="/auth/login"', $guest);
+    }
+
+    public function test_frame_carries_the_theme_cookie_and_path(): void
+    {
+        $this->client->cookie('kip_theme', 'dark');
+        $body = $this->client->get('/')->body;
+        $this->assertStringContainsString('data-theme="dark"', $body);
+    }
+
+    public function test_an_invalid_theme_cookie_renders_auto(): void
+    {
+        $this->client->cookie('kip_theme', 'javascript:alert(1)');
+        $body = $this->client->get('/')->body;
+        $this->assertStringNotContainsString('data-theme', $body);
+    }
+
+    public function test_the_theme_switch_marks_the_active_choice(): void
+    {
+        $guest = $this->client->get('/')->body;
+        $this->assertStringContainsString('value="auto" aria-pressed="true"', $guest);
+        $this->client->cookie('kip_theme', 'dark');
+        $dark = $this->client->get('/')->body;
+        $this->assertStringContainsString('value="dark" aria-pressed="true"', $dark);
+        $this->assertStringContainsString('value="auto" aria-pressed="false"', $dark);
+    }
+
+    public function test_the_theme_form_carries_a_valid_back_target(): void
+    {
+        $body = $this->client->get('/posts', ['page' => '2'])->body;
+        $this->assertStringContainsString('name="back" value="/posts?page=2"', $body);
     }
 }
