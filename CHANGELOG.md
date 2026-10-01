@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.4.0
+`Kip\Theme` extracts the theme-cookie mechanics the admin panel and the blog example each carried twice: `current()` returns the whitelisted cookie value or null when the cookie is absent or garbage (the word list is policy, callers pass their own, so an app with reading themes like paper/sepia/night reuses it unchanged), and `cookie()`/`clearCookie()` build the exact `Set-Cookie` wire values both apps emit (`Path=/`, one-year `Max-Age` for a choice, empty value with `Max-Age=0` for auto). The admin theme endpoint, the admin frame's theme read, and the blog's `Nav` read plus `ThemeController` write now go through it; every emitted byte and every fallback is unchanged.
 `Kip\Redirects::safeReturn()` extracts the same-site return-path validator that three controllers enforced by hand (the admin theme endpoint, the blog's public theme endpoint, and Kiption's app-side copy): leading slash, no protocol-relative spelling, no CR/LF/NUL, no backslash, no dot segments, query strings and fragments preserved, anything else falls back to a caller-supplied path. The admin endpoint keeps its own `/admin` prefix rule and the blog keeps its GET-route whitelist on top; only the generic checks moved, and the dot-segment rule now also ends a `..` segment at a fragment marker, one spelling stricter than before. Theme-switch behavior is otherwise unchanged.
 The admin panel ships a full visual redesign of its nine views: a warm,
 square-cornered design system on CSS custom properties, light and dark

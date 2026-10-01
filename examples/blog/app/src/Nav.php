@@ -4,6 +4,7 @@ namespace App;
 use Kip\Database;
 use Kip\Session;
 use Kip\Http\Request;
+use Kip\Theme;
 
 /**
  * Frame data every page needs: the title, whether the visitor is logged in,
@@ -39,13 +40,12 @@ final class Nav
                 [$session->get('user_id')]
             )['is_admin'] ?? false);
         }
-        $theme = $request->cookies['kip_theme'] ?? '';
         return [
             'title' => $title,
             'loggedIn' => $loggedIn,
             'isAdmin' => $isAdmin,
             'csrf' => $loggedIn ? $session->csrfToken() : null,
-            'theme' => in_array($theme, ['light', 'dark'], true) ? $theme : '',
+            'theme' => Theme::current($request, 'kip_theme', ['light', 'dark']) ?? '',
             'path' => $request->path,
             'query' => http_build_query($request->get),
         ];

@@ -5,6 +5,7 @@ use Kip\Http\Request;
 use Kip\Http\Response;
 use Kip\Redirects;
 use Kip\Routing\Post;
+use Kip\Theme;
 
 /**
  * Public appearance switcher: POST /theme from the footer form on every page.
@@ -52,8 +53,8 @@ final class ThemeController
         // them BYPASS; auto (the default) deletes the cookie and the next
         // visit is cacheable again.
         $cookie = $value === 'auto'
-            ? 'kip_theme=; Path=/; Max-Age=0; SameSite=Lax'
-            : 'kip_theme=' . $value . '; Path=/; Max-Age=31536000; SameSite=Lax';
+            ? Theme::clearCookie('kip_theme')
+            : Theme::cookie('kip_theme', $value);
         return new Response('', 302, ['Location' => $back, 'Set-Cookie' => $cookie]);
     }
 }
