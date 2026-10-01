@@ -1,8 +1,8 @@
 # Kip
 
 Kip is a plain-PHP, batteries-included framework for server-rendered apps:
-you write PHP classes and templates, Kip handles routing, sessions, auth,
-database migrations, caching, uploads, email, the audit log, and a
+you write PHP classes and templates, and Kip handles routing, sessions,
+auth, database migrations, caching, uploads, email, the audit log, and a
 schema-driven admin panel. It has **zero runtime dependencies** (Composer is
 used only for autoloading), **zero JavaScript**, and one dependency you
 already have: PHP 8.3+.
@@ -15,13 +15,15 @@ you want the whole app as one executable.
 
 It exists because the PHP world splits into two corners that leave a real gap
 between them. Full-stack frameworks ship everything (queues, broadcast
-channels, build pipelines, an SPA-era front end) at the cost of a dependency
-graph and a set of conventions your app spends its whole life carrying.
-Micro-frameworks ship a router and little else, so the first real application
-needs auth, migrations, CSRF, throttling, password reset, backups, and an
-admin panel, written by hand, badly, one more time. Kip takes the middle: the
-batteries are decided, included, and tested, and the ceiling is deliberately
-low. One server, one SQLite database, HTML over the wire.
+channels, build pipelines, an SPA-era front end), and your app carries the
+dependency graph and the conventions for its whole life. Micro-frameworks
+ship a router and little else, so the first real application needs auth,
+migrations, CSRF, throttling, password reset, backups, and an admin panel,
+each written from scratch one more time. Kip takes the middle: the batteries
+are decided, included, and tested, and the ceiling is deliberately low. One
+server, one SQLite database, HTML over the wire. If that is the kind of app
+you are building, whether it is your first or your fiftieth, Kip should feel
+like a head start.
 
 Zero JavaScript means the framework: no build step, no bundler, no npm, and
 every framework feature works with scripting disabled. Your app is free to
@@ -67,10 +69,14 @@ composer install
 php bin/kip serve
 ```
 
+New to PHP, or to frameworks? The [tutorial](docs/tutorial.md) takes you
+from an empty folder to a working blog in about an hour, and it assumes no
+framework experience.
+
 ## What Is in the Box
 
-Every battery is on by default and removable by deleting its `config.php`
-key. Absence means off.
+The included features are the batteries, and every one is on by default and
+removable by deleting its `config.php` key. Absence means off.
 
 - **Convention routing**: `/controller/action/args` from class names; a
   machine-readable routing table comes free.
@@ -83,7 +89,7 @@ key. Absence means off.
   migrations with atomic batch rollback, PHP or `.sql` migration files.
 - **Page cache**: full-page caching with table-level tag invalidation,
   ETag/304 conditional GETs. Cache poisoning and personalization are
-  threat-modeled out (sessions, cookies, and writes never cache).
+  designed out: sessions, cookies, and writes never touch the cache.
 - **Audit log**: every request timed and logged to a separate database, with
   secret redaction.
 - **Admin panel**: schema-driven CRUD over your tables with masked secrets,
@@ -102,28 +108,32 @@ key. Absence means off.
 ## How Kip Is Different
 
 - **Zero runtime dependencies, as a contract.** `composer.json` requires
-  exactly `php >= 8.3` and `ext-pdo`. Not "few": zero. The dependency list
-  never grows; optional features may use bundled PHP extensions, never a
-  package.
+  exactly `php >= 8.3` and `ext-pdo`: zero packages, not merely few. The
+  dependency list never grows; optional features may use bundled PHP
+  extensions, never a package.
 - **Zero JavaScript, as a contract.** Every feature, including the admin
   panel and two-step deletes, works with scripting disabled. There is no
   build step, no bundler, no npm.
 - **The batteries are decided.** Where micro-frameworks leave auth, caching,
   and migrations as an exercise, and full-stack frameworks make each one a
   configuration surface, Kip ships one opinionated, tested version of each.
-  The [design decisions](docs/design-decisions.md) page states in writing
-  what will never be added.
+  The [design decisions](docs/design-decisions.md) page gives the reasoning
+  behind every one of those calls, in writing, including the short list of
+  things Kip will never add.
 - **One server, one database.** SQLite in WAL mode with a file per concern
-  (data, logs, cache), vertically scaled. If you need horizontal scale-out,
-  you need a different framework. That's fine.
+  (data, logs, cache), vertically scaled. That ceiling is a documented
+  design decision, not an oversight: if your app someday genuinely needs
+  horizontal scale-out, a different framework is the right call, and the
+  design decisions page explains the trade.
 - **Small enough to read.** ~31 source files, every class `final`, no
   inheritance hierarchies to trace. A PHP developer who has never seen Kip
   should understand a controller in one pass.
 
 **Windows:** Kip is developed and tested on macOS and Linux. On Windows,
 develop inside WSL; the CLI's hidden-password prompt needs `stty` and
-falls back to visible input where it is missing, and nothing else has
-been tested there.
+falls back to visible input where it is missing. Windows-native PHP will
+probably work, but it is untested, and we would rather tell you that than
+guess.
 
 ## Documentation
 
@@ -137,8 +147,9 @@ been tested there.
   request lifecycle, cache invalidation, security lanes.
 - **[Versioning](docs/versioning.md)**: the versioning and stability
   contract.
-- **[Design decisions](docs/design-decisions.md)**: what Kip will never
-  include, and why.
+- **[Design decisions](docs/design-decisions.md)**: the reasoning behind
+  Kip's scope, boundary by boundary, including what it will never include
+  and why.
 
 This repository holds three units: the framework core (`src/` + `tests/`,
 the `kip/framework` package), `skeleton/` (the minimal app template, auth
@@ -157,9 +168,13 @@ The suite is self-contained under `tests/`: fixture controllers and views in
 
 ## Contributing
 
-Bug reports and pull requests are welcome. Kip's scope is deliberately narrow;
-read the [design decisions](docs/design-decisions.md) before proposing a
-feature. The "no" list is a commitment.
+Bug reports, documentation fixes, and pull requests are welcome, and
+questions are always fair game. Kip's scope is deliberately narrow, and the
+[design decisions](docs/design-decisions.md) page argues for every boundary
+instead of just asserting it. Disagree with one? Open an issue and make the
+case: the no list is a stability promise, not a closed door, and a
+well-argued proposal will always get a serious reading. What is settled is
+only that scope changes go through that argument first.
 
 ## License
 
