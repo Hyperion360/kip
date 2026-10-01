@@ -9,6 +9,7 @@ return [
     'db'      => ['dsn' => 'sqlite:' . $dataDir . '/data.sqlite'],
     'log_db'  => ['dsn' => 'sqlite:' . $dataDir . '/logs.sqlite', 'retention_days' => 30],
     'cache_db' => ['dsn' => 'sqlite:' . $dataDir . '/cache.sqlite', 'ttl_seconds' => 3600],
+    'admin'   => ['enabled' => true], // /admin panel; gate: users.is_admin = 1 (migration 011, guide chapter 12)
     'app_dir' => __DIR__ . '/app',
     'trusted_proxy' => (bool) getenv('KIP_TRUSTED_PROXY'),
 ];

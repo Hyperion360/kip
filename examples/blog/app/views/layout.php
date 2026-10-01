@@ -16,6 +16,15 @@
       <a href="/">My Blog</a>
       <a href="/posts">Posts</a>
       <a href="/posts/create">Write</a>
+      <?php if ($isAdmin ?? false): ?><a href="/admin">Admin</a><?php endif; ?>
+      <?php if (($loggedIn ?? false) && isset($csrf)): ?>
+      <form method="post" action="/auth/logout">
+        <input type="hidden" name="_token" value="<?= $this->e($csrf) ?>">
+        <button>Log out</button>
+      </form>
+      <?php else: ?>
+      <a href="/auth/login">Log in</a>
+      <?php endif; ?>
     </nav>
   </header>
   <main><?= $content ?></main>

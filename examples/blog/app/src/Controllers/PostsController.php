@@ -5,6 +5,7 @@ use Kip\Http\Response;
 use Kip\View;
 use Kip\Routing\{Auth, Post};
 use Kip\{Session, Http\Request};
+use App\Nav;
 
 final class PostsController
 {
@@ -21,7 +22,7 @@ final class PostsController
         );
         $hasNext = count($posts) > self::PER_PAGE;
         $posts = array_slice($posts, 0, self::PER_PAGE);
-        return $this->view->render('posts/index', ['title' => 'Posts', 'posts' => $posts, 'page' => $page, 'hasNext' => $hasNext]);
+        return $this->view->render('posts/index', Nav::frame($this->session, $this->request, $this->db, 'Posts') + ['posts' => $posts, 'page' => $page, 'hasNext' => $hasNext]);
     }
 
     public function show(string $id): Response|string
@@ -37,8 +38,7 @@ final class PostsController
         // SUBSTITUTE: one comment with invalid UTF-8 would otherwise make json_decode() return null.
         $comments = json_decode($post['comments_json'], true, flags: JSON_INVALID_UTF8_SUBSTITUTE);
         usort($comments, fn ($a, $b) => [$a['created_at'], $a['id']] <=> [$b['created_at'], $b['id']]);
-        return $this->view->render('posts/show', [
-            'title' => $post['title'],
+        return $this->view->render('posts/show', Nav::frame($this->session, $this->request, $this->db, $post['title']) + [
             'post' => $post,
             'comments' => $comments,
         ]);
@@ -47,7 +47,7 @@ final class PostsController
     #[Auth]
     public function create(): string
     {
-        return $this->view->render('posts/edit', ['title' => 'New post', 'post' => ['id' => null, 'title' => '', 'body' => ''], 'csrf' => $this->session->csrfToken()]);
+        return $this->view->render('posts/edit', Nav::frame($this->session, $this->request, $this->db, 'New post') + ['post' => ['id' => null, 'title' => '', 'body' => ''], 'csrf' => $this->session->csrfToken()]);
     }
 
     #[Auth] #[Post]
@@ -63,7 +63,7 @@ final class PostsController
     {
         $post = $this->db->one('SELECT * FROM posts WHERE id = ?', [$id]);
         if ($post === null) return new Response('Post not found', 404);
-        return $this->view->render('posts/edit', ['title' => 'Edit post', 'post' => $post, 'csrf' => $this->session->csrfToken()]);
+        return $this->view->render('posts/edit', Nav::frame($this->session, $this->request, $this->db, 'Edit post') + ['post' => $post, 'csrf' => $this->session->csrfToken()]);
     }
 
     #[Auth] #[Post]
