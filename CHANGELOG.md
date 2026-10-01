@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.4.0
+`Kip\Redirects::safeReturn()` extracts the same-site return-path validator that three controllers enforced by hand (the admin theme endpoint, the blog's public theme endpoint, and Kiption's app-side copy): leading slash, no protocol-relative spelling, no CR/LF/NUL, no backslash, no dot segments, query strings and fragments preserved, anything else falls back to a caller-supplied path. The admin endpoint keeps its own `/admin` prefix rule and the blog keeps its GET-route whitelist on top; only the generic checks moved, and the dot-segment rule now also ends a `..` segment at a fragment marker, one spelling stricter than before. Theme-switch behavior is otherwise unchanged.
 The admin panel ships a full visual redesign of its nine views: a warm,
 square-cornered design system on CSS custom properties, light and dark
 themes without JavaScript (a `kip_theme` cookie set by a new

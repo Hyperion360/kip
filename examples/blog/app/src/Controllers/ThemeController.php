@@ -3,6 +3,7 @@ namespace App\Controllers;
 
 use Kip\Http\Request;
 use Kip\Http\Response;
+use Kip\Redirects;
 use Kip\Routing\Post;
 
 /**
@@ -37,10 +38,13 @@ final class ThemeController
         if (!in_array($value, ['auto', 'light', 'dark'], true)) $value = 'auto';
         $back = $this->request->postStr('back');
         $path = explode('?', $back, 2)[0];
-        if (preg_match('/[\r\n\\\\]/', $back) === 1
-            || preg_match('#(?:^|/)\.\.(?:/|\?|$)#', $back) === 1
-            || preg_match(self::BACK_ALLOWED, $path) !== 1) {
+        // The route whitelist is this app's own; the generic checks (leading
+        // slash, CR/LF, backslash, dot segments) are Redirects::safeReturn's,
+        // shared with the admin panel's theme endpoint.
+        if (preg_match(self::BACK_ALLOWED, $path) !== 1) {
             $back = '/';
+        } else {
+            $back = Redirects::safeReturn($back, '/');
         }
         // Path=/ on purpose: the theme applies to every public page, unlike
         // the admin panel's Path=/admin scope. Trade-off: a visitor who picked
