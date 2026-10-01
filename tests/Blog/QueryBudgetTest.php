@@ -3,18 +3,22 @@ namespace Kip\Tests\Blog;
 use Kip\{App, Database};
 use Kip\Migrations\Migrator;
 use Kip\Testing\TestClient;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunClassInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 
-// The blog's own controller, loaded directly: no other test declares
-// App\Controllers\PostsController, so it cannot collide.
-require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Nav.php';
-require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Controllers/PostsController.php';
+// The blog's HomeController shares the App\Controllers namespace with the
+// skeleton's, and tests/Skeleton/NavTest.php requires those at file load in
+// the main PHPUnit process, so this file requires the blog controllers inside
+// setUp() and runs isolated (same reason as blog NavTest).
 
 /**
  * The performance contract (guide chapter 15) on the tutorial app itself: each
  * guest page runs at most one query against the content database, on the blog's
  * real schema and migrations.
  */
+#[RunClassInSeparateProcess]
+#[PreserveGlobalState(false)]
 final class QueryBudgetTest extends TestCase
 {
     private App $app;
@@ -22,6 +26,10 @@ final class QueryBudgetTest extends TestCase
 
     protected function setUp(): void
     {
+        require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Nav.php';
+        require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Text.php';
+        require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Controllers/HomeController.php';
+        require_once dirname(__DIR__, 2) . '/examples/blog/app/src/Controllers/PostsController.php';
         $blog = dirname(__DIR__, 2) . '/examples/blog';
         $this->app = new App([
             'env' => 'dev',
@@ -39,16 +47,17 @@ final class QueryBudgetTest extends TestCase
     }
 
     /**
-     * Render $path, count its queries, and fail if any of them plans as a table scan or a
+     * Render $path with $query, count its queries, and fail if any of them plans as a table scan or a
      * sort. The plans come from the SQL the controller actually ran, captured by the tap.
      *
+     * @param array<string, string> $query
      * @return array{0: \Kip\Http\Response, 1: int}
      */
-    private function render(string $path): array
+    private function render(string $path, array $query = []): array
     {
         $sql = [];
         $this->db->onQuery(function (string $q) use (&$sql): void { $sql[] = $q; });
-        $res = (new TestClient($this->app))->get($path);
+        $res = (new TestClient($this->app))->get($path, $query);
         $this->db->onQuery(static fn () => null);
         foreach ($sql as $q) {
             $plan = implode("\n", array_column($this->db->all('EXPLAIN QUERY PLAN ' . $q, array_fill(0, substr_count($q, '?'), 1)), 'detail'));
@@ -99,5 +108,31 @@ final class QueryBudgetTest extends TestCase
         [$res, $queries] = $this->render('/posts');
         $this->assertSame(200, $res->status, $res->body);
         $this->assertLessThanOrEqual(1, $queries); // render() also fails it on a scan or a sort
+    }
+
+    public function test_home_is_one_query_and_lists_the_three_newest_posts(): void
+    {
+        $this->db->query("INSERT INTO posts (title, body, created_at) VALUES ('Second', 'B2', '2026-09-02T10:00:00+00:00')");
+        $this->db->query("INSERT INTO posts (title, body, created_at) VALUES ('Third', 'B3', '2026-09-03T10:00:00+00:00')");
+        [$res, $queries] = $this->render('/');
+        $this->assertSame(200, $res->status, $res->body);
+        $this->assertLessThanOrEqual(1, $queries);
+        $this->assertTrue(strpos($res->body, 'Third') < strpos($res->body, 'Second'), 'newest first');
+        // 'First post' is the oldest post's excerpt: the hero h1 above the list
+        // already contains 'Hello', so the title string would match too early.
+        $this->assertTrue(strpos($res->body, 'Second') < strpos($res->body, 'First post'), 'then older');
+        $this->assertStringNotContainsString('Older posts', $res->body, 'home shows three, no pager');
+    }
+
+    public function test_page_two_shows_the_newer_posts_link_in_one_query(): void
+    {
+        for ($i = 2; $i <= 25; $i++) {
+            $this->db->query("INSERT INTO posts (title, body, created_at) VALUES (?, 'B', ?)",
+                ["Post $i", gmdate('c', time() - $i * 3600)]);
+        }
+        [$res, $queries] = $this->render('/posts', ['page' => '2']);
+        $this->assertSame(200, $res->status, $res->body);
+        $this->assertLessThanOrEqual(1, $queries);
+        $this->assertStringContainsString('Newer posts', $res->body);
     }
 }
