@@ -62,4 +62,35 @@ final class ResponseTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         new Response('ok', 200, ['X-Evil' => "a\nSet-Cookie: session=stolen"]);
     }
+
+    public function test_header_names_must_be_rfc9110_tokens(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new Response('', 200, ["X-Foo\r\nEvil" => '1']);
+    }
+
+    public function test_header_names_reject_colons_spaces_and_empty(): void
+    {
+        foreach (['X-Foo: bar', 'X Foo', '', 'X=Foo'] as $name) {
+            try {
+                new Response('', 200, [$name => 'v']);
+                $this->fail("header name '$name' passed validation");
+            } catch (\InvalidArgumentException $e) {
+                $this->assertTrue(true);
+            }
+        }
+    }
+
+    public function test_integer_keyed_header_lists_are_refused_with_the_map_shape_named(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('name => value map');
+        new Response('', 200, ['x']);
+    }
+
+    public function test_valid_token_names_with_special_characters_pass(): void
+    {
+        $r = new Response('', 200, ["X.Corners*!#%" => 'v']);
+        $this->assertSame('v', $r->headers["X.Corners*!#%"]);
+    }
 }

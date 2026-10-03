@@ -184,16 +184,6 @@ final class PageCacheTest extends TestCase
         new Response('b', 200, ['X-Custom' => 42]);
     }
 
-    public function test_an_int_header_key_roundtrips_through_the_cache(): void
-    {
-        // An int key is still a legal shape (PHP casts it); json makes it a
-        // string key on store and PHP casts it back on replay.
-        $this->cache->put('/x', '', new Response('b', 200, [7 => 'x']), []);
-        $hit = $this->cache->get('/x', '');
-        $this->assertNotNull($hit);
-        $this->assertSame('b', $hit->body);
-    }
-
     public function test_noindex_guard_matches_name_and_directive_case_insensitively(): void
     {
         // RFC 9110 field names are case-insensitive and apps spell headers
