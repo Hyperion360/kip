@@ -280,7 +280,12 @@ final class Auth
                 $this->db->query('INSERT INTO oauth_identities (provider, provider_uid, user_id) VALUES (?, ?, ?)',
                     [$provider, $providerUid, $userId]);
             } catch (\PDOException $e) {
-                $constraint = (int) $e->getCode() === 19 || ($e->errorInfo[1] ?? null) === 19; // SQLITE_CONSTRAINT
+                // SQLITE_CONSTRAINT is driver code 19; PostgreSQL reports a
+                // UNIQUE loss as SQLSTATE 23505. The hand-built code-19 shape
+                // (the race test's listener) carries no errorInfo.
+                $constraint = (int) $e->getCode() === 19
+                    || ($e->errorInfo[1] ?? null) === 19
+                    || in_array($e->errorInfo[0] ?? '', ['23000', '23505'], true);
                 if (!$constraint) throw $e;
                 // The COUNT above lost a race: a simultaneous first sign-in with the
                 // same verified email won the UNIQUE(email) insert. The documented
