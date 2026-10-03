@@ -121,6 +121,16 @@ final class ThemeTest extends TestCase
         }
     }
 
+    public function test_protocol_relative_and_fragment_backs_fall_back(): void
+    {
+        foreach (['//posts', '/posts#frag', '/posts?q=1#frag'] as $back) {
+            $res = $this->client->post('/theme', ['theme' => 'dark', 'back' => $back]);
+            $this->assertSame(302, $res->status);
+            $this->assertStringStartsWith('/', (string) parse_url($res->headers['Location'], PHP_URL_PATH));
+            $this->assertStringNotContainsString('//posts', $res->headers['Location']);
+        }
+    }
+
     public function test_a_forged_post_without_csrf_is_accepted(): void
     {
         // Headerless clients (no Origin/Referer/Sec-Fetch-Site) pass the
