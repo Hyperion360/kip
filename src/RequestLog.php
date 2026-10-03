@@ -29,6 +29,13 @@ final class RequestLog
             // Strips full OSC escape sequences (ESC ] ... BEL) as a unit, then any
             // remaining stray control bytes (incl. an unterminated ESC, NUL, DEL).
             $path = preg_replace('/\x1b\][^\x07]*\x07|[\x00-\x1F\x7F]/', '', $pathOverride ?? $request->path);
+            // The reset link arrives by email, so its path carries a live, single-use
+            // credential from click until form submit. Redact the token at write time,
+            // same discipline as the control-byte strip; the viewer renders what the
+            // audit row holds, so this also cleans the admin logs UI.
+            if (preg_match('~^/auth/reset/[0-9a-fA-F]{64}$~', $path) === 1) {
+                $path = '/auth/reset/<redacted>';
+            }
             $this->db->query(
                 'INSERT INTO requests (created_at, method, path, status, duration_ms, ip, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [date('c'), $request->method, $path, $status, $durationMs, $request->ip, $userId]

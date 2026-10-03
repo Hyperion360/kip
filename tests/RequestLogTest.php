@@ -37,6 +37,16 @@ final class RequestLogTest extends TestCase
         $this->assertSame('/abc', $log->recent(1)[0]['path']);
     }
 
+    public function test_reset_token_paths_are_redacted_at_write_time(): void
+    {
+        $log = new RequestLog(new Database('sqlite::memory:'));
+        $log->log(new Request('GET', '/auth/reset/' . str_repeat('a', 64), [], [], [], '1.1.1.1'), 200, null, 1.0);
+        $this->assertSame('/auth/reset/<redacted>', $log->recent(1)[0]['path']);
+        // A near-miss shape is not a reset link and keeps its path.
+        $log->log(new Request('GET', '/auth/reset/tooshort', [], [], [], '1.1.1.1'), 200, null, 1.0);
+        $this->assertSame('/auth/reset/tooshort', $log->recent(1)[0]['path']);
+    }
+
     public function test_retention_days_drives_prune(): void
     {
         $db = new Database('sqlite::memory:');
