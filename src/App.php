@@ -358,13 +358,19 @@ final class App
             // have sent. Field names are case-insensitive (RFC 9110 5.1), so keys are
             // scanned, not two spellings enumerated. No etag arm: the single
             // validator is set once from $etag below.
-            $keep = ['x-kip-cache', 'cache-control', 'expires', 'vary', 'content-location'];
+            // One canonical spelling of the framework-owned mark: an app that wrote
+            // x-kip-cache lowercase must not end up beside our X-Kip-Cache, or the
+            // constructor's case-collision guard turns the 304 into a fatal.
+            $keep = ['cache-control', 'expires', 'vary', 'content-location'];
             $headers = [];
+            $kipCache = null;
             foreach ($response->headers as $n => $v) {
-                if (in_array(strtolower((string) $n), $keep, true)) $headers[(string) $n] = $v;
+                $lower = strtolower((string) $n);
+                if ($lower === 'x-kip-cache') { $kipCache = $v; continue; }
+                if (in_array($lower, $keep, true)) $headers[(string) $n] = $v;
             }
             $headers['ETag'] = $etag;
-            $headers['X-Kip-Cache'] ??= 'HIT';
+            $headers['X-Kip-Cache'] = $kipCache ?? 'HIT';
             return new Response('', 304, $headers);
         }
         return $response;

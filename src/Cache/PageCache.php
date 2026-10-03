@@ -69,7 +69,18 @@ final class PageCache
             return null;
         }
         $headers = json_decode($row['headers'], true);
-        return new Response($row['body'], 200, [...$headers, 'X-Kip-Cache' => 'HIT', 'ETag' => $row['etag']]);
+        // One canonical spelling of the framework-owned marker: a stored page may
+        // carry the app's own foreign spelling (lowercase, say), and rebuilding the
+        // map with both would trip the constructor's case-collision guard before
+        // the 304 branch ever sees the response. The key folds to the canonical
+        // spelling, the stored value rides along, and rows written without a mark
+        // (the normal case: put() stores the pre-mark response) default to HIT.
+        // Mirrors the App 304 keep-scan, which canonicalizes the same way.
+        $kipCache = 'HIT';
+        foreach ($headers as $n => $v) {
+            if (strcasecmp((string) $n, 'X-Kip-Cache') === 0) { $kipCache = $v; unset($headers[$n]); }
+        }
+        return new Response($row['body'], 200, [...$headers, 'X-Kip-Cache' => $kipCache, 'ETag' => $row['etag']]);
     }
 
     /**
