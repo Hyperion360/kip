@@ -90,6 +90,59 @@ final class Auth
     }
 
     /**
+     * Atomically claim one attempt slot: the count and the INSERT are one
+     * statement, so a parallel burst cannot all read a pre-burst count and
+     * each spend its full work (a password_verify, or a queued reset email).
+     * The row is written up front: the success paths clear it with the rest
+     * (attempt()'s DELETE by email, resetPassword()'s throttle clear), and
+     * the failure paths simply keep it. The predicates mirror throttled()
+     * and resetThrottled() read for read; this is their atomic write half,
+     * not a second policy.
+     */
+    private function claim(string $kind, string $email, string $ip): bool
+    {
+        $since = date('c', time() - self::WINDOW_MINUTES * 60);
+        // Opportunistic prune: dead weight outside the window would throttle
+        // nobody, but it would sit in every count's scan range forever.
+        $this->db->query('DELETE FROM login_attempts WHERE julianday(attempted_at) <= julianday(?)', [$since]);
+        $now = date('c');
+        // The cap comparison lives INSIDE each scalar subquery with the cap
+        // inlined as a literal: the PDO sqlite driver does not honor a bound
+        // parameter in the outer WHERE of an INSERT...SELECT (the row inserts
+        // whatever the gate was meant to say), while bound values inside the
+        // subquery behave. The caps are framework constants, so inlining them
+        // cannot inject anything.
+        if ($kind === 'reset' && $this->kindSplit()) {
+            $claimed = $this->db->query(
+                "INSERT INTO login_attempts (kind, email, ip, attempted_at)
+                 SELECT 'reset', ?, ?, ?
+                 WHERE (SELECT COUNT(*) < " . self::RESET_MAX_PER_ACCOUNT . " FROM login_attempts
+                        WHERE kind = 'reset' AND email = ? AND julianday(attempted_at) > julianday(?))
+                   AND (SELECT COUNT(*) < " . self::RESET_MAX_PER_IP . " FROM login_attempts
+                        WHERE kind = 'reset' AND ip = ? AND julianday(attempted_at) > julianday(?))",
+                [$email, $ip, $now, $email, $since, $ip, $since]
+            )->rowCount();
+        } elseif ($this->kindSplit()) {
+            $claimed = $this->db->query(
+                "INSERT INTO login_attempts (kind, email, ip, attempted_at)
+                 SELECT 'login', ?, ?, ?
+                 WHERE (SELECT COUNT(*) < " . self::MAX_ATTEMPTS . " FROM login_attempts
+                        WHERE kind = 'login' AND (email = ? OR ip = ?) AND julianday(attempted_at) > julianday(?))",
+                [$email, $ip, $now, $email, $ip, $since]
+            )->rowCount();
+        } else {
+            $claimed = $this->db->query(
+                "INSERT INTO login_attempts (email, ip, attempted_at)
+                 SELECT ?, ?, ?
+                 WHERE (SELECT COUNT(*) < " . self::MAX_ATTEMPTS . " FROM login_attempts
+                        WHERE (email = ? OR ip = ?) AND julianday(attempted_at) > julianday(?))",
+                [$email, $ip, $now, $email, $ip, $since]
+            )->rowCount();
+        }
+        return $claimed === 1;
+    }
+
+    /**
      * Whether password_verify() will do real work on $hash. Any bcrypt variant
      * ($2a$, $2b$, $2x$, $2y$) must have its full shape: crypt() rejects a bad salt
      * alphabet or an out-of-range cost in microseconds, and password_get_info() only
@@ -126,7 +179,12 @@ final class Auth
      */
     public function attempt(string $email, string $password, string $ip = ''): bool
     {
-        if ($this->throttled($email, $ip)) return false; // refuse before verifying. Correct password included
+        // Atomic claim, not throttled()'s check-then-act: a parallel burst all
+        // reading a pre-burst count would each spend a full password_verify
+        // against the real hash (5-per-window becomes N-per-window, N being
+        // the attacker's concurrency). The slot is written up front; the
+        // success path below clears it with the rest, failure paths keep it.
+        if (!$this->claim('login', $email, $ip)) return false; // refuse before verifying. Correct password included
         $user = $this->db->one('SELECT * FROM users WHERE email = ?', [$email]);
         $hash = $user === null ? '' : (string) $user['password_hash'];
         if ($user === null || !self::verifiable($hash)) {
@@ -134,11 +192,9 @@ final class Auth
             // password_hash() throws on them where password_verify() just returns false,
             // and a 500 on this path alone would reveal that the email is unknown.
             password_hash(str_replace("\0", '', $password), PASSWORD_DEFAULT);
-            $this->recordAttempt($email, $ip, 'login');
             return false;
         }
         if (!password_verify($password, $hash)) {
-            $this->recordAttempt($email, $ip, 'login');
             return false;
         }
         // Not rehashed: a NUL byte (argon2 verifies it, bcrypt's password_hash() throws), or a
@@ -353,8 +409,9 @@ final class Auth
      */
     public function createReset(string $email, string $ip = ''): ?string
     {
-        if ($this->resetThrottled($email, $ip)) return null;
-        $this->recordAttempt($email, $ip, 'reset');
+        // Atomic claim for the same race reason as attempt(): parallel remind
+        // bursts would each read a pre-flood count and each queue one email.
+        if (!$this->claim('reset', $email, $ip)) return null;
         $token = bin2hex(random_bytes(self::RESET_TOKEN_BYTES));   // identical work either way
         $hash = hash('sha256', $token);
         $user = $this->db->one('SELECT id FROM users WHERE email = ?', [$email]);
@@ -381,7 +438,17 @@ final class Auth
         if ($row === null || strtotime((string) $row['expires_at']) < time()) return false;
         $this->db->begin();
         try {
-            $this->db->query('DELETE FROM password_resets WHERE email = ?', [$row['email']]);
+            // Consume by token, not by email: the deleted row count IS the
+            // single-use proof. Two parallel submits of one link serialize on
+            // the write; only the first deletes a row, so only the first
+            // password lands — the second rolls back instead of silently
+            // overwriting it.
+            $consumed = $this->db->query('DELETE FROM password_resets WHERE token_hash = ?',
+                [hash('sha256', $token)])->rowCount();
+            if ($consumed !== 1) {
+                $this->db->rollBack();
+                return false;
+            }
             $this->db->query('UPDATE users SET password_hash = ? WHERE email = ?',
                 [password_hash($password, PASSWORD_DEFAULT), $row['email']]);
             $this->db->query('DELETE FROM login_attempts WHERE email = ?', [$row['email']]);
@@ -410,16 +477,5 @@ final class Auth
             catch (\PDOException) { $this->kindSplit = false; }
         }
         return $this->kindSplit;
-    }
-
-    private function recordAttempt(string $email, string $ip, string $kind): void
-    {
-        if ($this->kindSplit()) {
-            $this->db->query('INSERT INTO login_attempts (email, ip, attempted_at, kind) VALUES (?, ?, ?, ?)',
-                [$email, $ip, date('c'), $kind]);
-        } else {
-            $this->db->query('INSERT INTO login_attempts (email, ip, attempted_at) VALUES (?, ?, ?)',
-                [$email, $ip, date('c')]);
-        }
     }
 }
