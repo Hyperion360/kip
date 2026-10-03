@@ -550,6 +550,23 @@ case on a guest-only route is a spam-shaped submission, not a
 state-changing attack against a logged-in session. `docs/guide/06-security.md`
 covers this lane in full, including where it does and doesn't apply.
 
+That "spam-shaped" worst case is exactly what the fixed-window rate limiter
+owns, and guest comments should not wait for a flood to find out. In
+`config.php`, add one key to the array it returns:
+
+```php
+// config.php
+'rate_limit' => ['comments' => ['max' => 30, 'window' => 60]],
+```
+
+The `rate_limits` table it counts in ships with the skeleton. Every
+non-GET request under `/comments` now costs one hit before routing: the
+31st in a minute is answered `429 Too Many Requests` with a `Retry-After`
+header, and neither your controllers nor the page budget see it. Chapter
+6 covers the whole limiter: per-prefix caps, the dashed/underscored
+canonicalization that stops spelling games, and the `max => 0` kill
+switch.
+
 Visit a post and leave a comment. It appears immediately, no login needed.
 
 ## Step 7: pagination

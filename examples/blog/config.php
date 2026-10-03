@@ -10,6 +10,10 @@ return [
     'log_db'  => ['dsn' => 'sqlite:' . $dataDir . '/logs.sqlite', 'retention_days' => 30],
     'cache_db' => ['dsn' => 'sqlite:' . $dataDir . '/cache.sqlite', 'ttl_seconds' => 3600],
     'admin'   => ['enabled' => true], // /admin panel; gate: users.is_admin = 1 (migration 011, guide chapter 12)
+    // Guest comments have no session, so their flood cap is the fixed-window
+    // limiter (guide chapter 6): 30 POSTs per minute per address under
+    // /comments, counted before routing, past-cap answered 429.
+    'rate_limit' => ['comments' => ['max' => 30, 'window' => 60]],
     'app_dir' => __DIR__ . '/app',
     'trusted_proxy' => (bool) getenv('KIP_TRUSTED_PROXY'),
 ];

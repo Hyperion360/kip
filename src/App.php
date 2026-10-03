@@ -499,7 +499,8 @@ final class App
         // Accepted risk (README-documented, OV P2a): headerless clients pass. Legacy or
         // privacy-hardened browsers lacking Origin/Referer/Fetch-Metadata match this same
         // signature. For guest-only routes with no ambient authority, worst case is
-        // spam-shaped, which the comment-throttle TODO owns.
+        // spam-shaped, which a rate_limit prefix owns (the blog example caps its
+        // comments prefix this way; guide chapter 6).
         return true;
     }
 
