@@ -172,10 +172,19 @@ final class PageCache
     /** @param string[] $tables written tables → purge every page tagged with any of them */
     public function purgeByTables(array $tables): void
     {
-        foreach ($tables as $t) {
-            foreach ($this->db->all('SELECT key FROM page_tags WHERE tag = ?', [$t]) as $row) {
-                $this->forget($row['key']);
+        $this->db->begin();
+        try {
+            foreach ($tables as $t) {
+                $this->db->query('DELETE FROM pages WHERE key IN (SELECT key FROM page_tags WHERE tag = ?)', [$t]);
+                // Every tag row of an affected key dies with it, not just this
+                // table's: a page tagged posts AND comments has no half-life.
+                // The OR arm sweeps stale rows whose page died even earlier.
+                $this->db->query('DELETE FROM page_tags WHERE key IN (SELECT key FROM page_tags WHERE tag = ?) OR tag = ?', [$t, $t]);
             }
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
         }
     }
 
