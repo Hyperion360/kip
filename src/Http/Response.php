@@ -20,7 +20,7 @@ final class Response
     /** @var array<string, string|list<string>> */
     public readonly array $headers;
 
-    /** @param array<string, string|list<string>> $headers */
+    /** @param array<array-key, string|list<string>> $headers */
     public function __construct(
         public readonly string $body = '',
         public readonly int $status = 200,
