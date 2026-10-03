@@ -2,7 +2,7 @@
 
 This tutorial takes the [`kip/skeleton`](../skeleton) app template, routing,
 sessions, and auth already wired up, nothing else opinionated, and turns it
-into a working blog: post index and detail pages, an author-only editor,
+into a working blog: post index and detail pages, a login-only editor,
 guest comments, pagination, and the audit log and page cache running
 underneath the whole time. By the end you'll have rebuilt
 [`examples/blog`](../examples/blog) yourself, one small step at a time.
@@ -18,7 +18,7 @@ than type it, it's sitting right there.
 
 - `/posts`, a paginated list of posts
 - `/posts/show/<id>`, a post with its comments
-- `/posts/create` and `/posts/edit/<id>`, an author-only editor, gated by
+- `/posts/create` and `/posts/edit/<id>`, a login-only editor, gated by
   the login you already have from the skeleton
 - `/comments/store/<postId>`. A guest comment form, no login required
 - Along the way: the request-log audit trail, the page cache with its
