@@ -3,7 +3,7 @@ namespace Kip\Tests\Skeleton;
 
 use PHPUnit\Framework\TestCase;
 
-// Regression: ISSUE-001 — every page triggered a /favicon.ico request that
+// Regression: ISSUE-001: every page triggered a /favicon.ico request that
 // 404'd (a console error per visit plus an audit-log row per visit).
 // Found by /qa on 2026-09-30, headed Chromium against the skeleton.
 // Report: .gstack/qa-reports/run-20260930T051523Z/qa-report-127-0-0-1-8095-2026-09-30.md

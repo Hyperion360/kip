@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__, 2) . '/skeleton/app/src/Controllers/HomeController.php';
 
-// Regression: ISSUE-002 — the skeleton nav was static (Home + Log in), so a
+// Regression: ISSUE-002: the skeleton nav was static (Home + Log in), so a
 // logged-in admin had no visible path to the panel, logs viewer, or SQL
 // browser, and saw "Log in" forever. Found by Danilo testing the skeleton
 // live, 2026-09-30.

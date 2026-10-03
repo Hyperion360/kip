@@ -225,4 +225,15 @@ final class AuthOAuthTest extends TestCase
         $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM users')['c'], 'the rolled-back half left no user row');
         $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM oauth_identities')['c'], 'and no identity row');
     }
+
+    public function test_identity_cascade_delete_seeks_the_user_index(): void
+    {
+        $this->migrateIdentities();
+        $plan = implode("\n", array_column(
+            $this->db->all("EXPLAIN QUERY PLAN DELETE FROM oauth_identities WHERE user_id IN (SELECT id FROM users WHERE email = ?)", ['u@x.y']),
+            'detail'
+        ));
+        $this->assertStringContainsString('idx_oauth_identities_user', $plan);
+        $this->assertDoesNotMatchRegularExpression('/^SCAN oauth_identities$/m', $plan);
+    }
 }
