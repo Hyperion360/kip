@@ -225,8 +225,11 @@ final class SmokeTest extends TestCase
             $this->assertNotSame(8098, $report['port']);
             $this->assertSame(200, $report['http']['status']);
         } finally {
-            fclose($a);
-            fclose($b);
+            // A holder can lose its fixed port to another suite process that
+            // binds 8093/8094 first: the smoke scan skips an occupied port
+            // either way, so a lost race must not TypeError the teardown.
+            if (is_resource($a)) fclose($a);
+            if (is_resource($b)) fclose($b);
         }
     }
 }
