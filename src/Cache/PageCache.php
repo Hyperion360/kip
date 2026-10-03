@@ -68,19 +68,30 @@ final class PageCache
             $this->forget($row['key']);
             return null;
         }
-        $headers = json_decode($row['headers'], true);
-        // One canonical spelling of the framework-owned marker: a stored page may
-        // carry the app's own foreign spelling (lowercase, say), and rebuilding the
-        // map with both would trip the constructor's case-collision guard before
-        // the 304 branch ever sees the response. The key folds to the canonical
-        // spelling, the stored value rides along, and rows written without a mark
-        // (the normal case: put() stores the pre-mark response) default to HIT.
-        // Mirrors the App 304 keep-scan, which canonicalizes the same way.
-        $kipCache = 'HIT';
-        foreach ($headers as $n => $v) {
-            if (strcasecmp((string) $n, 'X-Kip-Cache') === 0) { $kipCache = $v; unset($headers[$n]); }
-        }
+        [$headers, $kipCache] = self::foldCacheMark(json_decode($row['headers'], true));
         return new Response($row['body'], 200, [...$headers, 'X-Kip-Cache' => $kipCache, 'ETag' => $row['etag']]);
+    }
+
+    /** The framework-owned cache mark, folded: any case-spelling of
+     *  X-Kip-Cache leaves the header map, its value rides back as the single
+     *  canonical key's content ('HIT' when no mark was present). Both serve
+     *  paths share this rule — the cache hit (get) and App's 304 branch —
+     *  because two hand-rolled loops would drift, which is exactly the
+     *  case-collision fatal this exists to prevent.
+     *
+     * @param array<string, string|list<string>> $headers
+     * @return array{0: array<string, string|list<string>>, 1: string|list<string>}
+     */
+    public static function foldCacheMark(array $headers): array
+    {
+        $mark = 'HIT';
+        foreach ($headers as $n => $v) {
+            if (strcasecmp((string) $n, 'X-Kip-Cache') === 0) {
+                $mark = $v;
+                unset($headers[$n]);
+            }
+        }
+        return [$headers, $mark];
     }
 
     /**
