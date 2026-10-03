@@ -231,7 +231,7 @@ The panel ships three appearance modes. **Auto** (the default) follows the
 operating system through `prefers-color-scheme`, which is pure CSS. **Light**
 and **Dark** are submit buttons in a small POST form in the sidebar: they
 target `POST /admin/theme`, which sets a `kip_theme` cookie
-(`Path=/; SameSite=Lax`, one year) and redirects back to the page that
+(`Path=/; SameSite=Lax; HttpOnly`, one year) and redirects back to the page that
 posted. The site-root path is deliberate: one cookie carries one
 preference across the panel and the app's public pages, so the two
 surfaces cannot disagree. A cookie-bearing request is personal for the

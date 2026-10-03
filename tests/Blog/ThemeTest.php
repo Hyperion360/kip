@@ -52,7 +52,14 @@ final class ThemeTest extends TestCase
         $this->assertStringContainsString('kip_theme=dark', $cookie);
         $this->assertStringContainsString('Path=/', $cookie);
         $this->assertStringContainsString('Max-Age=31536000', $cookie);
-        $this->assertStringContainsString('SameSite=Lax', $cookie);
+        $this->assertStringContainsString('SameSite=Lax; HttpOnly', $cookie);
+    }
+
+    public function test_https_request_sets_a_secure_theme_cookie(): void
+    {
+        $this->client->secure(true);
+        $res = $this->client->post('/theme', ['theme' => 'dark', 'back' => '/']);
+        $this->assertStringEndsWith('; SameSite=Lax; HttpOnly; Secure', $res->headers['Set-Cookie']);
     }
 
     public function test_the_cookie_round_trips_into_data_theme(): void

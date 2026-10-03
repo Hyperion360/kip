@@ -53,8 +53,8 @@ final class ThemeController
         // them BYPASS; auto (the default) deletes the cookie and the next
         // visit is cacheable again.
         $cookie = $value === 'auto'
-            ? Theme::clearCookie('kip_theme')
-            : Theme::cookie('kip_theme', $value);
+            ? Theme::clearCookie('kip_theme', $this->request->secure)
+            : Theme::cookie('kip_theme', $value, secure: $this->request->secure);
         return new Response('', 302, ['Location' => $back, 'Set-Cookie' => $cookie]);
     }
 }

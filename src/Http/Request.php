@@ -14,6 +14,7 @@ final class Request
      * @param array<string, string>    $headers lowercase keys, built by fromGlobals (v0.2 T2)
      * @param array<array-key, mixed>  $files   $_FILES-shaped (v0.3 T8)
      * @param string                   $body    raw request body (JSON battery); '' when none
+     * @param bool                     $secure  the request arrived over https (HTTPS/REQUEST_SCHEME, or X-Forwarded-Proto behind a trusted proxy)
      */
     public function __construct(
         public readonly string $method,
@@ -25,6 +26,7 @@ final class Request
         public readonly array $headers = [],
         public readonly array $files = [],
         public readonly string $body = '',
+        public readonly bool $secure = false,
     ) {
         // Stored as given: a trailing slash must reach the router and 404 there,
         // not be silently aliased onto the canonical URL. Only the empty path
@@ -69,7 +71,11 @@ final class Request
         // request body, and reading php://input there depends on stdin wiring
         // that varies across builds. Tests inject the body explicitly.
         $body = PHP_SAPI === 'cli' ? '' : (string) file_get_contents('php://input');
-        return new self($server['REQUEST_METHOD'] ?? 'GET', $path, $_GET, $_POST, $_COOKIE, $ip, $headers, $_FILES, $body);
+        $https = (string) ($server['HTTPS'] ?? '');
+        $secure = ($https !== '' && $https !== 'off')
+            || strtolower((string) ($server['REQUEST_SCHEME'] ?? '')) === 'https'
+            || ($trustedProxy && strtolower((string) ($server['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https');
+        return new self($server['REQUEST_METHOD'] ?? 'GET', $path, $_GET, $_POST, $_COOKIE, $ip, $headers, $_FILES, $body, $secure);
     }
 
     public function input(string $key, mixed $default = null): mixed

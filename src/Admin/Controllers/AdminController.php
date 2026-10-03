@@ -126,8 +126,8 @@ final class AdminController
         // BYPASS), which is correct: a visitor who picked light/dark renders
         // different HTML; auto deletes the cookie and restores caching.
         $cookie = $value === 'auto'
-            ? Theme::clearCookie('kip_theme')
-            : Theme::cookie('kip_theme', $value);
+            ? Theme::clearCookie('kip_theme', $this->request->secure)
+            : Theme::cookie('kip_theme', $value, secure: $this->request->secure);
         return new Response('', 302, ['Location' => $back, 'Set-Cookie' => $cookie]);
     }
 

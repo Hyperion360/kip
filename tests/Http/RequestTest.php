@@ -92,4 +92,19 @@ final class RequestTest extends TestCase
         $this->assertSame('same-origin', $r->header('sec-fetch-site'));
         $this->assertNull($r->header('absent'));
     }
+
+    public function test_secure_fact_detection_rules(): void
+    {
+        $https = Request::fromGlobals(['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/', 'HTTPS' => 'on']);
+        $this->assertTrue($https->secure);
+        $httpsOff = Request::fromGlobals(['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/', 'HTTPS' => 'off']);
+        $this->assertFalse($httpsOff->secure);
+        $scheme = Request::fromGlobals(['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/', 'REQUEST_SCHEME' => 'https']);
+        $this->assertTrue($scheme->secure);
+        // X-Forwarded-Proto is client-controlled: honored only behind trusted_proxy.
+        $spoofable = Request::fromGlobals(['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/', 'HTTP_X_FORWARDED_PROTO' => 'https']);
+        $this->assertFalse($spoofable->secure);
+        $trusted = Request::fromGlobals(['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/', 'HTTP_X_FORWARDED_PROTO' => 'https'], trustedProxy: true);
+        $this->assertTrue($trusted->secure);
+    }
 }

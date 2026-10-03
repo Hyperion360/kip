@@ -36,7 +36,14 @@ final class AdminThemeTest extends TestCase
         $this->assertSame(302, $res->status);
         $this->assertSame('/admin/browse/posts', $res->headers['Location'] ?? null);
         $this->assertStringContainsString('kip_theme=dark', $res->headers['Set-Cookie'] ?? '');
-        $this->assertStringContainsString('SameSite=Lax', $res->headers['Set-Cookie'] ?? '');
+        $this->assertStringContainsString('SameSite=Lax; HttpOnly', $res->headers['Set-Cookie'] ?? '');
+    }
+
+    public function test_https_request_sets_a_secure_theme_cookie(): void
+    {
+        $this->client->secure(true);
+        $res = $this->client->postWithToken('/admin/theme', ['theme' => 'dark', 'back' => '/admin']);
+        $this->assertStringEndsWith('; SameSite=Lax; HttpOnly; Secure', $res->headers['Set-Cookie'] ?? '');
     }
 
     public function test_auto_clears_the_cookie(): void

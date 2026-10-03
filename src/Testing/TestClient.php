@@ -19,11 +19,19 @@ final class TestClient
     private array $store = [];
     /** @var array<string, string> cookies this client presents on every request (theme preference, consent flags) */
     private array $cookies = [];
+    private bool $secure = false;
     public readonly Session $session;
 
     public function __construct(private App $app)
     {
         $this->session = new Session($this->store);
+    }
+
+    /** Mark subsequent requests as https, so Secure-cookie emission is testable. */
+    public function secure(bool $secure = true): static
+    {
+        $this->secure = $secure;
+        return $this;
     }
 
     /**
@@ -80,7 +88,7 @@ final class TestClient
         // (cacheable), stateful clients are BYPASS. Explicitly presented cookies
         // ride along either way.
         $cookies = $this->store === [] ? [] : ['kip_test_session' => '1'];
-        $response = $this->app->handle(new Request($method, $path, $get, $post, $this->cookies + $cookies, '127.0.0.1', $headers, $files, $body), $this->session);
+        $response = $this->app->handle(new Request($method, $path, $get, $post, $this->cookies + $cookies, '127.0.0.1', $headers, $files, $body, $this->secure), $this->session);
         $this->absorbSetCookie($response);
         $this->app->runDeferred(); // as the front controller does after send()
         return $response;
