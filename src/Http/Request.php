@@ -71,11 +71,29 @@ final class Request
         // request body, and reading php://input there depends on stdin wiring
         // that varies across builds. Tests inject the body explicitly.
         $body = PHP_SAPI === 'cli' ? '' : (string) file_get_contents('php://input');
+        return new self($server['REQUEST_METHOD'] ?? 'GET', $path, $_GET, $_POST, $_COOKIE, $ip, $headers, $_FILES, $body, self::secureFromServer($server, $trustedProxy));
+    }
+
+    /** The https fact, one rule for every consumer: the session cookie's
+     *  Secure flag (the front controllers, before a Request exists) and
+     *  Request::$secure. HTTPS or REQUEST_SCHEME decides; X-Forwarded-Proto
+     *  counts only behind a trusted proxy, and only its LAST comma-separated
+     *  element, because proxies append and an attacker-supplied first
+     *  element must not decide (the same D3 rule as X-Forwarded-For).
+     *
+     * @param array<array-key, mixed>|null $server
+     */
+    public static function secureFromServer(?array $server = null, bool $trustedProxy = false): bool
+    {
+        $server ??= $_SERVER;
         $https = (string) ($server['HTTPS'] ?? '');
-        $secure = ($https !== '' && $https !== 'off')
-            || strtolower((string) ($server['REQUEST_SCHEME'] ?? '')) === 'https'
-            || ($trustedProxy && strtolower((string) ($server['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https');
-        return new self($server['REQUEST_METHOD'] ?? 'GET', $path, $_GET, $_POST, $_COOKIE, $ip, $headers, $_FILES, $body, $secure);
+        if ($https !== '' && $https !== 'off') return true;
+        if (strtolower((string) ($server['REQUEST_SCHEME'] ?? '')) === 'https') return true;
+        if (!$trustedProxy) return false;
+        $proto = strtolower((string) ($server['HTTP_X_FORWARDED_PROTO'] ?? ''));
+        if ($proto === '') return false;
+        $parts = array_map('trim', explode(',', $proto));
+        return end($parts) === 'https';
     }
 
     public function input(string $key, mixed $default = null): mixed

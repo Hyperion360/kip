@@ -7,8 +7,9 @@ $config['views'] = $config['app_dir'] . '/views';
 
 ob_start(); // lazy session may start mid-render; nothing may flush before headers
 
-$https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-    || ($config['trusted_proxy'] && ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+// One https rule for the whole app (session cookie Secure flag here,
+// Request::$secure in the kernel): Request::secureFromServer.
+$https = Kip\Http\Request::secureFromServer(trustedProxy: $config['trusted_proxy']);
 
 $app = new Kip\App($config, Kip\Session::lazy(new Kip\SessionStarter($https)));
 $app->handle(Kip\Http\Request::fromGlobals(trustedProxy: $config['trusted_proxy']))->send();

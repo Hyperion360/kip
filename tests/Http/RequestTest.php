@@ -106,5 +106,15 @@ final class RequestTest extends TestCase
         $this->assertFalse($spoofable->secure);
         $trusted = Request::fromGlobals(['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/', 'HTTP_X_FORWARDED_PROTO' => 'https'], trustedProxy: true);
         $this->assertTrue($trusted->secure);
+        // Appending proxies build the header client-first, proxy-last: the
+        // LAST element is the only hop the client cannot write (the same D3
+        // rule as X-Forwarded-For). A whole-value compare would let an
+        // attacker's first element strip the Secure flag from every cookie.
+        $poisoned = Request::fromGlobals(['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/', 'HTTP_X_FORWARDED_PROTO' => 'https, http'], trustedProxy: true);
+        $this->assertFalse($poisoned->secure, 'the proxy-appended last hop decides');
+        $chained = Request::fromGlobals(['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/', 'HTTP_X_FORWARDED_PROTO' => 'http, HTTPS'], trustedProxy: true);
+        $this->assertTrue($chained->secure, 'case-insensitive, last hop wins');
+        $spaces = Request::fromGlobals(['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/', 'HTTP_X_FORWARDED_PROTO' => 'http, https '], trustedProxy: true);
+        $this->assertTrue($spaces->secure, 'surrounding whitespace trimmed');
     }
 }
