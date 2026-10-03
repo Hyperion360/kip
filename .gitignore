@@ -26,3 +26,7 @@ GEMINI.md
 
 # qa-full pipeline reports (workspace-private, like plans and QA notes)
 /qa-full-reports/
+
+# daily-qa sweep outputs (workspace-private, never committed)
+/daily-qa-reports/
+.daily-qa-last-run
