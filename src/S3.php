@@ -3,6 +3,8 @@
 declare(strict_types=1);
 namespace Kip;
 
+use Kip\Auth\OAuthProvider;
+
 /**
  * Minimal S3-compatible uploader (AWS S3, Backblaze B2's S3 endpoint, MinIO,
  * R2): Signature Version 4 with a hashed payload, path-style requests, zero
@@ -19,6 +21,11 @@ final class S3
                 throw new \InvalidArgumentException("S3 config key '{$required}' is required");
             }
         }
+        // Same rule as the OAuth provider endpoints (assertEndpoint is the one
+        // implementation): an http endpoint would carry the whole backup archive
+        // in plaintext, so https is required except where a loopback host serves
+        // local development and the test stub.
+        OAuthProvider::assertEndpoint($this->config['endpoint'], 'S3 endpoint');
         self::assertTransport(extension_loaded('curl'), extension_loaded('openssl'), (int) ini_get('allow_url_fopen') === 1);
     }
 

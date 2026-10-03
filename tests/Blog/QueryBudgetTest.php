@@ -53,11 +53,11 @@ final class QueryBudgetTest extends TestCase
      * @param array<string, string> $query
      * @return array{0: \Kip\Http\Response, 1: int}
      */
-    private function render(string $path, array $query = []): array
+    private function render(string $path, array $query = [], ?TestClient $client = null): array
     {
         $sql = [];
         $this->db->onQuery(function (string $q) use (&$sql): void { $sql[] = $q; });
-        $res = (new TestClient($this->app))->get($path, $query);
+        $res = ($client ?? new TestClient($this->app))->get($path, $query);
         $this->db->onQuery(static fn () => null);
         foreach ($sql as $q) {
             $plan = implode("\n", array_column($this->db->all('EXPLAIN QUERY PLAN ' . $q, array_fill(0, substr_count($q, '?'), 1)), 'detail'));
@@ -108,6 +108,16 @@ final class QueryBudgetTest extends TestCase
         [$res, $queries] = $this->render('/posts');
         $this->assertSame(200, $res->status, $res->body);
         $this->assertLessThanOrEqual(1, $queries); // render() also fails it on a scan or a sort
+    }
+
+    public function test_logged_in_pages_run_two_queries_the_documented_nav_exception(): void
+    {
+        $this->db->query("INSERT INTO users (email, password_hash, is_admin) VALUES ('u@x.com', 'h', 0)");
+        $client = new TestClient($this->app);
+        $client->actingAs((int) $this->db->one("SELECT id FROM users WHERE email = 'u@x.com'")['id']);
+        [$res, $queries] = $this->render('/', client: $client);
+        $this->assertSame(200, $res->status, $res->body);
+        $this->assertLessThanOrEqual(2, $queries, 'guide chapter 15: page query + the nav is_admin lookup');
     }
 
     public function test_home_is_one_query_and_lists_the_three_newest_posts(): void

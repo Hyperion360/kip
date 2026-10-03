@@ -20,13 +20,23 @@ final class Response
     /** @var array<string, string|list<string>> */
     public readonly array $headers;
 
-    /** @param array<string, string|list<string>> $headers */
+    /** @param array<array-key, string|list<string>> $headers */
     public function __construct(
         public readonly string $body = '',
         public readonly int $status = 200,
         array $headers = [],
     ) {
         foreach ($headers as $name => $value) {
+            if (!is_string($name)) {
+                // PHP turns numeric-string keys into ints, so an int key here means
+                // someone passed a flat list where the map shape was required.
+                throw new \InvalidArgumentException('Header names must be strings: pass a name => value map, not a list');
+            }
+            // Double-quoted on purpose: the token alphabet includes an apostrophe,
+            // and a single-quoted pattern would need an escaping backslash.
+            if (preg_match("/^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$/", $name) !== 1) {
+                throw new \InvalidArgumentException("Header name {$name} is not a valid field name (RFC 9110 token)");
+            }
             self::assertHeaderSafe((string) $name, $value);
             self::assertSingleValued((string) $name, $value);
         }

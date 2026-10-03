@@ -52,7 +52,14 @@ final class ThemeTest extends TestCase
         $this->assertStringContainsString('kip_theme=dark', $cookie);
         $this->assertStringContainsString('Path=/', $cookie);
         $this->assertStringContainsString('Max-Age=31536000', $cookie);
-        $this->assertStringContainsString('SameSite=Lax', $cookie);
+        $this->assertStringContainsString('SameSite=Lax; HttpOnly', $cookie);
+    }
+
+    public function test_https_request_sets_a_secure_theme_cookie(): void
+    {
+        $this->client->secure(true);
+        $res = $this->client->post('/theme', ['theme' => 'dark', 'back' => '/']);
+        $this->assertStringEndsWith('; SameSite=Lax; HttpOnly; Secure', $res->headers['Set-Cookie']);
     }
 
     public function test_the_cookie_round_trips_into_data_theme(): void
@@ -111,6 +118,16 @@ final class ThemeTest extends TestCase
         foreach (['/posts/show/../../etc', "/posts\r\nSet-Cookie: x=y"] as $back) {
             $res = $this->client->post('/theme', ['theme' => 'light', 'back' => $back]);
             $this->assertSame('/', $res->headers['Location'] ?? null);
+        }
+    }
+
+    public function test_protocol_relative_and_fragment_backs_fall_back(): void
+    {
+        foreach (['//posts', '/posts#frag', '/posts?q=1#frag'] as $back) {
+            $res = $this->client->post('/theme', ['theme' => 'dark', 'back' => $back]);
+            $this->assertSame(302, $res->status);
+            $this->assertStringStartsWith('/', (string) parse_url($res->headers['Location'], PHP_URL_PATH));
+            $this->assertStringNotContainsString('//posts', $res->headers['Location']);
         }
     }
 

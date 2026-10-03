@@ -273,11 +273,26 @@ final class Auth
                 $this->db->commit();
                 return null;
             }
-            $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)',
-                [$email, password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT)]);
-            $userId = (int) $this->db->lastInsertId();
-            $this->db->query('INSERT INTO oauth_identities (provider, provider_uid, user_id) VALUES (?, ?, ?)',
-                [$provider, $providerUid, $userId]);
+            try {
+                $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)',
+                    [$email, password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT)]);
+                $userId = (int) $this->db->lastInsertId();
+                $this->db->query('INSERT INTO oauth_identities (provider, provider_uid, user_id) VALUES (?, ?, ?)',
+                    [$provider, $providerUid, $userId]);
+            } catch (\PDOException $e) {
+                // SQLITE_CONSTRAINT is driver code 19; PostgreSQL reports a
+                // UNIQUE loss as SQLSTATE 23505. The hand-built code-19 shape
+                // (the race test's listener) carries no errorInfo.
+                $constraint = (int) $e->getCode() === 19
+                    || ($e->errorInfo[1] ?? null) === 19
+                    || in_array($e->errorInfo[0] ?? '', ['23000', '23505'], true);
+                if (!$constraint) throw $e;
+                // The COUNT above lost a race: a simultaneous first sign-in with the
+                // same verified email won the UNIQUE(email) insert. The documented
+                // outcome is the refusal, not a 500; the rollback discards our half.
+                $this->db->rollBack();
+                return null;
+            }
             $hash = (string) $this->db->one('SELECT password_hash FROM users WHERE id = ?', [$userId])['password_hash'];
             $this->db->commit();
         } catch (\Throwable $e) {

@@ -16,6 +16,14 @@ outside the budget by design: the request audit write, which goes to the
 separate logs database (see [chapter 9](09-audit-log.md)), and session
 validation on pages that require login.
 
+The tutorial app has one documented exception on top: a signed-in visitor's
+pages carry the shared nav frame, which looks up `users.is_admin` by session
+user id (one indexed primary-key seek). Logged-in renders on `examples/blog`
+therefore run at most two content-database queries; guest renders stay at
+one. The exception is pinned by the same budget test that enforces the rule,
+and it is the only sanctioned second query: an app adding another per-page
+lookup belongs back at one query, folded into the page's own SELECT.
+
 The budget is not about SQLite being slow; simple queries run in
 microseconds. The budget exists because every extra query is a place where
 N+1 patterns, missing indexes, and accidental work hide, and because the

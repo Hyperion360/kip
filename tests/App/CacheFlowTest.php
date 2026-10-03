@@ -49,6 +49,17 @@ class DualEtagPageController
     }
 }
 
+// An app that wrote the framework-owned cache header in a foreign spelling:
+// the 304 assembly must fold it back onto one canonical key, never carry both
+// spellings (the Response constructor's case-collision guard would fatal).
+class LowercaseCacheMarkController
+{
+    public function index(): \Kip\Http\Response
+    {
+        return new \Kip\Http\Response('lc', 200, ['x-kip-cache' => 'APP', 'Cache-Control' => 'max-age=60']);
+    }
+}
+
 final class CacheFlowTest extends TestCase
 {
     private App $app;
@@ -351,6 +362,27 @@ final class CacheFlowTest extends TestCase
         $res = $app->handle(new Request('GET', '/cache-header-page', [], [], [], '', ['if-none-match' => $etag]));
         $this->assertSame(304, $res->status);
         $this->assertSame('/canonical', $res->headers['Content-Location']);
+    }
+
+    public function test_304_folds_a_foreign_spelling_of_the_cache_mark_onto_one_key(): void
+    {
+        $app = new App([
+            'env' => 'dev',
+            'db' => ['dsn' => 'sqlite::memory:'],
+            'cache_db' => ['dsn' => 'sqlite::memory:', 'ttl_seconds' => 3600],
+            'controller_namespace' => 'Kip\\Tests\\App\\',
+            'views' => dirname(__DIR__) . '/Fixtures/views',
+        ]);
+        $db = $app->container->make(Database::class);
+        $db->query('CREATE TABLE posts (id INTEGER PRIMARY KEY, title TEXT, body TEXT, created_at TEXT)');
+        $db->query("INSERT INTO posts (title, body, created_at) VALUES ('T', 'B', '2026-01-01')");
+        $get = fn (array $headers = []) => $app->handle(new Request('GET', '/lowercase-cache-mark', [], [], [], '', $headers));
+        $etag = $get()->headers['ETag'];
+        $res = $get(['if-none-match' => $etag]);
+        $this->assertSame(304, $res->status);
+        $spellings = array_filter(array_keys($res->headers), fn ($n) => strcasecmp((string) $n, 'X-Kip-Cache') === 0);
+        $this->assertCount(1, $spellings, 'one X-Kip-Cache spelling on the 304');
+        $this->assertSame('APP', $res->headers['X-Kip-Cache'], 'the app value survives, under the canonical key');
     }
 
 }

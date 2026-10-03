@@ -69,7 +69,18 @@ final class PageCache
             return null;
         }
         $headers = json_decode($row['headers'], true);
-        return new Response($row['body'], 200, [...$headers, 'X-Kip-Cache' => 'HIT', 'ETag' => $row['etag']]);
+        // One canonical spelling of the framework-owned marker: a stored page may
+        // carry the app's own foreign spelling (lowercase, say), and rebuilding the
+        // map with both would trip the constructor's case-collision guard before
+        // the 304 branch ever sees the response. The key folds to the canonical
+        // spelling, the stored value rides along, and rows written without a mark
+        // (the normal case: put() stores the pre-mark response) default to HIT.
+        // Mirrors the App 304 keep-scan, which canonicalizes the same way.
+        $kipCache = 'HIT';
+        foreach ($headers as $n => $v) {
+            if (strcasecmp((string) $n, 'X-Kip-Cache') === 0) { $kipCache = $v; unset($headers[$n]); }
+        }
+        return new Response($row['body'], 200, [...$headers, 'X-Kip-Cache' => $kipCache, 'ETag' => $row['etag']]);
     }
 
     /**
@@ -161,10 +172,19 @@ final class PageCache
     /** @param string[] $tables written tables → purge every page tagged with any of them */
     public function purgeByTables(array $tables): void
     {
-        foreach ($tables as $t) {
-            foreach ($this->db->all('SELECT key FROM page_tags WHERE tag = ?', [$t]) as $row) {
-                $this->forget($row['key']);
+        $this->db->begin();
+        try {
+            foreach ($tables as $t) {
+                $this->db->query('DELETE FROM pages WHERE key IN (SELECT key FROM page_tags WHERE tag = ?)', [$t]);
+                // Every tag row of an affected key dies with it, not just this
+                // table's: a page tagged posts AND comments has no half-life.
+                // The OR arm sweeps stale rows whose page died even earlier.
+                $this->db->query('DELETE FROM page_tags WHERE key IN (SELECT key FROM page_tags WHERE tag = ?) OR tag = ?', [$t, $t]);
             }
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
         }
     }
 

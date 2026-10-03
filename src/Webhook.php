@@ -26,6 +26,7 @@ final class Webhook
         if ($secret === '') return false;
         $provided = $request->header($header);
         if ($provided === null || $provided === '') return false;
+        $provided = trim($provided);
         if (str_starts_with(strtolower($provided), 'sha256=')) $provided = substr($provided, 7);
         return hash_equals(hash_hmac('sha256', $request->body, $secret), strtolower($provided));
     }

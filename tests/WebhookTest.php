@@ -61,6 +61,19 @@ final class WebhookTest extends TestCase
         $this->assertTrue(Webhook::verify($this->signed($body, $sig, 'x-hook-sig'), self::SECRET, 'X-Hook-Sig'));
     }
 
+    public function test_uppercase_hex_and_whitespace_padded_signatures_are_accepted(): void
+    {
+        $body = 'payload';
+        $secret = 's3cret';
+        $sig = hash_hmac('sha256', $body, $secret);
+        $uppercase = new Request('POST', '/hook', [], [], [], '1.2.3.4',
+            ['x-webhook-signature' => strtoupper($sig)], [], $body);
+        $padded = new Request('POST', '/hook', [], [], [], '1.2.3.4',
+            ['x-webhook-signature' => "  $sig\t"], [], $body);
+        $this->assertTrue(Webhook::verify($uppercase, $secret), 'uppercase hex matches via strtolower');
+        $this->assertTrue(Webhook::verify($padded, $secret), 'surrounding whitespace is trimmed');
+    }
+
     public function test_the_signature_is_over_the_raw_bytes_not_a_re_encoded_parse(): void
     {
         // Multibyte body: a decode/encode round trip escapes the é, changing the

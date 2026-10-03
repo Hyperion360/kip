@@ -8,10 +8,12 @@ use PHPUnit\Framework\TestCase;
 final class PageCacheTest extends TestCase
 {
     private PageCache $cache;
+    private Database $db;
 
     protected function setUp(): void
     {
-        $this->cache = new PageCache(new Database('sqlite::memory:'), ttlSeconds: 3600);
+        $this->db = new Database('sqlite::memory:');
+        $this->cache = new PageCache($this->db, ttlSeconds: 3600);
     }
 
     public function test_miss_then_hit_roundtrip(): void
@@ -184,16 +186,6 @@ final class PageCacheTest extends TestCase
         new Response('b', 200, ['X-Custom' => 42]);
     }
 
-    public function test_an_int_header_key_roundtrips_through_the_cache(): void
-    {
-        // An int key is still a legal shape (PHP casts it); json makes it a
-        // string key on store and PHP casts it back on replay.
-        $this->cache->put('/x', '', new Response('b', 200, [7 => 'x']), []);
-        $hit = $this->cache->get('/x', '');
-        $this->assertNotNull($hit);
-        $this->assertSame('b', $hit->body);
-    }
-
     public function test_noindex_guard_matches_name_and_directive_case_insensitively(): void
     {
         // RFC 9110 field names are case-insensitive and apps spell headers
@@ -248,6 +240,31 @@ final class PageCacheTest extends TestCase
         $this->assertSame('"app-v1"', $row['etag']);
         $stored = json_decode($db->one('SELECT headers FROM pages')['headers'], true);
         $this->assertArrayNotHasKey('etag', $stored, 'the validator lives in its column, not duplicated in headers');
+    }
+    /** purgeByTables is set-based: a multi-tag page loses every tag row when either tag purges. */
+    public function test_purge_by_tables_is_set_based_and_leaves_no_tag_rows(): void
+    {
+        $k = fn (string $p): string => hash('sha256', $p . '?'); // the same key fold PageCache::key() uses
+        $this->cache->put('/a', '', new Response('A'), ['posts', 'comments']);
+        $this->cache->put('/b', '', new Response('B'), ['posts']);
+        $this->cache->put('/c', '', new Response('C'), ['users']);
+        $this->cache->purgeByTables(['posts']);
+        $this->assertNull($this->cache->get('/a', ''));
+        $this->assertNull($this->cache->get('/b', ''));
+        $this->assertSame('C', $this->cache->get('/c', '')->body);
+        $this->assertSame([], $this->db->all('SELECT key FROM page_tags WHERE key IN (?, ?)', [$k('/a'), $k('/b')]), 'no tag row outlives its page, under any tag');
+        $this->assertSame([['key' => $k('/c')]], $this->db->all("SELECT key FROM page_tags WHERE tag = 'users'"), 'untouched tags stay');
+    }
+
+    public function test_purge_by_tables_survives_an_open_transaction(): void
+    {
+        // App can call this while a framework transaction is open (SAVEPOINT
+        // nesting): the purge must join it, not throw.
+        $this->cache->put('/a', '', new Response('A'), ['posts']);
+        $this->db->begin();
+        $this->cache->purgeByTables(['posts']);
+        $this->db->commit();
+        $this->assertNull($this->cache->get('/a', ''));
     }
 
 }

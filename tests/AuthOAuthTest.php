@@ -206,4 +206,34 @@ final class AuthOAuthTest extends TestCase
         $this->expectExceptionMessage('oauth_identities');
         $auth->linkOAuthIdentity(1, 'google', 'g-6');
     }
+
+    public function test_unique_email_race_returns_null_instead_of_throwing(): void
+    {
+        $db = new Database('sqlite::memory:');
+        $db->query('CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL)');
+        $db->query('CREATE TABLE oauth_identities (provider TEXT NOT NULL, provider_uid TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (provider, provider_uid))');
+        $store = [];
+        $auth = new Auth($db, new Session($store), static function (): void {});
+        // onQuery fires just before execute: the racer's UNIQUE(email) win is
+        // simulated by the listener raising the constraint the loser would see.
+        $db->onQuery(function (string $sql): void {
+            if (str_starts_with($sql, 'INSERT INTO users')) {
+                throw new \PDOException('UNIQUE constraint failed: users.email', 19);
+            }
+        });
+        $this->assertNull($auth->loginOrRegisterOAuth('google', 'race-1', 'race@x.com', true));
+        $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM users')['c'], 'the rolled-back half left no user row');
+        $this->assertSame(0, (int) $db->one('SELECT COUNT(*) c FROM oauth_identities')['c'], 'and no identity row');
+    }
+
+    public function test_identity_cascade_delete_seeks_the_user_index(): void
+    {
+        $this->migrateIdentities();
+        $plan = implode("\n", array_column(
+            $this->db->all("EXPLAIN QUERY PLAN DELETE FROM oauth_identities WHERE user_id IN (SELECT id FROM users WHERE email = ?)", ['u@x.y']),
+            'detail'
+        ));
+        $this->assertStringContainsString('idx_oauth_identities_user', $plan);
+        $this->assertDoesNotMatchRegularExpression('/^SCAN oauth_identities$/m', $plan);
+    }
 }
