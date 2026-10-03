@@ -140,8 +140,7 @@ final class App
         // Audit only when a log DB was explicitly configured (T12c-fix, a container
         // lookup here would silently autowire against the main Database).
         // D3: reset tokens travel in the URL; never persist them in the audit log.
-        // Token length comes from Auth so the redaction cannot drift from token generation.
-        $auditPath = preg_replace('#^(/auth/reset/)[0-9a-f]{' . Auth::RESET_TOKEN_HEX . '}$#', '$1<redacted>', $request->path);
+        $auditPath = Auth::redactResetPath($request->path);
         // The session store is app-authored and may hold a numeric string where the
         // framework declares int; only integer-shaped strings audit as that user.
         // Anything else ('1.5', arrays) audits as a guest; sessionValid() still
@@ -358,19 +357,19 @@ final class App
             // have sent. Field names are case-insensitive (RFC 9110 5.1), so keys are
             // scanned, not two spellings enumerated. No etag arm: the single
             // validator is set once from $etag below.
-            // One canonical spelling of the framework-owned mark: an app that wrote
-            // x-kip-cache lowercase must not end up beside our X-Kip-Cache, or the
-            // constructor's case-collision guard turns the 304 into a fatal.
             $keep = ['cache-control', 'expires', 'vary', 'content-location'];
+            // The framework-owned mark folds to one canonical spelling before
+            // the keep-scan (the shared rule the cache hit path applies too):
+            // an app that wrote x-kip-cache lowercase must not end up beside
+            // our X-Kip-Cache, or the constructor's case-collision guard turns
+            // the 304 into a fatal.
+            [$marked, $kipCache] = \Kip\Cache\PageCache::foldCacheMark($response->headers);
             $headers = [];
-            $kipCache = null;
-            foreach ($response->headers as $n => $v) {
-                $lower = strtolower((string) $n);
-                if ($lower === 'x-kip-cache') { $kipCache = $v; continue; }
-                if (in_array($lower, $keep, true)) $headers[(string) $n] = $v;
+            foreach ($marked as $n => $v) {
+                if (in_array(strtolower((string) $n), $keep, true)) $headers[(string) $n] = $v;
             }
             $headers['ETag'] = $etag;
-            $headers['X-Kip-Cache'] = $kipCache ?? 'HIT';
+            $headers['X-Kip-Cache'] = $kipCache;
             return new Response('', 304, $headers);
         }
         return $response;

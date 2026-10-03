@@ -29,6 +29,16 @@ final class Auth
         };
     }
 
+    /** The emailed reset link's path with its single-use token redacted: the
+     *  token is a live credential from click until form submit, so neither
+     *  the kernel's audit path nor a direct RequestLog::log() caller may
+     *  persist it. One rule, shaped by RESET_TOKEN_HEX so it cannot drift
+     *  from token generation. */
+    public static function redactResetPath(string $path): string
+    {
+        return preg_replace('~^(/auth/reset/)[0-9a-f]{' . self::RESET_TOKEN_HEX . '}$~', '$1<redacted>', $path);
+    }
+
     public function register(string $email, string $password): void
     {
         $this->db->query('INSERT INTO users (email, password_hash) VALUES (?, ?)',
