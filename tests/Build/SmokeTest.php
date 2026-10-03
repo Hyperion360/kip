@@ -216,8 +216,11 @@ final class SmokeTest extends TestCase
     {
         // Hold 8093 and 8094 so the scan has to walk past them (and past the
         // always-skipped fixed suite ports is implicit: they are never picked).
-        $a = stream_socket_server('tcp://127.0.0.1:8093');
-        $b = stream_socket_server('tcp://127.0.0.1:8094');
+        // @: another suite process may still be releasing one of the shared
+        // fixed ports; a holder that loses the race leaves the port occupied,
+        // which is the state under test either way.
+        $a = @stream_socket_server('tcp://127.0.0.1:8093');
+        $b = @stream_socket_server('tcp://127.0.0.1:8094');
         try {
             $report = $this->smoke()->run();
             $this->assertGreaterThanOrEqual(8095, $report['port']);
