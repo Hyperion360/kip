@@ -89,6 +89,19 @@ final class S3Test extends TestCase
         new S3(['endpoint' => 'http://127.0.0.1:8096', 'region' => 'us-east-1', 'bucket' => 'b', 'key' => 'k']);
     }
 
+    public function test_plain_http_endpoint_off_loopback_is_refused(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('https');
+        new S3(['endpoint' => 'http://s3.example.com', 'region' => 'us-east-1', 'bucket' => 'b', 'key' => 'k', 'secret' => 's']);
+    }
+
+    public function test_loopback_http_endpoint_still_works_for_local_dev(): void
+    {
+        $s3 = new S3(['endpoint' => 'http://127.0.0.1:9000', 'region' => 'us-east-1', 'bucket' => 'b', 'key' => 'k', 'secret' => 's']);
+        $this->assertInstanceOf(S3::class, $s3);
+    }
+
     /**
      * Construction must refuse when no transport exists, naming both
      * remedies. The gate is a pure function of the transport facts because a
@@ -195,6 +208,7 @@ function extension_loaded(string $ext): bool
     return $ext === \'curl\' ? false : \extension_loaded($ext);
 }
 
+require ' . var_export(dirname(__DIR__) . '/src/Auth/OAuthProvider.php', true) . ';
 require ' . var_export(dirname(__DIR__) . '/src/S3.php', true) . ';
 $s3 = new S3(' . var_export($config, true) . ');
 $file = ' . var_export($file, true) . ';

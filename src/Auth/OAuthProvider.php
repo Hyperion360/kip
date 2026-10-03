@@ -114,8 +114,12 @@ final class OAuthProvider
     {
         $host = parse_url((string) $url, PHP_URL_HOST);
         $scheme = parse_url((string) $url, PHP_URL_SCHEME);
-        $loopback = is_string($host) && in_array(strtolower($host), ['127.0.0.1', '::1', 'localhost'], true);
-        if ($scheme !== 'https' && !$loopback) {
+        // Only http may bend the https rule, and only on a loopback host:
+        // ftp://localhost or any other scheme has no development use case.
+        $loopbackHttp = is_string($host)
+            && in_array(strtolower($host), ['127.0.0.1', '::1', 'localhost'], true)
+            && $scheme === 'http';
+        if ($scheme !== 'https' && !$loopbackHttp) {
             throw new \RuntimeException("{$what} must be an https URL (http is allowed only on a loopback host)");
         }
     }

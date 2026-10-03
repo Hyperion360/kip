@@ -132,6 +132,13 @@ final class OAuthProviderTest extends TestCase
         }
     }
 
+    public function test_loopback_still_requires_the_http_scheme(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('https');
+        OAuthProvider::assertEndpoint('ftp://localhost/idp/authorize', 'authorize endpoint');
+    }
+
     public function test_transport_gate_names_both_remedies(): void
     {
         try {
