@@ -165,7 +165,8 @@ final class OAuthProvider
             array_shift($flows); // the oldest tab loses its flow, it can simply start again
         }
         $this->session->set(self::SESSION_KEY, $flows);
-        return $this->merged['authorize_url'] . '?' . http_build_query($params);
+        $url = (string) $this->merged['authorize_url'];
+        return $url . (str_contains($url, '?') ? '&' : '?') . http_build_query($params);
     }
 
     /**

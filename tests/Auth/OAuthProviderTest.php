@@ -87,6 +87,15 @@ final class OAuthProviderTest extends TestCase
         $this->assertSame('online', self::queryOf($url)['access_type']);
     }
 
+    public function test_authorize_url_that_already_carries_a_query_gets_an_ampersand(): void
+    {
+        $store = [];
+        $provider = $this->provider($store, array_merge(self::GOOGLE, ['authorize_url' => 'https://idp.example.com/authorize?realm=corp']));
+        $url = $provider->start();
+        $this->assertSame(1, substr_count($url, '?'), 'one ? total: ' . $url);
+        $this->assertStringContainsString('realm=corp&response_type=code', $url);
+    }
+
     public function test_unknown_provider_without_full_config_is_refused(): void
     {
         $store = [];
