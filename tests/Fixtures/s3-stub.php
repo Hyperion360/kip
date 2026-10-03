@@ -35,6 +35,24 @@ $amzDate = (string) ($_SERVER['HTTP_X_AMZ_DATE'] ?? '');
 $payloadHash = (string) ($_SERVER['HTTP_X_AMZ_CONTENT_SHA256'] ?? '');
 $auth = (string) ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
 
+// The redirect fixture, for the transport no-follow pin: a key under
+// redirect/ answers 302 toward /landed/, a plain dump target that skips the
+// signature checks. A transport that follows the redirect re-sends the whole
+// request, Authorization header included, and the object lands; the pin
+// asserts it never does. Runs before verification: a redirect is an
+// endpoint-level answer, not an authenticated one.
+if (str_starts_with($rawPath, '/' . $bucket . '/redirect/')) {
+    http_response_code(302);
+    header('Location: /' . $bucket . '/landed/' . basename($rawPath));
+    exit;
+}
+if (str_starts_with($rawPath, '/' . $bucket . '/landed/') && $method === 'PUT') {
+    $landed = $store . '/landed/' . basename($rawPath);
+    @mkdir(dirname($landed), 0777, true);
+    file_put_contents($landed, $body);
+    exit; // 200, unsigned on purpose: this target exists to prove following
+}
+
 // Structural checks: the Authorization header must parse into
 // Credential/SignedHeaders/Signature, the signed header list must be exactly
 // the three the client documents, and the access key must be known.

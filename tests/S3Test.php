@@ -231,6 +231,56 @@ echo "streams-ok\n";
         }
     }
 
+    /**
+     * Tier 2, streams transport, the redirect pin: the streams wrapper must
+     * not follow a 302 from the endpoint. Following re-sends the whole
+     * request, SigV4 Authorization header included, to whatever the Location
+     * names. The stub answers redirect/ keys with a 302 to /landed/, a
+     * no-auth dump target: a following transport lands the object there, so
+     * the PUT must fail on the 302 and the dump target must stay empty.
+     */
+    public function testStreamsTransportDoesNotFollowRedirects(): void
+    {
+        $config = $this->startS3Stub(8096);
+        $script = (string) tempnam(sys_get_temp_dir(), 'kip-s3-nofollow-');
+        $file = (string) tempnam(sys_get_temp_dir(), 'kip-s3-put-');
+        try {
+            file_put_contents($file, 'redirect-bait-' . bin2hex(random_bytes(8)));
+            unset($config['store']); // harness detail, not client config
+            $scriptBody = 'namespace Kip;
+
+// Shadow the global extension_loaded() inside namespace Kip: the S3 client
+// must believe curl is absent and take the streams transport instead.
+function extension_loaded(string $ext): bool
+{
+    return $ext === \'curl\' ? false : \extension_loaded($ext);
+}
+
+require ' . var_export(dirname(__DIR__) . '/src/Auth/OAuthProvider.php', true) . ';
+require ' . var_export(dirname(__DIR__) . '/src/S3.php', true) . ';
+$s3 = new S3(' . var_export($config, true) . ');
+try {
+    $s3->put(' . var_export($file, true) . ', \'redirect/bait.sqlite\');
+    fwrite(STDERR, "a 302 from the endpoint must not be followed\n");
+    exit(1);
+} catch (\RuntimeException $e) {
+    if (!str_contains($e->getMessage(), "302")) { fwrite(STDERR, "unexpected: {$e->getMessage()}\n"); exit(1); }
+}
+echo "nofollow-ok\n";
+';
+            file_put_contents($script, '<?php ' . $scriptBody);
+            exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($script) . ' 2>&1', $lines, $code);
+            $out = implode("\n", $lines);
+            $this->assertSame(0, $code, $out);
+            $this->assertStringContainsString('nofollow-ok', $out);
+            $this->assertFileDoesNotExist($this->s3StubStore() . '/landed/bait.sqlite', 'a followed redirect would have landed the object');
+        } finally {
+            $this->stopS3Stub();
+            @unlink($script);
+            @unlink($file);
+        }
+    }
+
     /** @return string the stub store directory of the running server */
     private function s3StubStore(): string
     {

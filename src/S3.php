@@ -210,6 +210,11 @@ final class S3
             'header' => implode("\r\n", $headers),
             'content' => $file === null ? '' : (string) file_get_contents($file),
             'ignore_errors' => true, // a 4xx/5xx still carries a status to inspect
+            // Same rule as the OAuth transports and as curl's default: never
+            // follow a redirect. The wrapper would re-send this request's
+            // headers to the redirect target, Authorization header included.
+            'follow_location' => 0,
+            'max_redirects' => 0,
             'timeout' => 120,
         ]]);
         $result = @file_get_contents($url, false, $context);
