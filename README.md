@@ -160,6 +160,15 @@ The suite is self-contained under `tests/`: fixture controllers and views in
 `tests/Fixtures/`, no database server, no network, no dependence on
 `skeleton/` or `examples/blog/`.
 
+Every change lands with a changelog fragment, never a hand-edited
+`CHANGELOG.md`: one `changelog.d/<slug>.md` file per change holding one
+type-prefixed line (`Added:`, `Changed:`, `Fixed:`, `Security:`,
+`Deprecated:`, `Removed:`). Nobody edits `CHANGELOG.md` by hand. A release
+is `PATH="/opt/homebrew/bin:$PATH" php bin/release <x.y.z>`, the
+maintainer's review of the printed notes, and a separate, explicit push of
+the tag; the full policy (who owns each release decision, fix branches) is
+in [CONTRIBUTING](CONTRIBUTING.md).
+
 ## Contributing
 
 Bug reports, documentation fixes, and pull requests are welcome, and

@@ -9,7 +9,10 @@ use PHPUnit\Framework\TestCase;
 /**
  * bin/release: combines changelog.d fragments into a dated CHANGELOG section
  * and tags the release. The script computes its repo root from its own
- * location, so every test copies it into a fresh throwaway git repo.
+ * location, so every test copies it into a fresh throwaway git repo. The
+ * git-failure tests pin the ordering: each git step is checked before the
+ * next runs, so a failed add can never cascade into an empty commit and an
+ * orphan tag.
  */
 final class ReleaseScriptTest extends TestCase
 {
@@ -49,6 +52,18 @@ final class ReleaseScriptTest extends TestCase
         $fx = escapeshellarg($this->fixture);
         exec("git -C {$fx} add " . escapeshellarg('changelog.d/' . $name));
         exec("git -C {$fx} commit -qm fragment");
+    }
+
+    /** Commits a CHANGELOG whose [Unreleased] carries real entries (the pre-fragment seed shape). */
+    private function seedChangelog(string $unreleasedBody): void
+    {
+        file_put_contents(
+            $this->fixture . '/CHANGELOG.md',
+            "# Changelog\n\n## [Unreleased]\n" . $unreleasedBody . "\n## [0.4.0]\nlegacy prose entry\n"
+        );
+        $fx = escapeshellarg($this->fixture);
+        exec("git -C {$fx} add CHANGELOG.md");
+        exec("git -C {$fx} commit -qm changelog");
     }
 
     private function changelog(): string
@@ -121,6 +136,64 @@ final class ReleaseScriptTest extends TestCase
         self::assertSame('chore: release v9.9.9', $subject[0] ?? '');
     }
 
+    public function testTheAnnotatedTagCarriesTheCompiledNotes(): void
+    {
+        $this->frag('a-x.md', 'Added: a distinctive fragment line');
+
+        [$code, $out] = $this->release('9.9.9');
+
+        self::assertSame(0, $code, $out);
+        exec('git -C ' . escapeshellarg($this->fixture) . ' cat-file tag v9.9.9', $tagLines);
+        $tag = implode("\n", $tagLines);
+        self::assertStringContainsString('Release v9.9.9', $tag);
+        // The type headings survive git's message cleanup (commentChar moved off '#').
+        self::assertStringContainsString('### Added', $tag);
+        self::assertStringContainsString('- a distinctive fragment line', $tag);
+    }
+
+    public function testASeededUnreleasedBodyIsMergedNotStranded(): void
+    {
+        $this->seedChangelog("\n### Fixed\n\n- seeded fix from the seed\n\n### Added\n\n- seeded addition\n");
+        $this->frag('a-frag.md', 'Added: fragment entry');
+
+        [$code, $out] = $this->release('9.9.9');
+
+        self::assertSame(0, $code, $out);
+        $log = $this->changelog();
+        // Seed entries fold under their type headings beside the fragment entries,
+        // never stranded as a second set of ### blocks beneath the new section.
+        self::assertSame(1, substr_count($log, '### Added'));
+        self::assertSame(1, substr_count($log, '### Fixed'));
+        self::assertStringContainsString("### Added\n- fragment entry\n- seeded addition\n", $log);
+        self::assertStringContainsString("### Fixed\n- seeded fix from the seed\n", $log);
+        self::assertSame(1, substr_count($log, 'seeded fix from the seed'));
+        self::assertStringContainsString("## [Unreleased]\n\n## [9.9.9] - ", $log);
+        self::assertStringContainsString("## [0.4.0]\nlegacy prose entry", $log);
+    }
+
+    public function testTheSectionInsertsAtTheFirstUnreleasedOccurrenceOnly(): void
+    {
+        // Prose quoting the heading later in the file must not receive a second copy.
+        file_put_contents(
+            $this->fixture . '/CHANGELOG.md',
+            "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- seeded add\n\n## [0.4.0]\nOlder notes mention the ## [Unreleased] heading in prose.\n"
+        );
+        $fx = escapeshellarg($this->fixture);
+        exec("git -C {$fx} add CHANGELOG.md");
+        exec("git -C {$fx} commit -qm changelog");
+        $this->frag('a-new.md', 'Added: new entry');
+
+        [$code, $out] = $this->release('9.9.9');
+
+        self::assertSame(0, $code, $out);
+        $log = $this->changelog();
+        self::assertSame(1, substr_count($log, '## [9.9.9] - '));
+        self::assertSame(2, substr_count($log, '## [Unreleased]'));
+        self::assertStringContainsString('Older notes mention the ## [Unreleased] heading in prose.', $log);
+        self::assertSame(1, substr_count($log, '### Added'));
+        self::assertStringContainsString("- new entry\n- seeded add\n", $log);
+    }
+
     public function testEmptyFragmentsAreSkippedNotFatal(): void
     {
         $this->frag('empty.md', "  \n");
@@ -174,14 +247,49 @@ final class ReleaseScriptTest extends TestCase
         self::assertStringContainsString('fragment bad.md must start with one of', $out);
     }
 
-    public function testAFragmentWithASecondLineIsRefused(): void
+    public function testASeededEntryUnderAnUnknownHeadingIsRefused(): void
     {
-        $this->frag('multiline.md', "Added: the real line\n## [0.0.9] - 2026-10-04\nforged section");
+        $this->seedChangelog("\n### Notes\n\n- freeform prose line\n");
+        $this->frag('a-x.md', 'Added: x');
 
         [$code, $out] = $this->release('9.9.9 --dry-run');
 
         self::assertSame(1, $code);
-        self::assertStringContainsString('fragment multiline.md must be exactly one line', $out);
+        self::assertStringContainsString('seeded Unreleased entry under ### Notes must start with one of', $out);
+    }
+
+    public function testAGitAddFailureAbortsBeforeCommitAndTag(): void
+    {
+        $this->frag('a-x.md', 'Added: x');
+        // A stale index lock makes git add fail deterministically.
+        file_put_contents($this->fixture . '/.git/index.lock', '');
+
+        [$code, $out] = $this->release('9.9.9');
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('git add failed', $out);
+        $fx = escapeshellarg($this->fixture);
+        exec("git -C {$fx} log -1 --format=%s", $subject);
+        self::assertSame('fragment', $subject[0] ?? '');
+        exec("git -C {$fx} tag -l v9.9.9", $tags);
+        self::assertSame([], $tags);
+    }
+
+    public function testACommitFailureAbortsBeforeTheTag(): void
+    {
+        $this->frag('a-x.md', 'Added: x');
+        file_put_contents($this->fixture . '/.git/hooks/pre-commit', "#!/bin/sh\nexit 1\n");
+        chmod($this->fixture . '/.git/hooks/pre-commit', 0755);
+
+        [$code, $out] = $this->release('9.9.9');
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('git commit failed', $out);
+        $fx = escapeshellarg($this->fixture);
+        exec("git -C {$fx} log -1 --format=%s", $subject);
+        self::assertSame('fragment', $subject[0] ?? '');
+        exec("git -C {$fx} tag -l v9.9.9", $tags);
+        self::assertSame([], $tags);
     }
 
     public function testTheVersionArgumentMustBeASemverTriple(): void
