@@ -22,6 +22,9 @@ $consumed = 0;
 foreach ($frags as $f) {
     $line = trim((string) file_get_contents($fragDir . '/' . $f));
     if ($line === '') continue;
+    if (str_contains($line, "\n")) {
+        fwrite(STDERR, "fragment {$f} must be exactly one line\n"); exit(1);
+    }
     // fragment format: "Added: ..." | "Changed: ..." | "Fixed: ..." | "Security: ..." | "Deprecated: ..." | "Removed: ..."
     [$type, $text] = array_pad(explode(':', $line, 2), 2, '');
     $type = trim($type); $text = trim($text);
