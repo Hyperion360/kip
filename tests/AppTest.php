@@ -88,6 +88,27 @@ final class AppTest extends TestCase
         $this->assertSame(200, $res->status); // booted and served with credentials forwarded (sqlite ignores them)
     }
 
+    public function test_views_override_config_reaches_the_container_view(): void
+    {
+        // The skins seam: views_override is a third View root, override-first.
+        // An unset key must degrade to '' (never null: View's third parameter
+        // is non-nullable string, and a null here is a boot TypeError for every
+        // consumer that sets neither key); every other AppTest boot covers the
+        // unset path, this one covers the set path.
+        $base = sys_get_temp_dir() . '/kip-appskin-' . bin2hex(random_bytes(6));
+        mkdir($base . '/views', 0777, true);
+        mkdir($base . '/skin', 0777, true);
+        file_put_contents($base . '/views/hero.php', 'app hero');
+        file_put_contents($base . '/skin/hero.php', 'skin hero');
+        $app = new App([
+            'env' => 'prod',
+            'controller_namespace' => 'Kip\\Tests\\',
+            'views' => $base . '/views',
+            'views_override' => $base . '/skin',
+        ]);
+        $this->assertSame('skin hero', $app->container->make(\Kip\View::class)->render('hero'));
+    }
+
     public function test_unknown_route_is_404(): void
     {
         $res = $this->app('prod')->handle(new Request('GET', '/nope', [], [], []));

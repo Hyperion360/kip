@@ -19,10 +19,13 @@ public function index(): string
 available inside it (`extract($data, EXTR_SKIP)`), so
 `['posts' => $posts]` becomes a `$posts` variable in the template.
 
-When the app has a `Features` directory, a template not found under the app
-root resolves next from the feature's own views (`billing/invoice` also
-looks in `app/Features/Billing/views/invoice.php`). The app root always
-wins, and layouts always come from the app root. See
+Templates and layouts resolve in a fixed order: the override directory
+(see [Skins](#skins-overriding-templates-and-layouts) below, when
+`views_override` is configured) first, then the app root, then, for
+templates, the feature root. When the app has a `Features` directory, a
+template not found under the app root resolves next from the feature's own
+views (`billing/invoice` also looks in
+`app/Features/Billing/views/invoice.php`). See
 [Feature folders](03-controllers.md#feature-folders) in
 [chapter 3](03-controllers.md).
 
@@ -70,6 +73,37 @@ rendered body there as `$content`:
 anything itself. If the template you're rendering never calls it, no
 layout wraps the output; that's how partials (below) opt out of layout
 wrapping automatically.
+
+## Skins: overriding templates and layouts
+
+`config.php`'s `views_override` key points View at a second directory that
+wins over the app's own views, for templates and layouts alike:
+
+```php
+// config.php
+'views' => dirname(__DIR__) . '/app/views',
+'views_override' => dirname(__DIR__) . '/app/skins/winter',
+```
+
+Resolution order for every template and every layout: the override
+directory first, then the app root, then (for templates) the feature root.
+A name the override directory does not have falls through untouched, so a
+skin can replace a single page or the whole surface. The override winning
+is deliberate, and it diverges from controller resolution on purpose
+([chapter 3](03-controllers.md) keeps the app's plain namespace first so
+code and template can never flip independently there): presentation is
+what a skin exists to replace, so here code and template may flip, but
+only through an explicit directory the app configured.
+
+Two limits to know:
+
+- Skins apply to app views and layouts only. The admin panel (chapter 12)
+  and the `kip make:` dev scaffolds render framework-shipped views through
+  their own View instances and are deliberately not skinnable.
+- The page cache sits above View. When it is configured
+  ([chapter 7](07-performance.md)), a cache hit never reaches View, so
+  switching or editing an override is a purge the app owns
+  (`kip cache:clear`, [chapter 8](08-cli.md)).
 
 ## Partials
 

@@ -33,7 +33,16 @@ final class App
         // else '' (layered app, nothing changes).
         $appDir = $config['app_dir'] ?? '.';
         $featuresDir = $config['features_dir'] ?? (is_dir($appDir . '/Features') ? $appDir . '/Features' : '');
-        $this->container->instance(View::class, new View($config['views'] ?? $appDir . '/views', $featuresDir));
+        // views_override (guide ch. 4, the skins seam): a third View root that
+        // wins over the app's own views for templates AND layouts. EMPTY
+        // STRING when unset, never null: View's third parameter is
+        // non-nullable string, and null would be a boot TypeError for every
+        // consumer that sets neither key.
+        $this->container->instance(View::class, new View(
+            $config['views'] ?? $appDir . '/views',
+            $featuresDir,
+            $config['views_override'] ?? ''
+        ));
         if (isset($config['db']['dsn'])) {
             $this->container->instance(Database::class, new Database(
                 $config['db']['dsn'],
