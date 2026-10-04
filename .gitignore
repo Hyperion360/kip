@@ -30,3 +30,6 @@ GEMINI.md
 # daily-qa sweep outputs (workspace-private, never committed)
 /daily-qa-reports/
 .daily-qa-last-run
+
+# the planning chain is workspace-private and never ships
+docs/superpowers/
