@@ -25,6 +25,15 @@ final class Database
         ]);
         if (str_starts_with($dsn, 'sqlite:')) {
             $this->pdo->exec('PRAGMA journal_mode = WAL');      // D3: concurrent readers alongside a writer
+            // WAL lets readers proceed alongside one writer, but a SECOND writer
+            // still collides on the write lock. A bounded wait converts
+            // intermittent write collisions into serialization, which is what
+            // every multi-writer consumer (FPM + cron) needs. The value (5s)
+            // matches what concurrent consumers already chose for themselves
+            // (the Cloud Registry sets the same), and the explicit pragma
+            // replaces PDO sqlite's implicit driver default (60s) with a
+            // stated contract instead of driver folklore.
+            $this->pdo->exec('PRAGMA busy_timeout = 5000');
             $this->pdo->exec('PRAGMA foreign_keys = ON');
         }
     }

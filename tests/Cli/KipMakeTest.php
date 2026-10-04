@@ -276,6 +276,18 @@ final class KipMakeTest extends TestCase
         $this->assertStringContainsString('<main>', $body);
     }
 
+    public function test_the_ledgers_raw_read_only_open_keeps_the_bounded_busy_timeout(): void
+    {
+        // make:migration reads _migrations through a raw mode=ro PDO open that
+        // bypasses Database; the pin keeps that open's bounded busy_timeout
+        // from silently drifting away from Database's contract. A source pin,
+        // not a runtime assert: the open lives inside a CLI script the suite
+        // exercises only as a child process.
+        $cli = (string) file_get_contents($this->cliRepo . '/skeleton/bin/kip');
+        $this->assertSame(1, substr_count($cli, '?mode=ro'), 'exactly one raw read-only open in the CLI');
+        $this->assertStringContainsString('PRAGMA busy_timeout = 5000', $cli);
+    }
+
     public function test_usage_errors_land_on_stderr(): void
     {
         $errFile = (string) tempnam(sys_get_temp_dir(), 'kip-make-err-');

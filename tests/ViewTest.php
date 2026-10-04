@@ -208,4 +208,105 @@ final class ViewTest extends TestCase
         $v = new View($views, $features);
         $this->assertSame('<main>feature page</main>', $v->render('billing/page'));
     }
+
+    /**
+     * @return array{0: string, 1: string, 2: string} [app views, features, override]
+     * with app-root, feature-root, and app-layout templates in place
+     */
+    private function skinDirs(): array
+    {
+        $base = sys_get_temp_dir() . '/kip-skin-' . bin2hex(random_bytes(6));
+        $views = $base . '/views';
+        $features = $base . '/Features';
+        $override = $base . '/skin';
+        mkdir($views . '/billing', 0777, true);
+        mkdir($features . '/Billing/views', 0777, true);
+        mkdir($override . '/billing', 0777, true);
+        file_put_contents($views . '/billing/invoice.php', 'app invoice');
+        file_put_contents($views . '/home.php', 'app home');
+        file_put_contents($views . '/layout.php', '<main><?= $content ?></main>');
+        file_put_contents($views . '/page.php', '<?php $this->layout("layout"); ?>page body');
+        file_put_contents($features . '/Billing/views/invoice.php', 'feature invoice');
+        file_put_contents($features . '/Billing/views/receipt.php', 'feature receipt');
+        return [$views, $features, $override];
+    }
+
+    public function test_an_override_template_wins_over_both_the_app_and_feature_roots(): void
+    {
+        [$views, $features, $override] = $this->skinDirs();
+        file_put_contents($override . '/billing/invoice.php', 'skin invoice');
+        $v = new View($views, $features, $override);
+        $this->assertSame('skin invoice', $v->render('billing/invoice'));
+    }
+
+    public function test_an_override_miss_falls_through_to_the_app_root(): void
+    {
+        [$views, $features, $override] = $this->skinDirs();
+        $v = new View($views, $features, $override);
+        $this->assertSame('app home', $v->render('home'), 'nothing in the skin for home');
+        $this->assertSame('app invoice', $v->render('billing/invoice'), 'nothing in the skin for billing/invoice either');
+    }
+
+    public function test_an_override_miss_falls_through_to_the_feature_root(): void
+    {
+        [$views, $features, $override] = $this->skinDirs();
+        $v = new View($views, $features, $override);
+        $this->assertSame('feature receipt', $v->render('billing/receipt'));
+    }
+
+    public function test_an_override_layout_wins_and_an_app_layout_still_serves_a_miss(): void
+    {
+        [$views, $features, $override] = $this->skinDirs();
+        file_put_contents($override . '/layout.php', '<skin><?= $content ?></skin>');
+        file_put_contents($views . '/inner.php', '<?php $this->layout("fallback"); ?>inner body');
+        file_put_contents($views . '/fallback.php', '<main><?= $content ?></main>');
+        $v = new View($views, $features, $override);
+        $this->assertSame('<skin>page body</skin>', $v->render('page'), 'the skin layout wins');
+        $this->assertSame('<main>inner body</main>', $v->render('inner'), 'fallback.php exists only in the app root');
+    }
+
+    public function test_missing_template_message_names_every_root_when_an_override_is_set(): void
+    {
+        [$views, $features, $override] = $this->skinDirs();
+        $v = new View($views, $features, $override);
+        try {
+            $v->render('billing/ghost');
+            $this->fail('expected TemplateNotFoundException');
+        } catch (\Kip\TemplateNotFoundException $e) {
+            $this->assertStringContainsString("{$override}/billing/ghost.php", $e->getMessage());
+            $this->assertStringContainsString("{$views}/billing/ghost.php", $e->getMessage());
+            $this->assertStringContainsString("{$features}/Billing/views/ghost.php", $e->getMessage());
+        }
+    }
+
+    public function test_missing_layout_message_names_both_roots_when_an_override_is_set(): void
+    {
+        [$views, $features, $override] = $this->skinDirs();
+        file_put_contents($views . '/badlayout.php', '<?php $this->layout("ghost"); ?>x');
+        $v = new View($views, $features, $override);
+        try {
+            $v->render('badlayout');
+            $this->fail('expected TemplateNotFoundException');
+        } catch (\Kip\TemplateNotFoundException $e) {
+            $this->assertStringContainsString("{$override}/ghost.php", $e->getMessage());
+            $this->assertStringContainsString("{$views}/ghost.php", $e->getMessage());
+        }
+    }
+
+    public function test_an_empty_override_dir_keeps_two_root_behavior_byte_identical(): void
+    {
+        [$views, $features] = $this->skinDirs();
+        $v = new View($views, $features, '');
+        $this->assertSame('app invoice', $v->render('billing/invoice')); // the app root still wins
+        $this->assertSame('<main>page body</main>', $v->render('page'));  // layouts still come from the app root
+        try {
+            $v->render('billing/ghost');
+            $this->fail('expected TemplateNotFoundException');
+        } catch (\Kip\TemplateNotFoundException $e) {
+            $this->assertSame(
+                "Template \"billing/ghost\" not found (looked for {$views}/billing/ghost.php and {$features}/Billing/views/ghost.php)",
+                $e->getMessage()
+            );
+        }
+    }
 }

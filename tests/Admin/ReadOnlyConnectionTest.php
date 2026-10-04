@@ -39,6 +39,18 @@ final class ReadOnlyConnectionTest extends TestCase
         return $path;
     }
 
+    public function test_the_open_sets_a_bounded_busy_timeout(): void
+    {
+        // A checkpoint-time BUSY on a RO handle is rare, but the bounded wait
+        // is one line: every open of the app's file stays aligned with
+        // Database's contract instead of drifting behind a raw PDO open.
+        $path = $this->tempPath();
+        $this->makeDb($path);
+        $ro = new ReadOnlyConnection($path);
+        // SQLite titles the result column "timeout", not "busy_timeout".
+        $this->assertSame(5000, (int) $ro->select('PRAGMA busy_timeout')[0]['timeout']);
+    }
+
     public function test_select_reads_rows(): void
     {
         $path = $this->tempPath();

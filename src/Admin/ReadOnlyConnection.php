@@ -37,6 +37,11 @@ final class ReadOnlyConnection
             \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
             \PDO::SQLITE_ATTR_OPEN_FLAGS  => \PDO::SQLITE_OPEN_READONLY,
         ]);
+        // A checkpoint-time BUSY on a RO handle is rare, but the pragma is one
+        // line: this raw open stays aligned with Database's bounded wait
+        // instead of drifting behind driver defaults. busy_timeout is
+        // per-connection state, so setting it needs no write.
+        $this->pdo->exec('PRAGMA busy_timeout = 5000');
     }
 
     /**

@@ -186,6 +186,19 @@ final class DatabaseTest extends TestCase
         }
     }
 
+    public function test_sqlite_constructor_sets_a_bounded_busy_timeout(): void
+    {
+        // WAL lets readers proceed alongside one writer, but a SECOND writer
+        // still gets SQLITE_BUSY immediately; the constructor's bounded 5s wait
+        // converts intermittent write collisions into serialization, which is
+        // what every multi-writer consumer (FPM + cron) needs. Asserted through
+        // query(): Database exposes no PDO accessor, by design.
+        $temp = tempnam(sys_get_temp_dir(), 'kip-busy-');
+        $db = new Database('sqlite:' . $temp);
+        $this->assertSame(5000, (int) $db->query('PRAGMA busy_timeout')->fetchColumn());
+        @unlink($temp);
+    }
+
     public function test_dsn_accessor_returns_the_configured_dsn(): void
     {
         // The admin SQL browser derives its read-only path from the DSN the

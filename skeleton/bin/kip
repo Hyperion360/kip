@@ -396,6 +396,10 @@ try {
             if (is_file($dbFile)) {
                 try {
                     $ro = new PDO('sqlite:file:' . $dbFile . '?mode=ro', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                    // Aligned with Database's bounded wait: a checkpoint-time
+                    // BUSY on this RO handle is rare, but the pragma is one line
+                    // and per-connection state, so setting it needs no write.
+                    $ro->exec('PRAGMA busy_timeout = 5000');
                     $applied = $ro->query('SELECT name FROM _migrations')->fetchAll(PDO::FETCH_COLUMN);
                 } catch (\Throwable) { $applied = []; } // no _migrations table yet: nothing was ever applied
             }
