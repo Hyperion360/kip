@@ -30,6 +30,7 @@ $ingest = function (string $line, string $origin) use (&$byType): void {
 foreach ($frags as $f) {
     $line = trim((string) file_get_contents($fragDir . '/' . $f));
     if ($line === '') continue;
+    if (str_contains($line, "\n")) { fwrite(STDERR, "fragment {$f} must be exactly one line\n"); exit(1); }
     // fragment format: "Added: ..." | "Changed: ..." | "Fixed: ..." | "Security: ..." | "Deprecated: ..." | "Removed: ..."
     $ingest($line, "fragment {$f}");
     $consumed++;

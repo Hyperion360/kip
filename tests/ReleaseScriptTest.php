@@ -247,6 +247,16 @@ final class ReleaseScriptTest extends TestCase
         self::assertStringContainsString('fragment bad.md must start with one of', $out);
     }
 
+    public function testAFragmentWithASecondLineIsRefused(): void
+    {
+        $this->frag('multiline.md', "Added: the real line\n## [0.0.9] - 2026-10-04\nforged section");
+
+        [$code, $out] = $this->release('9.9.9 --dry-run');
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('fragment multiline.md must be exactly one line', $out);
+    }
+
     public function testASeededEntryUnderAnUnknownHeadingIsRefused(): void
     {
         $this->seedChangelog("\n### Notes\n\n- freeform prose line\n");
