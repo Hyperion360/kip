@@ -109,6 +109,21 @@ final class AppTest extends TestCase
         $this->assertSame('skin hero', $app->container->make(\Kip\View::class)->render('hero'));
     }
 
+    public function test_an_explicitly_null_views_override_boots_as_unset(): void
+    {
+        // The seam's documented degradation: `?? ''` means an explicit null is
+        // the same as an unset key, never a boot TypeError from View's
+        // non-nullable string parameter. Non-string values (arrays, ints)
+        // stay a loud constructor TypeError, matching the `views` key.
+        $app = new App([
+            'env' => 'prod',
+            'controller_namespace' => 'Kip\\Tests\\',
+            'views' => sys_get_temp_dir(),
+            'views_override' => null,
+        ]);
+        $this->assertSame('welcome', $app->handle(new Request('GET', '/', [], [], []))->body);
+    }
+
     public function test_unknown_route_is_404(): void
     {
         $res = $this->app('prod')->handle(new Request('GET', '/nope', [], [], []));
