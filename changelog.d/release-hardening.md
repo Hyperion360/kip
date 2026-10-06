@@ -1,1 +1,0 @@
-Fixed: bin/release merges a seeded Unreleased body into the release section, checks each git step before the next (no cascading commit or tag on a failed add), and embeds the compiled notes in the annotated tag
