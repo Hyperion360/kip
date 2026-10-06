@@ -33,3 +33,7 @@ GEMINI.md
 
 # the planning chain is workspace-private and never ships
 docs/superpowers/
+
+# workspace-private tooling and design canvases
+.zcodeignore
+Kip admin panel design/
