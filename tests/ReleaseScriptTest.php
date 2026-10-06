@@ -302,6 +302,66 @@ final class ReleaseScriptTest extends TestCase
         self::assertSame([], $tags);
     }
 
+    public function testATagFailureExitsOneAndLeavesTheCommitWithoutATag(): void
+    {
+        $this->frag('a-x.md', 'Added: x');
+        // A reference-transaction hook refusing refs/tags/* makes only the tag
+        // step fail (branch updates pass), deterministically and without gpg.
+        file_put_contents(
+            $this->fixture . '/.git/hooks/reference-transaction',
+            "#!/bin/sh\nif grep -q 'refs/tags/'; then exit 1; fi\nexit 0\n"
+        );
+        chmod($this->fixture . '/.git/hooks/reference-transaction', 0755);
+
+        [$code, $out] = $this->release('9.9.9');
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('git tag failed', $out);
+        $fx = escapeshellarg($this->fixture);
+        exec("git -C {$fx} tag -l v9.9.9", $tags);
+        self::assertSame([], $tags, 'no orphan tag');
+        exec("git -C {$fx} log -1 --format=%s", $subject);
+        self::assertSame('chore: release v9.9.9', $subject[0] ?? '');
+        // The release commit carries the changelog and the fragment deletions,
+        // so the tree ends clean: recovery is a manual `git tag`, not a rebase.
+        exec("git -C {$fx} status --porcelain", $dirty);
+        self::assertSame([], $dirty);
+    }
+
+    public function testAChangelogWithNoPlaceableHeadingIsRefused(): void
+    {
+        // Neither a [Unreleased] heading nor a "# Changelog" header: the
+        // section cannot be placed, and the script must say so instead of
+        // guessing where the new section belongs.
+        file_put_contents($this->fixture . '/CHANGELOG.md', "# Project History\n\n## 0.1.0\nfirst\n");
+        $fx = escapeshellarg($this->fixture);
+        exec("git -C {$fx} add CHANGELOG.md");
+        exec("git -C {$fx} commit -qm changelog");
+        $this->frag('a-x.md', 'Added: x');
+
+        [$code, $out] = $this->release('9.9.9 --dry-run');
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('could not place the section under Unreleased', $out);
+    }
+
+    public function testAGitStatusFailureIsReported(): void
+    {
+        // The script computes its root from its own location, so a copy in a
+        // directory outside any git repository makes the status step itself
+        // fail; the run must stop there with the named reason.
+        $bare = sys_get_temp_dir() . '/kip-release-bare-' . uniqid();
+        mkdir($bare . '/bin', 0777, true);
+        copy(__DIR__ . '/../bin/release', $bare . '/bin/release');
+        try {
+            exec(PHP_BINARY . ' ' . escapeshellarg($bare . '/bin/release') . ' 9.9.9 2>&1', $lines, $code);
+            self::assertSame(1, $code);
+            self::assertStringContainsString('git status failed', implode("\n", $lines));
+        } finally {
+            exec('rm -rf ' . escapeshellarg($bare));
+        }
+    }
+
     public function testTheVersionArgumentMustBeASemverTriple(): void
     {
         [$code] = $this->release('not-semver');
