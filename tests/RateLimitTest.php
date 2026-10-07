@@ -195,6 +195,115 @@ final class RateLimitTest extends TestCase
         $this->db->onQuery(static fn () => null);
     }
 
+    // ------------------------------------------------------ the '*' fallback
+
+    public function test_the_star_fallback_limits_every_unconfigured_prefix(): void
+    {
+        $rl = $this->make(['*' => ['max' => 2, 'window' => 60]]);
+        $this->assertNull($rl->check('/posts/store', '1.2.3.4', 1000));
+        $this->assertNull($rl->check('/posts/store', '1.2.3.4', 1000));
+        $this->assertSame(20, $rl->check('/posts/store', '1.2.3.4', 1000),
+            'the third hit on an unconfigured prefix is over the fallback max');
+        $this->assertSame([960 => 3], $this->hits('Posts', '1.2.3.4'),
+            'the row is keyed by the ACTUAL canonical prefix, so per-surface quotas stay independent');
+        // With no explicit '' entry, POST / falls back like any other
+        // unconfigured prefix and keys its row on the empty prefix.
+        $this->assertNull($rl->check('/', '5.6.7.8', 1000));
+        $this->assertSame([960 => 1], $this->hits('', '5.6.7.8'));
+    }
+
+    public function test_fallback_retry_after_uses_the_fallback_window(): void
+    {
+        $rl = $this->make(['*' => ['max' => 0, 'window' => 120]]);
+        // now=1000 sits 40 seconds into the 960..1080 fallback window.
+        $this->assertSame(80, $rl->check('/posts/store', '1.2.3.4', 1000));
+    }
+
+    public function test_an_explicit_prefix_beats_the_star_fallback(): void
+    {
+        // Different windows on purpose: a bug that took the explicit max with
+        // the fallback window would open the Auth bucket at 990, not 960.
+        $rl = $this->make(['auth' => ['max' => 1, 'window' => 60], '*' => ['max' => 5, 'window' => 90]]);
+        $this->assertNull($rl->check('/auth/login', '1.2.3.4', 1000));
+        $this->assertSame(20, $rl->check('/auth/login', '1.2.3.4', 1000),
+            'the explicit tighter max wins, the fallback never loosens it');
+        $this->assertSame([960 => 2], $this->hits('Auth', '1.2.3.4'),
+            'the bucket start pins the explicit window');
+        $this->assertNull($rl->check('/kudos/add', '1.2.3.4', 1000),
+            'an unconfigured prefix still falls back');
+        $this->assertSame([990 => 1], $this->hits('Kudos', '1.2.3.4'),
+            'the fallback supplies its own window for the unconfigured surface');
+    }
+
+    public function test_the_empty_root_prefix_still_beats_the_star_fallback(): void
+    {
+        $rl = $this->make(['' => ['max' => 1, 'window' => 60], '*' => ['max' => 5, 'window' => 90]]);
+        $this->assertNull($rl->check('/', '1.2.3.4', 1000));
+        $this->assertSame(20, $rl->check('/', '1.2.3.4', 1000),
+            'POST / with an explicit empty prefix is not the fallback');
+        $this->assertSame([960 => 2], $this->hits('', '1.2.3.4'),
+            'the bucket start pins the explicit window, not the fallback 90');
+    }
+
+    public function test_two_unconfigured_prefixes_hold_independent_fallback_buckets(): void
+    {
+        $rl = $this->make(['*' => ['max' => 1, 'window' => 60]]);
+        $this->assertNull($rl->check('/kudos/add', '1.2.3.4', 1000));
+        $this->assertNull($rl->check('/review/save', '1.2.3.4', 1000),
+            'spending the kudos budget does not touch the review bucket');
+        $this->assertSame(20, $rl->check('/kudos/add', '1.2.3.4', 1000));
+        $this->assertSame(20, $rl->check('/review/save', '1.2.3.4', 1000));
+    }
+
+    public function test_the_fallback_window_joins_the_prune_grace(): void
+    {
+        // The fallback window (120) is the largest configured. A new explicit
+        // 60s bucket opens at now=1030 (bucket 1020) and runs the prune: a
+        // buggy grace keyed to the explicit window alone would cut at
+        // 1030-60=970 and delete the LIVE fallback bucket at 960; the correct
+        // cutoff 1030-120=910 keeps it.
+        $rl = $this->make(['auth' => ['max' => 5, 'window' => 60], '*' => ['max' => 5, 'window' => 120]]);
+        $this->db->query('INSERT INTO rate_limits (prefix, ip, window_start, hits) VALUES (?, ?, ?, 3)',
+            ['Posts', '9.9.9.9', 960]);
+        $this->assertNull($rl->check('/auth/x', '1.2.3.4', 1030));
+        $this->assertSame([960 => 3], $this->hits('Posts', '9.9.9.9'),
+            'the LIVE fallback bucket survives the explicit-bucket prune');
+        $this->assertSame([1020 => 1], $this->hits('Auth', '1.2.3.4'), 'the new explicit bucket is recorded');
+    }
+
+    public function test_a_fallback_hit_inside_a_transaction_refuses_to_count(): void
+    {
+        // The Jobs::claim() contract applies to fallback-served hits too: the
+        // guard sits after limit resolution, so a '*' hit inside a caller's
+        // transaction must throw, never silently skip counting.
+        $rl = $this->make(['*' => ['max' => 5, 'window' => 60]]);
+        $this->db->begin();
+        try {
+            $rl->check('/posts/store', '1.2.3.4', 1000);
+            $this->fail('a fallback-served hit inside a transaction must throw');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('autocommit', $e->getMessage());
+        } finally {
+            $this->db->rollBack();
+        }
+    }
+
+    public function test_a_malformed_star_entry_is_a_boot_error(): void
+    {
+        try {
+            $this->make(['*' => ['max' => 1, 'window' => 0]]);
+            $this->fail('a zero window under the fallback must throw');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('rate_limit.*.window', $e->getMessage());
+        }
+        try {
+            $this->make(['*' => 10]);
+            $this->fail('a non-array fallback must throw');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('rate_limit.*', $e->getMessage());
+        }
+    }
+
     // ---------------------------------------------------- config validation
 
     public function test_window_below_one_second_is_a_boot_error(): void
