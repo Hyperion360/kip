@@ -320,6 +320,8 @@ final class RateLimitTest extends TestCase
         $this->assertNull($rl->check('/posts-/x', '1.2.3.4', 1000), 'a trailing separator cannot route');
         $this->assertNull($rl->check('/' . str_repeat('a', 65) . '/x', '1.2.3.4', 1000),
             'a segment longer than 64 bytes cannot be a real controller name');
+        $this->assertNull($rl->check("/p\xC3\xA4sts/x", '1.2.3.4', 1000),
+            'a multibyte first segment fails the byte-oriented grammar');
         $this->assertSame(0, $queries, 'the gate sits before the database');
         $this->assertSame([], $this->db->all('SELECT * FROM rate_limits'), 'no rows were written');
         $this->db->onQuery(static fn () => null);
@@ -333,6 +335,10 @@ final class RateLimitTest extends TestCase
         $rl = $this->make(['*' => ['max' => 1, 'window' => 60]]);
         $this->assertNull($rl->check('/wibble/wobble', '1.2.3.4', 1000));
         $this->assertSame(20, $rl->check('/wibble/wobble', '1.2.3.4', 1000));
+        // The length bound is inclusive: 64 bytes is a countable spelling.
+        $rl2 = $this->make(['*' => ['max' => 0, 'window' => 60]]);
+        $this->assertSame(20, $rl2->check('/' . str_repeat('a', 64) . '/x', '1.2.3.4', 1000),
+            '64 bytes passes the gate, and max=0 blocks it like any counted spelling');
     }
 
     public function test_an_explicit_prefix_still_counts_a_spelling_the_fallback_would_refuse(): void
