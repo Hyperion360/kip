@@ -1,0 +1,1 @@
+Added: the rate_limit config accepts a `'*'` fallback consulted when no explicit prefix matches; the hit still records under the request's own canonical prefix (per-surface buckets stay independent), explicit entries including `''` for POST / always win, the fallback window joins the prune grace, and a fallback hit refuses an open transaction

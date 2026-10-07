@@ -150,8 +150,23 @@ Configuring an `admin` prefix covers everything under `/admin/*`,
 whichever namespace serves it; a `posts` prefix does not cover
 `/admin/...` paths, because only the first segment counts.
 
+A `'*'` key is the fallback: when the request's first segment has no
+explicit entry, the fallback's `max` and `window` apply. The hit still
+records under the request's own prefix, so two surfaces sharing the
+fallback hold independent buckets: spending the review budget never
+touches the kudos budget. An explicit entry always wins, `''` included,
+so a config can tighten a few prefixes and cap everything else once:
+`'auth' => ['max' => 10, 'window' => 60], '*' => ['max' => 30, 'window' => 60]`
+limits every writable surface that is not `auth` to 30 non-GET/HEAD
+requests per minute per address, without enumerating segments; with no
+`''` entry, `POST /` falls back too. Rows are keyed by the canonical
+prefix, so dashed and underscored spellings share a fallback bucket
+exactly as they share an explicit one.
+
 Enforcement sits in the kernel before routing: every non-GET/HEAD
-request to a configured prefix counts one hit, and a request past the
+request to a configured prefix counts one hit (with the `'*'` fallback
+configured, a prefix without its own entry counts against the
+fallback), and a request past the
 max is answered `429 Too many requests` with a `Retry-After` header
 saying how many seconds remain in the window. The check runs before the
 router, before `#[Auth]`, and before CSRF, so an over-limit request
