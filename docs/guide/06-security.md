@@ -151,8 +151,13 @@ whichever namespace serves it; a `posts` prefix does not cover
 `/admin/...` paths, because only the first segment counts.
 
 A `'*'` key is the fallback: when the request's first segment has no
-explicit entry, the fallback's `max` and `window` apply. The hit still
-records under the request's own prefix, so two surfaces sharing the
+explicit entry, the fallback's `max` and `window` apply. The fallback
+counts only spellings the router could ever route: the root, or a first
+segment of at most 64 bytes matching the router's own segment grammar.
+Anything else is a guaranteed 404, and charging it would let rotated
+junk POSTs write a fresh bucket per request that the cap could never
+trip, so such requests cost zero queries. The hit still records under
+the request's own prefix, so two surfaces sharing the
 fallback hold independent buckets: spending the review budget never
 touches the kudos budget. An explicit entry always wins, `''` included,
 so a config can tighten a few prefixes and cap everything else once:
@@ -161,7 +166,10 @@ limits every writable surface that is not `auth` to 30 non-GET/HEAD
 requests per minute per address, without enumerating segments; with no
 `''` entry, `POST /` falls back too. Rows are keyed by the canonical
 prefix, so dashed and underscored spellings share a fallback bucket
-exactly as they share an explicit one.
+exactly as they share an explicit one. The largest configured window,
+the fallback's included, also sets the prune grace (how long expired
+counter rows are kept), so keep the fallback window in minutes unless
+the larger table is wanted.
 
 Enforcement sits in the kernel before routing: every non-GET/HEAD
 request to a configured prefix counts one hit (with the `'*'` fallback

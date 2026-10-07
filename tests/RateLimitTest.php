@@ -304,6 +304,45 @@ final class RateLimitTest extends TestCase
         }
     }
 
+    public function test_the_fallback_never_counts_spellings_the_router_could_not_route(): void
+    {
+        // The gate runs BEFORE the counting upsert: an unroutable spelling
+        // costs zero queries and writes no row, so rotated junk POSTs cannot
+        // grow the table (every rotation would otherwise be a fresh bucket
+        // the cap can never trip).
+        $queries = 0;
+        $this->db->onQuery(function () use (&$queries): void { $queries++; });
+        $rl = $this->make(['*' => ['max' => 5, 'window' => 60]]);
+        $this->assertNull($rl->check('/AUTH/x', '1.2.3.4', 1000), 'uppercase cannot route, so it cannot count');
+        $this->assertNull($rl->check('/po--sts/x', '1.2.3.4', 1000), 'a doubled separator cannot route');
+        $this->assertNull($rl->check('/posts-/x', '1.2.3.4', 1000), 'a trailing separator cannot route');
+        $this->assertNull($rl->check('/' . str_repeat('a', 65) . '/x', '1.2.3.4', 1000),
+            'a segment longer than 64 bytes cannot be a real controller name');
+        $this->assertSame(0, $queries, 'the gate sits before the database');
+        $this->assertSame([], $this->db->all('SELECT * FROM rate_limits'), 'no rows were written');
+        $this->db->onQuery(static fn () => null);
+    }
+
+    public function test_the_fallback_still_counts_grammatical_segments_that_route_nowhere(): void
+    {
+        // The gate is the router's own grammar, not route existence: a
+        // well-formed segment the app never defined is still counted, the
+        // same way a POST to a nonexistent path under an explicit prefix is.
+        $rl = $this->make(['*' => ['max' => 1, 'window' => 60]]);
+        $this->assertNull($rl->check('/wibble/wobble', '1.2.3.4', 1000));
+        $this->assertSame(20, $rl->check('/wibble/wobble', '1.2.3.4', 1000));
+    }
+
+    public function test_an_explicit_prefix_still_counts_a_spelling_the_fallback_would_refuse(): void
+    {
+        // Explicit prefixes keep today's semantics untouched: 'auth-' fails
+        // the segment grammar but studly-canonicalizes to a configured key,
+        // and an explicitly protected prefix counts every spelling of itself.
+        $rl = $this->make(['auth' => ['max' => 1, 'window' => 60]]);
+        $this->assertNull($rl->check('/auth-/x', '1.2.3.4', 1000));
+        $this->assertSame([960 => 1], $this->hits('Auth', '1.2.3.4'));
+    }
+
     // ---------------------------------------------------- config validation
 
     public function test_window_below_one_second_is_a_boot_error(): void

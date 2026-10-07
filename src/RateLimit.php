@@ -39,6 +39,9 @@ final class RateLimit
     /** The router's own segment grammar (lowercase, single separators), the root spelled ''. */
     private const SEGMENT = '/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/';
 
+    /** Longest raw first segment the fallback will count: a real controller name is short. */
+    private const MAX_FALLBACK_SEGMENT = 64;
+
     /** @var array<string, array{max: int, window: int}> studly-canonicalized prefix => limit */
     private array $limits;
 
@@ -105,8 +108,23 @@ final class RateLimit
      */
     public function check(string $path, string $ip, ?int $now = null): ?int
     {
-        $prefix = self::prefixOf($path);
-        $limit = $this->limits[$prefix] ?? $this->catchAll;
+        $raw = self::firstSegmentOf($path);
+        $prefix = Router::studly($raw);
+        $limit = $this->limits[$prefix] ?? null;
+        if ($limit === null && $this->catchAll !== null) {
+            // The fallback counts only spellings the router could ever route:
+            // the root, or a short segment passing the router's own grammar
+            // (the rule every config key must pass). Uppercase, encoded,
+            // doubled-separator, and oversized spellings always 404, so
+            // charging them would let rotated junk POSTs write attacker-named
+            // rows before the 404 and never trip the cap (every rotation is a
+            // fresh bucket). Explicit prefixes keep today's semantics: a
+            // spelling that canonicalizes to a configured key counts.
+            if ($raw !== '' && (strlen($raw) > self::MAX_FALLBACK_SEGMENT || preg_match(self::SEGMENT, $raw) !== 1)) {
+                return null;
+            }
+            $limit = $this->catchAll;
+        }
         if ($limit === null) return null;
         if ($this->db->transactionDepth() > 0) {
             // The Jobs::claim() contract: a hit inside a caller's transaction
@@ -176,14 +194,16 @@ final class RateLimit
     }
 
     /**
-     * The first URL segment, the router's own way: filter empty strings only
-     * (the segment "0" is legal), then canonicalize through studly() so both
-     * spellings of a dashed controller name are one prefix. The root is ''.
+     * The request's raw first URL segment ('' for the root), before
+     * canonicalization: filter empty strings only (the segment "0" is
+     * legal). check() canonicalizes through studly() so both spellings of a
+     * dashed controller name are one prefix, and gates the fallback on this
+     * raw shape, the shape the router's whitelist judges.
      */
-    private static function prefixOf(string $path): string
+    private static function firstSegmentOf(string $path): string
     {
         $segments = array_values(array_filter(explode('/', $path), static fn(string $p): bool => $p !== ''));
-        return Router::studly($segments[0] ?? '');
+        return $segments[0] ?? '';
     }
 
     /**
