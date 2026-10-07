@@ -393,8 +393,9 @@ final class App
         $depth = $db?->transactionDepth() ?? 0;
         try {
             // Rate limiting (ch. 6) sits before routing: a configured prefix
-            // counts every non-GET request (one upsert), page renders and
-            // unconfigured prefixes pay nothing, and an over-limit request
+            // counts every non-GET request (one upsert; with the '*' fallback
+            // configured, prefixes without their own entry count too), page
+            // renders pay nothing, and an over-limit request
             // never reaches a controller, a session, or a transaction. The
             // plain body matches the framework's other error responses;
             // Retry-After says when the window resets.

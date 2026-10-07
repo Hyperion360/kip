@@ -17,8 +17,14 @@ use Kip\Routing\Router;
  * DO UPDATE SET hits = hits + 1 RETURNING hits, atomic under concurrency by
  * construction. The hit that opens a new window also retires expired rows
  * (one DELETE), so a configured POST-action route pays exactly one upsert in
- * the steady state. Unconfigured apps, unconfigured prefixes, and every
- * GET/HEAD request pay nothing: page renders keep the one-query budget.
+ * the steady state.
+ * Unconfigured apps and every GET/HEAD request pay nothing, and with no
+ * '*' key an unconfigured prefix pays nothing either: page renders keep
+ * the one-query budget. The key '*' configures the fallback consulted
+ * when no explicit prefix matches; the hit still records under the
+ * request's own canonical prefix, so surfaces sharing the fallback hold
+ * independent buckets, and an explicit entry (the empty string for
+ * POST / included) always wins.
  */
 final class RateLimit
 {
@@ -36,11 +42,14 @@ final class RateLimit
     /** @var array<string, array{max: int, window: int}> studly-canonicalized prefix => limit */
     private array $limits;
 
+    /** @var array{max: int, window: int}|null the '*' fallback limit pair, or null when unset */
+    private ?array $catchAll = null;
+
     /** The largest configured window: the prune's grace period, see check(). */
     private int $maxWindow;
 
     /**
-     * @param array<array-key, mixed> $limits prefix => ['max' => int, 'window' => int]
+     * @param array<array-key, mixed> $limits prefix => ['max' => int, 'window' => int] (or '*' for the fallback)
      * @throws \InvalidArgumentException on a shape that would silently protect nothing
      * @throws \RuntimeException on a driver that cannot run the counting upsert
      */
@@ -53,10 +62,21 @@ final class RateLimit
             // PHP folds the array key '0' to the integer 0; the segment "0"
             // is a legal first segment and must still configure a prefix.
             $prefix = is_int($prefix) ? (string) $prefix : $prefix;
+            if ($prefix === '*') {
+                // The catch-all: not a route prefix (the segment grammar below
+                // rejects it, so no explicit key can collide), never
+                // canonicalized, its window still bounds the prune grace like
+                // any explicit one. Handled BEFORE the segment check, which
+                // would refuse '*' as not a route prefix.
+                $this->catchAll = self::parseLimit($limit, '*');
+                $this->maxWindow = max($this->maxWindow, $this->catchAll['window']);
+                continue;
+            }
             if (!($prefix === '' || preg_match(self::SEGMENT, $prefix) === 1)) {
                 throw new \InvalidArgumentException(sprintf(
                     'config key "rate_limit.%s" is not a route prefix: use the first URL segment '
-                    . '(lowercase letters, digits, single - or _ separators) or the empty string for POST /',
+                    . '(lowercase letters, digits, single - or _ separators), the empty string for POST /, '
+                    . "or '*' for every prefix without its own entry",
                     $prefix
                 ));
             }
@@ -68,13 +88,7 @@ final class RateLimit
                     $prefix, $canonical
                 ));
             }
-            if (!is_array($limit)) {
-                throw new \InvalidArgumentException("config key \"rate_limit.{$prefix}\" must be an array with max and window");
-            }
-            $parsed[$canonical] = [
-                'max' => self::intConfig($limit['max'] ?? null, "rate_limit.{$prefix}.max", 0),
-                'window' => self::intConfig($limit['window'] ?? null, "rate_limit.{$prefix}.window", 1),
-            ];
+            $parsed[$canonical] = self::parseLimit($limit, $prefix);
             $this->maxWindow = max($this->maxWindow, $parsed[$canonical]['window']);
         }
         $this->limits = $parsed;
@@ -82,16 +96,17 @@ final class RateLimit
 
     /**
      * Count one hit against the bucket the path maps to and report the verdict.
-     * Returns null when the request is allowed (or the prefix is not
-     * configured, which never touches the database), or the Retry-After
-     * seconds when it is over the limit. The optional $now is the test clock
+     * Returns null when the request is allowed (or no limit applies: the
+     * prefix has no explicit entry and no '*' fallback is configured, which
+     * never touches the database), or the Retry-After seconds when it is
+     * over the limit. The optional $now is the test clock
      * seam; production always passes nothing and reads the real clock once,
      * immediately before the upsert.
      */
     public function check(string $path, string $ip, ?int $now = null): ?int
     {
         $prefix = self::prefixOf($path);
-        $limit = $this->limits[$prefix] ?? null;
+        $limit = $this->limits[$prefix] ?? $this->catchAll;
         if ($limit === null) return null;
         if ($this->db->transactionDepth() > 0) {
             // The Jobs::claim() contract: a hit inside a caller's transaction
@@ -202,5 +217,22 @@ final class RateLimit
             ));
         }
         return $int;
+    }
+
+    /**
+     * One config entry to a max/window pair, the boot-time contract: the value
+     * must be an array and both members must be ints (or numeric strings) at
+     * or above their minimums, anything else names its own key in the error.
+     * @return array{max: int, window: int}
+     */
+    private static function parseLimit(mixed $limit, string $key): array
+    {
+        if (!is_array($limit)) {
+            throw new \InvalidArgumentException("config key \"rate_limit.{$key}\" must be an array with max and window");
+        }
+        return [
+            'max' => self::intConfig($limit['max'] ?? null, "rate_limit.{$key}.max", 0),
+            'window' => self::intConfig($limit['window'] ?? null, "rate_limit.{$key}.window", 1),
+        ];
     }
 }
