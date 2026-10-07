@@ -199,6 +199,24 @@ final class RateLimitFlowTest extends TestCase
         $db->onQuery(static fn () => null);
     }
 
+    public function test_an_unroutable_spelling_costs_nothing_at_the_app_level(): void
+    {
+        // The App boundary is where a path normalization or decode would
+        // desynchronize the limiter's gate from the router's whitelist, so
+        // the gate refusal is pinned through App::process too: POST /AUTH/x
+        // is a 404 that wrote no row and issued no limiter query.
+        $app = $this->makeApp(['rate_limit' => ['*' => ['max' => 10, 'window' => 1_000_000_000]]]);
+        $db = $app->container->make(Database::class);
+        (new Migrator($db, dirname(__DIR__, 2) . '/skeleton/app/migrations'))->migrate();
+        $client = new TestClient($app);
+        $sqls = [];
+        $db->onQuery(function (string $sql) use (&$sqls): void { $sqls[] = $sql; });
+        $this->assertSame(404, $client->postJson('/AUTH/x', ['n' => 1])->status);
+        $this->assertSame([], $sqls, 'a grammar-refused spelling never reaches the database');
+        $this->assertSame([], $db->all('SELECT * FROM rate_limits'), 'no counter row was written');
+        $db->onQuery(static fn () => null);
+    }
+
     public function test_an_expired_window_allows_again(): void
     {
         // A row from a window that has fully elapsed (start 0, the bucket

@@ -306,10 +306,12 @@ final class RateLimitTest extends TestCase
 
     public function test_the_fallback_never_counts_spellings_the_router_could_not_route(): void
     {
-        // The gate runs BEFORE the counting upsert: an unroutable spelling
-        // costs zero queries and writes no row, so rotated junk POSTs cannot
-        // grow the table (every rotation would otherwise be a fresh bucket
-        // the cap can never trip).
+        // The gate runs BEFORE the counting upsert: a spelling that fails the
+        // router's grammar costs zero queries and writes no row, so junk that
+        // is guaranteed to 404 cannot grow the table (every rotation would
+        // otherwise be a fresh bucket the cap can never trip). Grammatical
+        // spellings that route nowhere are still charged, by design; that is
+        // the next test's pin.
         $queries = 0;
         $this->db->onQuery(function () use (&$queries): void { $queries++; });
         $rl = $this->make(['*' => ['max' => 5, 'window' => 60]]);

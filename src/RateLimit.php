@@ -36,11 +36,17 @@ final class RateLimit
     /** Retires expired windows across every key at once; seeks idx_rate_limits_window. */
     private const PRUNE = 'DELETE FROM rate_limits WHERE window_start < ?';
 
-    /** The router's own segment grammar (lowercase, single separators), the root spelled ''. */
-    private const SEGMENT = '/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/';
+    /** The router's own segment grammar (Router::NAME, the shared constant), the root spelled ''. */
+    private const SEGMENT = Router::NAME;
 
-    /** Longest raw first segment the fallback will count: a real controller name is short. */
+    /**
+     * Longest raw first segment the fallback will count: limiter policy, not
+     * router policy (the router sets no length bound). A controller segment
+     * longer than this would route yet go uncounted under '*', so no real
+     * app should have one; a real controller name is short.
+     */
     private const MAX_FALLBACK_SEGMENT = 64;
+
 
     /** @var array<string, array{max: int, window: int}> studly-canonicalized prefix => limit */
     private array $limits;
@@ -112,14 +118,18 @@ final class RateLimit
         $prefix = Router::studly($raw);
         $limit = $this->limits[$prefix] ?? null;
         if ($limit === null && $this->catchAll !== null) {
-            // The fallback counts only spellings the router could ever route:
-            // the root, or a short segment passing the router's own grammar
-            // (the rule every config key must pass). Uppercase, encoded,
-            // doubled-separator, and oversized spellings always 404, so
-            // charging them would let rotated junk POSTs write attacker-named
-            // rows before the 404 and never trip the cap (every rotation is a
-            // fresh bucket). Explicit prefixes keep today's semantics: a
-            // spelling that canonicalizes to a configured key counts.
+            // The fallback counts only spellings the router's grammar ADMITS:
+            // the root, or a short first segment passing Router::NAME (the
+            // rule every config key must pass). Uppercase, encoded,
+            // doubled-separator, and oversized spellings are guaranteed 404s,
+            // so charging them would let rotated junk POSTs write
+            // attacker-named rows before the 404 and never trip the cap
+            // (every rotation is a fresh bucket). A grammatical spelling that
+            // routes nowhere is still charged, by design: it is indistinguishable
+            // from a real route before routing runs, one row per distinct
+            // segment within the prune grace. Explicit prefixes keep today's
+            // semantics: a spelling that canonicalizes to a configured key
+            // counts.
             if ($raw !== '' && (strlen($raw) > self::MAX_FALLBACK_SEGMENT || preg_match(self::SEGMENT, $raw) !== 1)) {
                 return null;
             }

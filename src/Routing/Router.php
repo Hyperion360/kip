@@ -8,6 +8,16 @@ use Kip\Http\Request;
 final class Router
 {
     /**
+     * The one first-segment grammar a URL may carry: lowercase letters and
+     * digits, single - or _ separators. match() whitelists controller names
+     * with it, and the rate limiter's '*' fallback gate reuses the same
+     * constant so the two can never drift (a spelling one of them admits
+     * but the other refuses would sit outside every throttle or inside a
+     * phony bucket).
+     */
+    public const NAME = '/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/';
+
+    /**
      * URL segment → Studly word ('my-billing'/'my_billing' → 'MyBilling'). THE one
      * implementation of the separator rule: the View studly-cases feature template
      * segments with it too, so a controller and its template folder can never resolve
@@ -47,7 +57,7 @@ final class Router
         if (isset($parts[1]) && $parts[1] === 'index') return null;
         // A separator only joins words: /posts-, /_posts and /po--sts would otherwise all
         // studly-case to PostsController, giving one page several URLs.
-        if (!preg_match('/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/', $name)) return null;
+        if (!preg_match(self::NAME, $name)) return null;
 
         $studly = self::studly($name);
         $class = null;
