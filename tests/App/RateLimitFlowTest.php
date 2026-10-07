@@ -11,8 +11,11 @@ use PHPUnit\Framework\TestCase;
  * The rate-limiting battery end to end against the fixture ApiController:
  * enforcement sits in App::process() BEFORE routing (a 429 never reaches a
  * controller, a session, or a transaction), only non-GET/HEAD requests pay,
- * and the query budget rules hold (unconfigured apps, unconfigured prefixes,
- * and page renders issue zero limiter queries). Windows here use
+ * and the query budget rules hold (unconfigured apps, page renders, and
+ * unconfigured prefixes when no '*' fallback is configured issue zero
+ * limiter queries; with '*' set, a routable prefix's first POST in a window
+ * pays the counting upsert plus the window-opening prune retire).
+ * Windows here use
  * 1_000_000_000 seconds: the bucket that time() is in never rolls during a
  * test run, so real-clock requests are deterministic and the Retry-After
  * value is exactly bracketable.
@@ -145,6 +148,54 @@ final class RateLimitFlowTest extends TestCase
         $res = (new TestClient($app))->postJson('/api/create', ['n' => 1]);
         $this->assertSame(200, $res->status, $res->body);
         $this->assertSame(0, $queries, 'an unconfigured app never constructs a limiter query');
+        $db->onQuery(static fn () => null);
+    }
+
+    public function test_the_star_fallback_caps_unconfigured_prefixes_end_to_end(): void
+    {
+        // The '*' config flows through App::process(), not just the unit
+        // seam: a prefix with no explicit entry hits the kernel's 429 with
+        // its plain body and a bracketed Retry-After, and the row is keyed
+        // by the request's own canonical prefix.
+        $app = $this->makeApp(['rate_limit' => ['*' => ['max' => 2, 'window' => 1_000_000_000]]]);
+        $db = $app->container->make(Database::class);
+        (new Migrator($db, dirname(__DIR__, 2) . '/skeleton/app/migrations'))->migrate();
+        $client = new TestClient($app);
+        $this->assertSame(200, $client->postJson('/api/create', ['n' => 1])->status);
+        $this->assertSame(200, $client->postJson('/api/create', ['n' => 2])->status);
+        $before = time();
+        $res = $client->postJson('/api/create', ['n' => 3]);
+        $after = time();
+        $this->assertSame(429, $res->status);
+        $this->assertSame('Too many requests', $res->body);
+        $retry = (int) $res->headers['Retry-After'];
+        $this->assertGreaterThanOrEqual(2_000_000_000 - $after, $retry);
+        $this->assertLessThanOrEqual(2_000_000_000 - $before, $retry);
+        $row = $db->one('SELECT hits FROM rate_limits WHERE prefix = ? AND ip = ? AND window_start = ?',
+            ['Api', '127.0.0.1', 1_000_000_000]);
+        $this->assertSame(3, (int) $row['hits'], 'the fallback bucket is the request prefix, all three hits counted');
+    }
+
+    public function test_a_fallback_surface_keeps_the_get_budget_and_pays_one_upsert_per_post(): void
+    {
+        $app = $this->makeApp(['rate_limit' => ['*' => ['max' => 10, 'window' => 1_000_000_000]]]);
+        $db = $app->container->make(Database::class);
+        (new Migrator($db, dirname(__DIR__, 2) . '/skeleton/app/migrations'))->migrate();
+        $client = new TestClient($app);
+        // The tap goes on immediately before the ONE request it counts:
+        // runDeferred() re-points and then detaches the listener after every
+        // request (the deferred queue's write collector), so a tap installed
+        // earlier is silently gone. The window-opening POST pays the counting
+        // upsert plus the one prune retire; a GET pays nothing.
+        $sqls = [];
+        $db->onQuery(function (string $sql) use (&$sqls): void { $sqls[] = $sql; });
+        $this->assertSame(200, $client->postJson('/api/create', ['n' => 1])->status);
+        $this->assertCount(2, $sqls, 'the fallback POST pays exactly the upsert and its window-opening prune');
+        $this->assertStringStartsWith('INSERT INTO rate_limits', $sqls[0]);
+        $this->assertSame('DELETE FROM rate_limits WHERE window_start < ?', $sqls[1]);
+        $sqls = [];
+        $this->assertSame(200, $client->get('/api/list')->status);
+        $this->assertSame([], $sqls, 'a fallback-only surface still renders GET for free');
         $db->onQuery(static fn () => null);
     }
 
