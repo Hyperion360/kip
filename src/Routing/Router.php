@@ -18,6 +18,17 @@ final class Router
     public const NAME = '/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/';
 
     /**
+     * The one full-path grammar: '/' alone, or '/'-separated segments each
+     * in NAME's character class. No consecutive slashes, no trailing slash:
+     * one canonical URL per page. match() 404s everything else, and the rate
+     * limiter's '*' fallback gate reuses the same constant, so junk the
+     * router refuses ('//', '/a//b', '/x/') costs nothing there either:
+     * firstSegmentOf() collapses those spellings' slashes, so a gate on the
+     * first segment alone would charge them into real buckets.
+     */
+    public const PATH = '#^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?$#';
+
+    /**
      * URL segment → Studly word ('my-billing'/'my_billing' → 'MyBilling'). THE one
      * implementation of the separator rule: the View studly-cases feature template
      * segments with it too, so a controller and its template folder can never resolve
@@ -44,7 +55,7 @@ final class Router
         // /POSTS/SHOW/1, /posts//show/1 and /posts/1/ are all 404, one canonical
         // URL per page (reviews 9A, D15). Request stores the path as given, so a
         // trailing slash reaches this whitelist instead of being trimmed away.
-        if (!preg_match('#^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?$#', $request->path)) return null; // whitelist, threat model
+        if (!preg_match(self::PATH, $request->path)) return null; // whitelist, threat model
         // Filter empty strings ONLY. A bare array_filter would eat the legal segment "0" (review D15)
         $parts = array_values(array_filter(explode('/', $request->path), static fn(string $p): bool => $p !== ''));
         $name   = $parts[0] ?? 'home';

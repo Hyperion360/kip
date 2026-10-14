@@ -152,12 +152,15 @@ whichever namespace serves it; a `posts` prefix does not cover
 
 A `'*'` key is the fallback: when the request's first segment has no
 explicit entry, the fallback's `max` and `window` apply. The fallback
-counts only spellings the router's segment grammar admits: the root, or
-a first segment of at most 64 bytes (a limiter policy; no real
-controller name is that long). Uppercase, percent-encoded, and
-doubled-separator spellings fail the grammar and are guaranteed 404s,
-so charging them would let rotated junk POSTs write a fresh bucket per
-request that the cap could never trip; such requests cost zero queries.
+counts only spellings the router's own grammar admits, judged on the
+whole path: the root, or a path whose first segment is at most 64 bytes
+(a limiter policy; no real controller name is that long) and whose
+every segment matches the router's rules, with no consecutive or
+trailing slashes. Uppercase, percent-encoded, doubled-separator, and
+trailing-slash spellings fail the grammar and are guaranteed 404s, so
+charging them would let rotated junk POSTs write a fresh bucket per
+request that the cap could never trip, or collapse into a real
+surface's bucket and spend its quota; such requests cost zero queries.
 A grammatical spelling that routes nowhere is still charged, by design:
 before routing runs it is indistinguishable from a real route, so each
 distinct grammatical segment holds one row per address within the prune

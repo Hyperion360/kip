@@ -327,6 +327,26 @@ final class RateLimitTest extends TestCase
         $this->db->onQuery(static fn () => null);
     }
 
+    public function test_the_fallback_never_counts_slash_level_junk_spellings(): void
+    {
+        // The router's whitelist judges the WHOLE path (no consecutive
+        // slashes, no trailing slash), but firstSegmentOf() collapses '//'
+        // to the root and '/comments//' to 'comments', so a gate on the
+        // first segment alone charged those 404 spellings into real buckets
+        // and let rotated junk spend a genuine surface's quota. The fallback
+        // applies the router's full-path rule too, the constant match()
+        // itself whitelists with.
+        $queries = 0;
+        $this->db->onQuery(function () use (&$queries): void { $queries++; });
+        $rl = $this->make(['*' => ['max' => 5, 'window' => 60]]);
+        $this->assertNull($rl->check('//', '1.2.3.4', 1000), 'a doubled root slash cannot route');
+        $this->assertNull($rl->check('/comments//', '1.2.3.4', 1000), 'a doubled separator inside the path cannot route');
+        $this->assertNull($rl->check('/comments/', '1.2.3.4', 1000), 'a trailing slash cannot route');
+        $this->assertSame(0, $queries, 'the gate sits before the database');
+        $this->assertSame([], $this->db->all('SELECT * FROM rate_limits'), 'no rows were written');
+        $this->db->onQuery(static fn () => null);
+    }
+
     public function test_the_fallback_still_counts_grammatical_segments_that_route_nowhere(): void
     {
         // The gate is the router's own grammar, not route existence: a

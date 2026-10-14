@@ -40,6 +40,14 @@ final class RateLimit
     private const SEGMENT = Router::NAME;
 
     /**
+     * The router's own full-path whitelist (Router::PATH, the shared
+     * constant): the fallback counts only whole paths the router admits,
+     * not just first segments, so slash-level junk ('//', '/a//b', '/x/')
+     * that collapses to a grammatical first segment still costs nothing.
+     */
+    private const PATH = Router::PATH;
+
+    /**
      * Longest raw first segment the fallback will count: limiter policy, not
      * router policy (the router sets no length bound). A controller segment
      * longer than this would route yet go uncounted under '*', so no real
@@ -118,19 +126,25 @@ final class RateLimit
         $prefix = Router::studly($raw);
         $limit = $this->limits[$prefix] ?? null;
         if ($limit === null && $this->catchAll !== null) {
-            // The fallback counts only spellings the router's grammar ADMITS:
-            // the root, or a short first segment passing Router::NAME (the
-            // rule every config key must pass). Uppercase, encoded,
-            // doubled-separator, and oversized spellings are guaranteed 404s,
-            // so charging them would let rotated junk POSTs write
-            // attacker-named rows before the 404 and never trip the cap
-            // (every rotation is a fresh bucket). A grammatical spelling that
-            // routes nowhere is still charged, by design: it is indistinguishable
-            // from a real route before routing runs, one row per distinct
-            // segment within the prune grace. Explicit prefixes keep today's
-            // semantics: a spelling that canonicalizes to a configured key
-            // counts.
+            // The fallback counts only spellings the router's grammar ADMITS,
+            // judged with the router's own constants on the whole path: the
+            // first segment must pass Router::NAME (under the limiter's
+            // 64-byte policy bound) and the whole path must pass
+            // Router::PATH. Uppercase, encoded, doubled-separator, and
+            // oversized spellings, at the first segment or deeper ('//',
+            // '/a//b', '/x/'), are guaranteed 404s, so charging them would
+            // let rotated junk POSTs write attacker-named rows before the
+            // 404 and never trip the cap (every rotation is a fresh bucket),
+            // or land in a real surface's bucket and spend its quota. A
+            // grammatical spelling that routes nowhere is still charged, by
+            // design: it is indistinguishable from a real route before
+            // routing runs, one row per distinct segment within the prune
+            // grace. Explicit prefixes keep today's semantics: a spelling
+            // that canonicalizes to a configured key counts.
             if ($raw !== '' && (strlen($raw) > self::MAX_FALLBACK_SEGMENT || preg_match(self::SEGMENT, $raw) !== 1)) {
+                return null;
+            }
+            if (preg_match(self::PATH, $path) !== 1) {
                 return null;
             }
             $limit = $this->catchAll;
@@ -208,7 +222,9 @@ final class RateLimit
      * canonicalization: filter empty strings only (the segment "0" is
      * legal). check() canonicalizes through studly() so both spellings of a
      * dashed controller name are one prefix, and gates the fallback on this
-     * raw shape, the shape the router's whitelist judges.
+     * raw shape plus the whole path (Router::PATH): the segment grammar
+     * alone cannot see doubled or trailing slashes, which collapse away in
+     * the segment split.
      */
     private static function firstSegmentOf(string $path): string
     {
