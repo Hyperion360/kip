@@ -91,13 +91,20 @@ final class Auth
 
     /**
      * Atomically claim one attempt slot: the count and the INSERT are one
-     * statement, so a parallel burst cannot all read a pre-burst count and
-     * each spend its full work (a password_verify, or a queued reset email).
-     * The row is written up front: the success paths clear it with the rest
-     * (attempt()'s DELETE by email, resetPassword()'s throttle clear), and
-     * the failure paths simply keep it. The predicates mirror throttled()
-     * and resetThrottled() read for read; this is their atomic write half,
-     * not a second policy.
+     * statement. On SQLite, the driver the shipped apps run, a write
+     * statement is the unit of serialization, so a parallel burst cannot all
+     * read a pre-burst count and each spend its full work (a password_verify,
+     * or a queued reset email). On PostgreSQL, whose counting upsert the
+     * rate limiter supports, the statement runs under READ COMMITTED: claims
+     * in the same instant each see the pre-burst count, so a burst can
+     * overshoot the cap by its own width; every attempt is still recorded
+     * and the next single request is refused, but an app that needs a hard
+     * cap under pgsql must serialize claims itself (an advisory lock keyed
+     * on kind, email and window). The row is written up front: the success
+     * paths clear it with the rest (attempt()'s DELETE by email,
+     * resetPassword()'s throttle clear), and the failure paths simply keep
+     * it. The predicates mirror throttled() and resetThrottled() read for
+     * read; this is their atomic write half, not a second policy.
      */
     private function claim(string $kind, string $email, string $ip): bool
     {

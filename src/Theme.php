@@ -22,10 +22,14 @@ final class Theme
      *  Max-Age is the "auto" deletion both shipped apps use. HttpOnly always:
      *  the preference never needs script access. Secure rides the request's
      *  scheme fact, so an http dev server and an https deployment both get the
-     *  right cookie. Name and value are validated here, not just at the
-     *  callers: this class is the shared safe path, and the first future caller
-     *  that feeds it request data must fail loud instead of injecting cookie
-     *  attributes. */
+     *  right cookie. That also means set and clear must see the same scheme:
+     *  a choice set over https and cleared over http emits a delete without
+     *  Secure, which no browser matches against the Secure cookie, so the
+     *  preference survives until the visitor returns over https (single-scheme
+     *  deployments, what both shipped apps are, never hit this). Name and
+     *  value are validated here, not just at the callers: this class is the
+     *  shared safe path, and the first future caller that feeds it request
+     *  data must fail loud instead of injecting cookie attributes. */
     public static function cookie(string $cookie, string $value, int $maxAge = 31536000, bool $secure = false): string
     {
         if (preg_match('/^[A-Za-z0-9_-]+$/', $cookie) !== 1
