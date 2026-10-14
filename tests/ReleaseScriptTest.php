@@ -257,6 +257,33 @@ final class ReleaseScriptTest extends TestCase
         self::assertStringContainsString('fragment multiline.md must be exactly one line', $out);
     }
 
+    public function testACarriageReturnSeparatedFragmentIsRefused(): void
+    {
+        // CommonMark breaks lines on a bare CR too: a lone \r is a forged
+        // second line, not a space, so the one-line refusal must catch it.
+        $this->frag('cr.md', "Added: the real line\rFixed: forged heading");
+
+        [$code, $out] = $this->release('9.9.9 --dry-run');
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('fragment cr.md must be exactly one line', $out);
+    }
+
+    public function testAFragmentCarryingDollarSignsIsInsertedVerbatim(): void
+    {
+        // In a preg_replace replacement string $1 and ${2} are backreferences
+        // and silently vanish; the section text is literal content, not a
+        // replacement, so both must survive into the written changelog. A
+        // real run, not a dry run: the dry run echoes the raw section and
+        // never sees the replacement result.
+        $this->frag('f-dollars.md', 'Fixed: preserve $1 and ${2} in Redirects patterns');
+
+        [$code, $out] = $this->release('9.9.9');
+
+        self::assertSame(0, $code, $out);
+        self::assertStringContainsString('- preserve $1 and ${2} in Redirects patterns', $this->changelog());
+    }
+
     public function testASeededEntryUnderAnUnknownHeadingIsRefused(): void
     {
         $this->seedChangelog("\n### Notes\n\n- freeform prose line\n");
