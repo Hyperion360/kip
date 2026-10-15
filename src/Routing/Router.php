@@ -15,7 +15,7 @@ final class Router
      * but the other refuses would sit outside every throttle or inside a
      * phony bucket).
      */
-    public const NAME = '/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/';
+    public const NAME = '/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/D';
 
     /**
      * The one full-path grammar: '/' alone, or '/'-separated segments each
@@ -24,9 +24,12 @@ final class Router
      * limiter's '*' fallback gate reuses the same constant, so junk the
      * router refuses ('//', '/a//b', '/x/') costs nothing there either:
      * firstSegmentOf() collapses those spellings' slashes, so a gate on the
-     * first segment alone would charge them into real buckets.
+     * first segment alone would charge them into real buckets. Both anchors
+     * carry the D modifier: a bare $ also matches before a trailing raw
+     * newline, which would admit a spelling like '/posts\n' that no browser
+     * sends but a hand-built Request could carry.
      */
-    public const PATH = '#^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?$#';
+    public const PATH = '#^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?$#D';
 
     /**
      * URL segment → Studly word ('my-billing'/'my_billing' → 'MyBilling'). THE one

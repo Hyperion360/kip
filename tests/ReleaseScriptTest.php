@@ -284,6 +284,25 @@ final class ReleaseScriptTest extends TestCase
         self::assertStringContainsString('- preserve $1 and ${2} in Redirects patterns', $this->changelog());
     }
 
+    public function testARealRunWithoutAnUnreleasedHeadingInsertsVerbatimAfterTheHeader(): void
+    {
+        // Branch 2 of the insertion (no [Unreleased] heading: insert under the
+        // "# Changelog" header) only WRITES on a real run, so the verbatim
+        // contract must be pinned there too, not just on the dry run.
+        file_put_contents($this->fixture . '/CHANGELOG.md', "# Changelog\n\n## 0.4.0\nlegacy\n");
+        $fx = escapeshellarg($this->fixture);
+        exec("git -C {$fx} add CHANGELOG.md");
+        exec("git -C {$fx} commit -qm changelog");
+        $this->frag('f-d.md', 'Fixed: keep $1 and ${2} literal');
+
+        [$code, $out] = $this->release('9.9.9');
+
+        self::assertSame(0, $code, $out);
+        $log = $this->changelog();
+        self::assertStringContainsString("# Changelog\n\n## [Unreleased]\n\n## [9.9.9] - ", $log);
+        self::assertStringContainsString('- keep $1 and ${2} literal', $log);
+    }
+
     public function testASeededEntryUnderAnUnknownHeadingIsRefused(): void
     {
         $this->seedChangelog("\n### Notes\n\n- freeform prose line\n");

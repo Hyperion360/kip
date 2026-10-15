@@ -342,6 +342,10 @@ final class RateLimitTest extends TestCase
         $this->assertNull($rl->check('//', '1.2.3.4', 1000), 'a doubled root slash cannot route');
         $this->assertNull($rl->check('/comments//', '1.2.3.4', 1000), 'a doubled separator inside the path cannot route');
         $this->assertNull($rl->check('/comments/', '1.2.3.4', 1000), 'a trailing slash cannot route');
+        $this->assertNull($rl->check('/comments/Show', '1.2.3.4', 1000), 'an uppercase deeper segment cannot route');
+        $this->assertNull($rl->check('/comments/%41', '1.2.3.4', 1000), 'a percent-encoded deeper segment cannot route');
+        $this->assertNull($rl->check("/comments\n", '1.2.3.4', 1000),
+            'a trailing raw newline passes a bare-$ anchor before the newline; the grammar is dollar-endonly');
         $this->assertSame(0, $queries, 'the gate sits before the database');
         $this->assertSame([], $this->db->all('SELECT * FROM rate_limits'), 'no rows were written');
         $this->db->onQuery(static fn () => null);
