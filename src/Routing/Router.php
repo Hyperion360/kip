@@ -19,15 +19,18 @@ final class Router
 
     /**
      * The one full-path grammar: '/' alone, or '/'-separated segments each
-     * in NAME's character class. No consecutive slashes, no trailing slash:
-     * one canonical URL per page. match() 404s everything else, and the rate
-     * limiter's '*' fallback gate reuses the same constant, so junk the
-     * router refuses ('//', '/a//b', '/x/') costs nothing there either:
-     * firstSegmentOf() collapses those spellings' slashes, so a gate on the
-     * first segment alone would charge them into real buckets. Both anchors
-     * carry the D modifier: a bare $ also matches before a trailing raw
-     * newline, which would admit a spelling like '/posts\n' that no browser
-     * sends but a hand-built Request could carry.
+     * drawn from NAME's character set (lowercase letters, digits, - and _).
+     * The naming GRAMMAR itself binds the first segment only; deeper segments
+     * become route arguments and only their characters are constrained here.
+     * No consecutive slashes, no trailing slash: one canonical URL per page.
+     * match() 404s everything else, and the rate limiter's '*' fallback gate
+     * reuses the same constant, so junk the router refuses ('//', '/a//b',
+     * '/x/') costs nothing there either: firstSegmentOf() collapses those
+     * spellings' slashes, so a gate on the first segment alone would charge
+     * them into real buckets. Both anchors carry the D modifier: a bare $
+     * also matches before a trailing raw newline, which would admit a
+     * spelling like '/posts\n' that no browser sends but a hand-built
+     * Request could carry.
      */
     public const PATH = '#^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?$#D';
 

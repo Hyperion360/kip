@@ -165,6 +165,17 @@ final class RouterTest extends TestCase
         $this->assertNull($this->router()->match(new Request('GET', '/posts//show/1', [], [], [])));
     }
 
+    public function test_the_path_grammar_is_dollar_endonly(): void
+    {
+        // The grammar anchors carry the D modifier: a bare $ also matches
+        // before a trailing newline, which would admit '/posts\n' to the
+        // whitelist over a hand-built Request (real HTTP cannot carry a raw
+        // LF in the path). match() itself 404s the spelling either way at
+        // the controller lookup, so the constant is pinned directly.
+        $this->assertSame(0, preg_match(Router::PATH, "/posts\n"));
+        $this->assertSame(1, preg_match(Router::PATH, '/posts'));
+    }
+
     /**
      * A separator only joins words: a controller segment that starts or ends with one,
      * or doubles one, would otherwise studly-case to the same controller as the clean

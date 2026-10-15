@@ -130,17 +130,19 @@ final class RateLimit
             // judged with the router's own constants on the whole path: the
             // first segment must pass Router::NAME (under the limiter's
             // 64-byte policy bound) and the whole path must pass
-            // Router::PATH. Uppercase, encoded, doubled-separator, and
-            // oversized spellings, at the first segment or deeper ('//',
-            // '/a//b', '/x/'), are guaranteed 404s, so charging them would
-            // let rotated junk POSTs write attacker-named rows before the
-            // 404 and never trip the cap (every rotation is a fresh bucket),
-            // or land in a real surface's bucket and spend its quota. A
-            // grammatical spelling that routes nowhere is still charged, by
-            // design: it is indistinguishable from a real route before
-            // routing runs, one row per distinct segment within the prune
-            // grace. Explicit prefixes keep today's semantics: a spelling
-            // that canonicalizes to a configured key counts.
+            // Router::PATH, whose per-segment rule is the character set (the
+            // naming grammar binds the first segment only; deeper segments
+            // are route arguments). Uppercase, encoded, and oversized first
+            // segments, and slash-level junk ('//', '/a//b', '/x/'), are
+            // guaranteed 404s, so charging them would let rotated junk POSTs
+            // write attacker-named rows before the 404 and never trip the cap
+            // (every rotation is a fresh bucket), or land in a real surface's
+            // bucket and spend its quota. A spelling the character set admits
+            // is still charged, by design: it is indistinguishable from a
+            // real route before routing runs, one row per distinct segment
+            // within the prune grace. Explicit prefixes keep today's
+            // semantics: a spelling that canonicalizes to a configured key
+            // counts.
             if ($raw !== '' && (strlen($raw) > self::MAX_FALLBACK_SEGMENT || preg_match(self::SEGMENT, $raw) !== 1)) {
                 return null;
             }
