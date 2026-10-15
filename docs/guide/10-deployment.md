@@ -126,7 +126,10 @@ rather than a plain `cp` of just the `.sqlite` file.
 database via `VACUUM INTO` (online-safe, writer-friendly) into
 `app/backups/kip-backup-<timestamp>.zip`; archives older than 14 days
 are pruned automatically. Restoring is unzipping the
-files back into place. A nightly cron entry is the whole recipe:
+files back into place. The directory is 0700 and the archives 0600,
+which matters on shared hosting: a world-readable backup is a full copy
+of your user table handed to every co-tenant. A nightly cron entry is
+the whole recipe:
 
 ```cron
 15 4 * * * cd /var/www/myapp && php bin/kip backup

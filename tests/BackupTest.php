@@ -105,4 +105,47 @@ final class BackupTest extends TestCase
             $this->stopS3Stub();
         }
     }
+
+    public function test_backup_dir_and_artifacts_are_owner_private(): void
+    {
+        $backup = new Backup(['data' => 'sqlite:' . $this->work . '/data.sqlite'], $this->work . '/backups');
+        $path = $backup->run('20261015-120000');
+        $this->assertSame(0700, fileperms($this->work . '/backups') & 0777);
+        if (class_exists(\ZipArchive::class)) {
+            $this->assertSame(0600, fileperms($path) & 0777);
+        } else {
+            // No-zip hosts return the directory of loose copies, itself an artifact holder.
+            $this->assertSame($this->work . '/backups', $path);
+            $this->assertSame(0700, fileperms($path) & 0777);
+        }
+    }
+
+    public function test_no_zip_loose_copies_are_owner_private(): void
+    {
+        if (class_exists(\ZipArchive::class)) {
+            $this->markTestSkipped('ext-zip present, the loose-copy fallback is unreachable');
+        }
+        $dir = $this->work . '/backups';
+        (new Backup(['data' => 'sqlite:' . $this->work . '/data.sqlite'], $dir))->run('20261015-120001');
+        $copy = $dir . '/data-20261015-120001.sqlite';
+        $this->assertFileExists($copy); // no vacuous glob pass
+        $this->assertSame(0600, fileperms($copy) & 0777);
+    }
+
+    public function test_pre_existing_loose_dir_and_old_artifacts_are_tightened(): void
+    {
+        $dir = $this->work . '/backups';
+        mkdir($dir, 0755);
+        chmod($dir, 0755); // mkdir filters through umask; pin the pre-state
+        $oldZip = "{$dir}/kip-backup-20260901-120000.zip";
+        file_put_contents($oldZip, 'stale archive');
+        chmod($oldZip, 0644);
+        $oldCopy = "{$dir}/data-20260901-120000.sqlite";
+        file_put_contents($oldCopy, 'stale copy');
+        chmod($oldCopy, 0644);
+        (new Backup(['data' => 'sqlite:' . $this->work . '/data.sqlite'], $dir))->run('20261015-120002');
+        $this->assertSame(0700, fileperms($dir) & 0777);
+        $this->assertSame(0600, fileperms($oldZip) & 0777);
+        $this->assertSame(0600, fileperms($oldCopy) & 0777);
+    }
 }

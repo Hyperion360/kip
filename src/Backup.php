@@ -18,9 +18,10 @@ final class Backup
     /** @return string path to the produced archive (zip, or a directory when ext-zip is absent) */
     public function run(string $stamp): string
     {
-        if (!is_dir($this->dir) && !mkdir($this->dir, 0755, true) && !is_dir($this->dir)) {
+        if (!is_dir($this->dir) && !mkdir($this->dir, 0700, true) && !is_dir($this->dir)) {
             throw new \RuntimeException("Cannot create backup directory {$this->dir}");
         }
+        $this->harden(); // before the copies: what already sits here is secured even if this run fails later
         $copies = [];
         foreach ($this->dsns as $label => $dsn) {
             if (!str_starts_with($dsn, 'sqlite:') || str_contains($dsn, ':memory:')) continue;
@@ -28,6 +29,7 @@ final class Backup
             // Bound parameter, not an escaped literal: query() binds where exec()
             // cannot, so no quoting rule has to stay correct if the path source changes.
             (new Database($dsn))->query('VACUUM INTO ?', [$tmp]);
+            $this->hardenFile($tmp);
             $copies[$label] = $tmp;
         }
         if ($copies === []) {
@@ -56,12 +58,37 @@ final class Backup
         if (!$zip->close()) {
             throw new \RuntimeException("Could not finalize {$zipPath}. The loose .sqlite copies were left in place for manual recovery");
         }
+        $this->hardenFile($zipPath);
         // Off-site copy before the local cleanup: if the upload throws, the
         // loose .sqlite copies are still on disk for manual recovery.
         $this->s3?->put($zipPath);
         foreach ($copies as $file) unlink($file);
         $this->pruneOldArchives();
         return $zipPath;
+    }
+
+    /** The privacy contract (guide ch. 8/10): 0700 dir, 0600 artifacts. A mode
+     *  that cannot be set fails the backup loudly instead of writing a
+     *  world-readable copy of the user table under a success code. The tighten
+     *  walk is pruneOldArchives()' exact glob pair: an install upgrading from
+     *  the loose-mode era has its old archives secured on the first run, and
+     *  pruning already deletes files matching these globs, so chmod is the
+     *  milder touch on anything an operator left here. */
+    private function harden(): void
+    {
+        if (!@chmod($this->dir, 0700)) {
+            throw new \RuntimeException("Cannot secure backup directory {$this->dir}");
+        }
+        foreach (array_merge(glob($this->dir . '/kip-backup-*.zip') ?: [], glob($this->dir . '/*-*.sqlite') ?: []) as $old) {
+            $this->hardenFile($old);
+        }
+    }
+
+    private function hardenFile(string $path): void
+    {
+        if (!@chmod($path, 0600)) {
+            throw new \RuntimeException("Cannot secure backup artifact {$path}");
+        }
     }
 
     /** Nightly-cron safety: archives (and no-zip loose copies) older than keepDays are deleted so the disk cannot fill. */

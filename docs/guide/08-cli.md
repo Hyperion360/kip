@@ -180,7 +180,12 @@ Snapshots every configured SQLite database into
 `app/backups/kip-backup-<timestamp>.zip` using `VACUUM INTO`, an
 online-safe copy that doesn't block writers (WAL included). Restoring is
 unzipping the files back where they came from; see
-[chapter 10](10-deployment.md) for the cron line.
+[chapter 10](10-deployment.md) for the cron line. The backup
+directory is 0700 and every archive in it 0600 (owner private), and an
+older or looser directory and its archives are tightened on the next
+run; on POSIX hosts a mode the filesystem refuses fails the backup with
+the path named, rather than leave a world-readable copy of your
+database behind.
 
 ```
 $ php bin/kip backup
