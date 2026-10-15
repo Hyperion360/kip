@@ -237,6 +237,44 @@ final class ReleaseScriptTest extends TestCase
         self::assertStringContainsString('no changelog.d/*.md fragments', $out);
     }
 
+    public function testOnlyBlankFragmentsIsRefused(): void
+    {
+        // Blank files are skipped, so all-blank input must refuse like no
+        // input at all instead of tagging a release with an empty section.
+        // (Blank fragments beside a seeded [Unreleased] still release: the
+        // seed supplies the entries, which is why the check sits after the
+        // seed merge, not after the fragment loop.)
+        $this->frag('a-blank.md', "  \n");
+
+        [$code, $out] = $this->release('9.9.9 --dry-run');
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('no entries; nothing to release', $out);
+    }
+
+    public function testTheTagMessageTruncationNeverSplitsAUtf8Character(): void
+    {
+        // The tag message caps at 2000 bytes. Layout math (each line must
+        // hold): header "## [9.9.9] - YYYY-MM-DD\n" is 24 bytes, "\n### Added\n"
+        // is 11, and each 69-byte entry line is joined by \n. Entry 29 starts
+        // at byte 1995, so its e-acute at line offset 4 straddles the cut:
+        // byte 1999 is the lead byte 0xC3 and byte 2000 the continuation
+        // 0xA9. The truncation must never leave a dangling lead byte behind
+        // in the permanent tag message.
+        $prefix = 'Added: ' . str_repeat('a', 60);
+        for ($i = 1; $i <= 28; $i++) $this->frag(sprintf('a-%02d.md', $i), $prefix);
+        $this->frag('a-29.md', 'Added: aa' . "\u{00E9}" . str_repeat('a', 59));
+        $this->assertSame(67, strlen($prefix)); // entry line is "- " + content = 69 bytes
+        $this->assertSame(70, strlen('Added: aa' . "\u{00E9}" . str_repeat('a', 59))); // one line, no LF
+
+        [$code, $out] = $this->release('9.9.9');
+
+        self::assertSame(0, $code, $out);
+        exec('git -C ' . escapeshellarg($this->fixture) . ' cat-file tag v9.9.9', $tagLines);
+        $tag = implode("\n", $tagLines);
+        $this->assertSame(1, preg_match('//u', $tag), 'tag message must be valid UTF-8, got: ' . bin2hex(substr($tag, -20)));
+    }
+
     public function testAFragmentWithoutAKnownTypePrefixIsRefused(): void
     {
         $this->frag('bad.md', 'Broke: not a Keep a Changelog type');
@@ -341,6 +379,7 @@ final class ReleaseScriptTest extends TestCase
 
         self::assertSame(1, $code);
         self::assertStringContainsString('git commit failed', $out);
+        self::assertStringContainsString('git reset --hard HEAD', $out, 'the failure lane names the recovery: fragments were committed at HEAD, nothing is lost');
         $fx = escapeshellarg($this->fixture);
         exec("git -C {$fx} log -1 --format=%s", $subject);
         self::assertSame('fragment', $subject[0] ?? '');
@@ -363,6 +402,7 @@ final class ReleaseScriptTest extends TestCase
 
         self::assertSame(1, $code);
         self::assertStringContainsString('git tag failed', $out);
+        self::assertStringContainsString('git tag -a v9.9.9', $out, 'the failure lane names the recovery: the release commit is HEAD');
         $fx = escapeshellarg($this->fixture);
         exec("git -C {$fx} tag -l v9.9.9", $tags);
         self::assertSame([], $tags, 'no orphan tag');

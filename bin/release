@@ -53,6 +53,11 @@ if (preg_match('/## \[Unreleased\]\n(.*?)(?=\n## |\z)/s', $current, $seed) && tr
     }
     $current = (string) preg_replace('/(## \[Unreleased\]\n).*?(?=\n## |\z)/s', '$1', $current, 1);
 }
+// Sits AFTER the seed merge: blank fragments beside a seeded [Unreleased] are a
+// real release (the seed supplies the entries); blank input with no seed is not.
+if ($byType === []) {
+    fwrite(STDERR, "no entries; nothing to release\n"); exit(1);
+}
 $section = "## [{$version}] - " . date('Y-m-d') . "\n";
 foreach (['Security', 'Added', 'Changed', 'Deprecated', 'Removed', 'Fixed'] as $type) {
     if (isset($byType[$type])) $section .= "\n### {$type}\n" . implode("\n", $byType[$type]) . "\n";
@@ -80,9 +85,24 @@ chdir($root);
 exec('git add CHANGELOG.md changelog.d', $o1, $c1);
 if ($c1 !== 0) { fwrite(STDERR, "git add failed\n"); exit(1); }
 exec('git commit -m ' . escapeshellarg("chore: release {$tag}"), $o2, $c2); // no --allow-empty: the commit always carries content
-if ($c2 !== 0) { fwrite(STDERR, "git commit failed\n"); exit(1); }
+if ($c2 !== 0) {
+    // Fragments were committed at HEAD before this run started, so a hard
+    // reset only discards this run's staged release changes. Nothing is lost.
+    fwrite(STDERR, "git commit failed\nrecover with: git reset --hard HEAD\n"); exit(1);
+}
 // core.commentChar moves git's comment marker off '#', so the ### type headings survive the
 // tag message cleanup and git show vN is self-contained (no section line can start with '@').
-exec('git -c core.commentChar=@ tag -a ' . escapeshellarg($tag) . ' -m ' . escapeshellarg("Release {$tag}\n\n" . substr($section, 0, 2000)), $o3, $c3);
-if ($c3 !== 0) { fwrite(STDERR, "git tag failed\n"); exit(1); }
+// The cap is bytes; trim an incomplete UTF-8 tail so a multibyte character is never cut in
+// half in the permanent tag message (a character is at most 4 bytes, so the loop runs at
+// most three times; preg_match returns false, not 0, on an invalid subject, hence !== 1).
+$notes = substr($section, 0, 2000);
+while ($notes !== '' && preg_match('//u', $notes) !== 1) {
+    $notes = substr($notes, 0, -1);
+}
+exec('git -c core.commentChar=@ tag -a ' . escapeshellarg($tag) . ' -m ' . escapeshellarg("Release {$tag}\n\n" . $notes), $o3, $c3);
+if ($c3 !== 0) {
+    // The release commit is HEAD; the tree is clean. A rerun would refuse
+    // (fragments consumed), so tagging is a manual, named step.
+    fwrite(STDERR, "git tag failed\nrecover with: git tag -a {$tag} -m <release notes> HEAD\n"); exit(1);
+}
 echo "tagged {$tag}. Review the notes above, then: git push origin main --tags (owner gate)\n";
