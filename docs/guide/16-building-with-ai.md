@@ -154,7 +154,7 @@ final class LlmClient
     ) {}
 
     /** @param list<array{role: string, content: string}> $messages */
-    public function complete(array $messages, float $timeout = 30.0): string
+    public function complete(array $messages, int $timeout = 30): string
     {
         if (!str_starts_with($this->baseUrl, 'https://')) {
             throw new \RuntimeException('ai base URL must be https: the key travels in a header');
@@ -266,8 +266,9 @@ to the authenticated user or tenant and let it read only what that user
 could have read themselves; the provider sees every byte a tool returns.
 
 ```php
+$tenantId = $session->tenantId; // the signed-in operator's tenant
 $tools = [
-    'find_customer' => function (array $in) use ($repo): string {
+    'find_customer' => function (array $in) use ($repo, $tenantId): string {
         // reads only what the signed-in operator may read; the repo scopes it
         return json_encode($repo->forTenant($tenantId)->findByEmail((string) ($in['email'] ?? '')) ?? 'not found');
     },

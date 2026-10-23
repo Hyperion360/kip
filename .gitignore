@@ -10,7 +10,7 @@ vendor/
 public/uploads/
 
 # local AI-assistant configuration; workspace-private, never committed
-# (the root AGENTS.md is the exception: committed product, like KipSaaS's)
+# (the root AGENTS.md is the exception: committed product)
 CLAUDE.md
 AGENTS.md
 !/AGENTS.md
