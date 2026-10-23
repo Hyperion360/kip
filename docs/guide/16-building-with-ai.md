@@ -109,6 +109,216 @@ several features landed after the one being reverted, roll their batches
 back first; rollback only ever undoes the most recent batch (see
 [chapter 5](05-database-and-migrations.md)).
 
+## Adding AI features to your Kip app
+
+Everything above uses agents to build your app. The other direction is your
+app calling a model at request time: classification, extraction, drafting,
+summarizing. Kip takes no dependency for this and ships no battery for it,
+because the moving parts are one HTTP call and one loop, and every provider
+speaks a documented JSON API. What follows is the shape that holds up in
+production, and the discipline that separates a feature from a demo. The
+samples are app-side sketches: they omit wiring (config, repositories,
+templates) to stay readable, and they are not part of
+[`examples/blog`](../../examples/blog).
+
+**Buy the key, not the framework.** Pick a provider, put its base URL, API
+key, and model name in `config.php`, and keep your code provider-shaped, not
+provider-coupled: one small client class is the whole abstraction. Switching
+inside the OpenAI-compatible chat-completions protocol, which most providers
+and local gateways speak, is a config change; a provider with a different
+protocol needs a small adapter, so decide that once, up front. Bring your
+own keys per tenant if you serve many: store the key in your own tables,
+resolve it at call time, and the platform never pays a metered bill for a
+tenant's usage.
+
+**The transport is the same one Kip's own backup battery uses.** curl when
+the extension is loaded, PHP stream contexts when it is not; see
+`src/S3.php` for the feature-detection pattern. Two rules it already
+encodes, and the client below keeps: never follow a redirect, because the
+next hop receives the `Authorization` header, and inspect the HTTP status
+instead of trusting the body. One shared-host caveat: a host that disables
+`allow_url_fopen` has no streams lane at all, so detect all three
+conditions up front the way `src/S3.php` does and fail with a clear message
+instead of a confusing warning. A minimal client:
+
+```php
+// App\Ai\LlmClient, PSR-4 under app/src/Ai/
+namespace App\Ai;
+
+final class LlmClient
+{
+    public function __construct(
+        private string $baseUrl,
+        private string $apiKey,
+        private string $model,
+    ) {}
+
+    /** @param list<array{role: string, content: string}> $messages */
+    public function complete(array $messages, float $timeout = 30.0): string
+    {
+        if (!str_starts_with($this->baseUrl, 'https://')) {
+            throw new \RuntimeException('ai base URL must be https: the key travels in a header');
+        }
+        $body = json_encode([
+            'model'      => $this->model,
+            'messages'   => $messages,
+            'max_tokens' => 1024,
+        ], JSON_THROW_ON_ERROR);
+
+        $headers = ['Content-Type: application/json', 'Authorization: Bearer ' . $this->apiKey];
+        $url = rtrim($this->baseUrl, '/') . '/chat/completions';
+
+        if (extension_loaded('curl')) {
+            $handle = curl_init($url);
+            curl_setopt_array($handle, [
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $body,
+                CURLOPT_HTTPHEADER     => $headers,
+                CURLOPT_TIMEOUT        => $timeout,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => false, // curl's default, pinned on purpose
+            ]);
+            $raw  = curl_exec($handle);
+            $code = (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
+            if ($raw === false) {
+                throw new \RuntimeException('ai request failed: ' . curl_error($handle));
+            }
+        } else {
+            $context = stream_context_create(['http' => [
+                'method'        => 'POST',
+                'header'        => implode("\r\n", $headers),
+                'content'       => $body,
+                'timeout'       => $timeout,
+                'ignore_errors' => true, // a 4xx/5xx still carries a status to inspect
+                // Never follow a redirect: the wrapper re-sends these
+                // headers, Authorization included, to the redirect target.
+                'follow_location' => 0,
+                'max_redirects'   => 0,
+            ]]);
+            $raw  = @file_get_contents($url, false, $context);
+            $code = 0;
+            foreach ($http_response_header ?? [] as $line) {
+                if (preg_match('#^HTTP/\S+\s+(\d+)#', $line, $m) === 1) {
+                    $code = (int) $m[1]; // keep the last status line seen
+                }
+            }
+            if ($raw === false && $code === 0) {
+                throw new \RuntimeException('ai request failed: no HTTP response');
+            }
+        }
+
+        if ($code < 200 || $code >= 300) {
+            throw new \RuntimeException("ai request failed: HTTP {$code}");
+        }
+        $data = json_decode((string) $raw, true, 512, JSON_THROW_ON_ERROR);
+        return $data['choices'][0]['message']['content']
+            ?? throw new \RuntimeException('ai response shape not recognized');
+    }
+}
+```
+
+**Force structured output and validate it.** For anything a program acts on
+(classification, extraction, routing), demand JSON with an exact shape,
+validate against that shape in PHP, retry once with the validation error
+appended to the conversation, then fall back to a human queue. Never trust
+the shape; models drift:
+
+```php
+$schema = 'Reply with JSON only: {"category": "billing"|"bug"|"question", "urgency": "low"|"high"}';
+$attempt = $client->complete([
+    ['role' => 'system', 'content' => $schema],
+    ['role' => 'user', 'content' => $text],
+]);
+$data = json_decode($attempt, true);
+$valid = fn ($d) => is_array($d)
+    && in_array($d['category'] ?? null, ['billing', 'bug', 'question'], true)
+    && in_array($d['urgency'] ?? null, ['low', 'high'], true);
+
+if (!$valid($data)) {
+    $attempt = $client->complete([
+        ['role' => 'system', 'content' => $schema],
+        ['role' => 'user', 'content' => $text],
+        ['role' => 'assistant', 'content' => $attempt],
+        ['role' => 'user', 'content' => 'That was not valid JSON per the schema. Reply with JSON only.'],
+    ]);
+    $data = json_decode($attempt, true);
+}
+if (!$valid($data)) {
+    // fall back: leave the item for human triage, log the raw output
+}
+```
+
+**Tools need an allowlist and a short leash.** A tool is a named PHP callable
+the model may request by name; the loop executes only what the allowlist
+contains, at most a handful of steps. Real providers ship native tool-call
+APIs; the sample uses a plain-text TOOL_CALL convention on purpose, so it
+stays provider-neutral. Two rules with teeth: tools that write
+go through the same validated actions a human would use (never let the model
+compose SQL against the content database; if you must query with it, do it
+read-only over allowlisted views), and anything expensive to reverse lands
+in a review queue first, not in production state. Kip's admin panel
+([chapter 12](12-admin-panel.md)) is a ready-made review surface. A third
+rule the sample bakes in: a tool takes ONE array argument and validates its
+own named fields, because binding positional arguments from JSON key order
+silently swaps values when the model reorders keys. And the authority rule:
+tools run with your app's credentials, not the model's, so scope every tool
+to the authenticated user or tenant and let it read only what that user
+could have read themselves; the provider sees every byte a tool returns.
+
+```php
+$tools = [
+    'find_customer' => function (array $in) use ($repo): string {
+        // reads only what the signed-in operator may read; the repo scopes it
+        return json_encode($repo->forTenant($tenantId)->findByEmail((string) ($in['email'] ?? '')) ?? 'not found');
+    },
+    'draft_refund' => function (array $in) use ($queue): string {
+        $queue->draft((string) ($in['orderId'] ?? ''), (int) ($in['cents'] ?? 0)); // a row, not a refund
+        return 'drafted, awaiting approval';
+    },
+];
+$messages = [
+    ['role' => 'system', 'content' => $instructions
+        . ' Tools: find_customer {"email": string}, draft_refund {"orderId": string, "cents": int}.'
+        . ' To call one, reply with exactly one line "TOOL_CALL: name json-args".'],
+    ['role' => 'user', 'content' => $text],
+];
+
+for ($step = 0; $step < 4; $step++) {
+    $reply = $client->complete($messages);
+    if (!preg_match('/^TOOL_CALL: (\S+) (.+)$/m', $reply, $m)) { break; } // model is done
+    $messages[] = ['role' => 'assistant', 'content' => $reply];
+    $args    = json_decode($m[2], true);
+    $args    = is_array($args) ? $args : [];
+    $handler = $tools[$m[1]] ?? null;
+    $result  = $handler === null ? 'unknown tool' : $handler($args); // named fields, never arg order
+    $messages[] = ['role' => 'user', 'content' => "tool {$m[1]} returned: " . json_encode($result)];
+}
+```
+
+**Serve it server-rendered.** A model call is a slow method call with extra
+reads around it (tenant key lookup, tool queries), so keep it off the
+normal page-render path: trigger it from a POST action or a queued job,
+write a pending row, and render the result when it is ready, as plain HTML.
+No streaming, no JavaScript, and the zero-JS contract holds. The rate
+limiter counts only non-GET requests (`Kip\RateLimit`,
+[chapter 6](06-security.md)), which is one more reason the trigger is a
+POST. Set `max_tokens` and a timeout on every call, and cache results that
+only depend on their input.
+
+**Keep AI traffic out of the content database.** Model inputs, outputs, and
+latency are observability data: log them the way the audit log does, in
+their own SQLite file ([chapter 9](09-audit-log.md)), so the one-query page
+budget ([chapter 15](15-performance-contract.md)) is never in the blast
+radius of a debug session.
+
+**Evaluate model changes like code changes.** A prompt edit is a production
+deploy. Keep a golden set of inputs with expected outcomes (twenty real
+examples beat zero), run it on every prompt or model change, and gate the
+change on the pass rate the way you gate on the test suite. Log enough to
+debug failures: the raw prompt, the raw output, and the step counts. Cap
+any self-correction loop at one or two rounds; beyond that you are paying
+latency and tokens for noise.
+
 ## What to automate vs. what to read yourself
 
 Let agents own: the plan drafting, the test writing, the mechanical
