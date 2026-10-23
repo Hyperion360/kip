@@ -10,3 +10,5 @@
 /.gitattributes  export-ignore
 /.gitignore      export-ignore
 /scripts         export-ignore
+/AGENTS.md       export-ignore
+/llms.txt        export-ignore
