@@ -1,0 +1,31 @@
+# Kip
+
+> Kip is a plain-PHP, batteries-included framework for server-rendered apps:
+> zero runtime dependencies, zero JavaScript, SQLite by default, PHP 8.3+.
+> Routing, sessions, auth, migrations, caching, uploads, email, the audit
+> log, and a schema-driven admin panel are included and tested. Kip runs
+> unchanged on ordinary shared hosting and on the cheapest VPS tier, with no
+> build step and no config wrangling.
+
+## Start here
+
+- [README](README.md): what Kip is, the deployment contract, install paths.
+- [Tutorial](docs/tutorial.md): build a working blog in about an hour.
+- [User guide](docs/guide/README.md): the reference manual, sixteen
+  example-first chapters.
+
+## Reference
+
+- [Architecture](docs/architecture.md): request lifecycle, cache
+  invalidation, security lanes.
+- [Design decisions](docs/design-decisions.md): what Kip will never include
+  and why.
+- [Versioning](docs/versioning.md): the stability and upgrade contract.
+
+## For coding agents
+
+- [AGENTS.md](AGENTS.md): the repo contract agents should follow: hard
+  constraints, commands, writing style, and the one-query performance budget.
+- [Building with AI agents](docs/guide/16-building-with-ai.md): a
+  tool-agnostic workflow for building Kip apps with AI agents, and how to
+  add AI features to a Kip app without dependencies.
