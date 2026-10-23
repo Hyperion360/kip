@@ -34,12 +34,15 @@ $repoRoot = dirname(__DIR__);
 
 /* ---------------------------------------------------------------- helpers */
 
-/** @return list<string> absolute paths of every markdown file in the doc set */
+/** @return list<string> absolute paths of every markdown file in the doc set, plus the root AGENTS.md and llms.txt agent files */
 function markdownSet(string $repoRoot): array
 {
     $files = [];
     foreach (
-        ['README.md', 'CHANGELOG.md', 'skeleton/README.md', 'examples/blog/README.md']
+        [
+            'README.md', 'CHANGELOG.md', 'AGENTS.md', 'llms.txt',
+            'skeleton/README.md', 'examples/blog/README.md',
+        ]
         as $rel
     ) {
         if (is_file($repoRoot . '/' . $rel)) {
