@@ -139,7 +139,12 @@ next hop receives the `Authorization` header, and inspect the HTTP status
 instead of trusting the body. One shared-host caveat: a host that disables
 `allow_url_fopen` has no streams lane at all, so detect all three
 conditions up front the way `src/S3.php` does and fail with a clear message
-instead of a confusing warning. A minimal client:
+instead of a confusing warning. A minimal client (one asymmetry to know:
+curl's timeout bounds the whole transfer, while the streams timeout bounds
+a single read, so a drip-feeding endpoint is fully bounded only in the curl
+lane; and the https-only guard that keeps the key off plain HTTP also means
+fixture-testing the client locally takes a TLS-enabled stub server rather
+than a plain-HTTP one):
 
 ```php
 // App\Ai\LlmClient, PSR-4 under app/src/Ai/
