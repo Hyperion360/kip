@@ -125,4 +125,41 @@ final class CheckDocsTest extends TestCase
             $out
         );
     }
+
+    public function test_root_agent_files_are_part_of_the_scanned_doc_set(): void
+    {
+        // Pins the markdownSet() entries added with the AI docs surface: a
+        // broken link inside root AGENTS.md or root llms.txt must be scanned
+        // and must fail the run naming the file. Without this, dropping either
+        // entry from the list (or a rename making is_file() false) narrows the
+        // doc set silently while the gate stays green.
+        [$out, $code] = $this->runCheckDocs(2, [
+            'AGENTS.md' => "Contract: see [missing](docs/nope.md).\n",
+            'llms.txt' => "# Kip\n\n- [Guide](docs/guide/README.md)\n",
+            'docs/guide/README.md' => "Kip is two files.\n",
+            'docs/guide/08-cli.md' => "# CLI\nNo invocations.\n",
+        ]);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringContainsString('AGENTS.md:1 broken link target "docs/nope.md"', $out);
+
+        [$out, $code] = $this->runCheckDocs(2, [
+            'AGENTS.md' => "Contract: see [guide](docs/guide/README.md).\n",
+            'llms.txt' => "# Kip\n\n- [Missing](docs/also-nope.md)\n",
+            'docs/guide/README.md' => "Kip is two files.\n",
+            'docs/guide/08-cli.md' => "# CLI\nNo invocations.\n",
+        ]);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringContainsString('llms.txt:3 broken link target "docs/also-nope.md"', $out);
+    }
+
+    public function test_root_agent_files_are_present_in_the_real_repo(): void
+    {
+        // markdownSet() skips absent root files silently (the is_file() guard),
+        // so if either committed agent file is deleted or renamed, the real
+        // gate narrows without failing. Pin their presence in the actual repo.
+        $repo = dirname(__DIR__, 2);
+        foreach (['AGENTS.md', 'llms.txt'] as $file) {
+            $this->assertFileExists($repo . '/' . $file, "{$file} missing: check-docs skips absent root files silently");
+        }
+    }
 }

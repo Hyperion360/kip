@@ -9,8 +9,10 @@
 // One PASS/FAIL line is printed per check, followed by a summary count.
 //
 // Checks:
-//   1. Link integrity. Relative markdown links in the doc set resolve to
-//                              existing files (fenced code blocks are ignored).
+//   1. Link integrity. Relative markdown links in the doc set (markdown
+//                              files plus the root AGENTS.md and llms.txt agent
+//                              files) resolve to existing files (fenced code
+//                              blocks are ignored).
 //   2. Src file count claims, every digit "<N> files" / "N-file" claim in the
 //                              doc set, plus the word-number claim in
 //                              docs/guide/README.md, matches the actual
