@@ -13,7 +13,14 @@ public/uploads/
 CLAUDE.md
 AGENTS.md
 GEMINI.md
-.claude/
+.claude/*
+# exception: project skills ARE committed (the kip contract skill lives
+# here); everything else under .claude/ stays local. NOTE: contents-style
+# ignore (.claude/*) is required — a directory-level exclude cannot be
+# re-included beneath.
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/kip/
 .zcode/
 .cursor/
 .cursorrules
