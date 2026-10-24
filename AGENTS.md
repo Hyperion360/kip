@@ -6,7 +6,7 @@ maintained by Danilo Stern-Sapad (https://danilosapad.com/) on behalf of
 Hyperion360 Inc (https://hyperion360.com/). MIT licensed.
 
 This file is committed and is part of the product (source dists exclude
-it; it serves repository checkouts and coding agents): it is the contract coding
+it; it serves repository checkouts): it is the contract coding
 agents should follow when working in this repository. Companion reading:
 [CONTRIBUTING.md](CONTRIBUTING.md) (the quality gate and how to send changes),
 the [user guide](docs/guide/README.md), [architecture](docs/architecture.md),
