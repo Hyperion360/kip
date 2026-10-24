@@ -154,15 +154,19 @@ final class LlmClient
     ) {}
 
     /** @param list<array{role: string, content: string}> $messages */
-    public function complete(array $messages, int $timeout = 30): string
+    public function complete(array $messages, int $timeout = 30, int $maxTokens = 1024): string
     {
         if (!str_starts_with($this->baseUrl, 'https://')) {
             throw new \RuntimeException('ai base URL must be https: the key travels in a header');
         }
+        if (!extension_loaded('curl')
+            && (!extension_loaded('openssl') || (int) ini_get('allow_url_fopen') !== 1)) {
+            throw new \RuntimeException('no ai transport: need ext-curl, or openssl plus allow_url_fopen');
+        }
         $body = json_encode([
             'model'      => $this->model,
             'messages'   => $messages,
-            'max_tokens' => 1024,
+            'max_tokens' => $maxTokens,
         ], JSON_THROW_ON_ERROR);
 
         $headers = ['Content-Type: application/json', 'Authorization: Bearer ' . $this->apiKey];
@@ -263,17 +267,25 @@ own named fields, because binding positional arguments from JSON key order
 silently swaps values when the model reorders keys. And the authority rule:
 tools run with your app's credentials, not the model's, so scope every tool
 to the authenticated user or tenant and let it read only what that user
-could have read themselves; the provider sees every byte a tool returns.
+could have read themselves; the provider sees every byte a tool returns. And
+assume attacker-controlled input end to end: a user message can carry a
+TOOL_CALL line, and the model can parrot one from quoted text, so treat tool
+arguments as attacker input and let the allowlist, the step cap, and the
+approval queue be the boundary.
 
 ```php
-$tenantId = $session->tenantId; // the signed-in operator's tenant
+$tenantId = $session->get('tenant_id'); // the signed-in operator's tenant
 $tools = [
     'find_customer' => function (array $in) use ($repo, $tenantId): string {
         // reads only what the signed-in operator may read; the repo scopes it
         return json_encode($repo->forTenant($tenantId)->findByEmail((string) ($in['email'] ?? '')) ?? 'not found');
     },
     'draft_refund' => function (array $in) use ($queue): string {
-        $queue->draft((string) ($in['orderId'] ?? ''), (int) ($in['cents'] ?? 0)); // a row, not a refund
+        $cents = (int) ($in['cents'] ?? 0);
+        if ($cents <= 0 || $cents > 1_000_000) {
+            return 'refused: cents must be between 1 and 1000000'; // a negative refund is a charge
+        }
+        $queue->draft((string) ($in['orderId'] ?? ''), $cents); // a row, not a refund
         return 'drafted, awaiting approval';
     },
 ];
@@ -291,7 +303,11 @@ for ($step = 0; $step < 4; $step++) {
     $args    = json_decode($m[2], true);
     $args    = is_array($args) ? $args : [];
     $handler = $tools[$m[1]] ?? null;
-    $result  = $handler === null ? 'unknown tool' : $handler($args); // named fields, never arg order
+    try {
+        $result = $handler === null ? 'unknown tool' : $handler($args); // named fields, never arg order
+    } catch (Throwable $e) {
+        $result = 'tool failed: ' . $e->getMessage(); // feed it back; the loop and the transcript survive
+    }
     $messages[] = ['role' => 'user', 'content' => "tool {$m[1]} returned: " . json_encode($result)];
 }
 ```
@@ -301,7 +317,7 @@ reads around it (tenant key lookup, tool queries), so keep it off the
 normal page-render path: trigger it from a POST action or a queued job,
 write a pending row, and render the result when it is ready, as plain HTML.
 No streaming, no JavaScript, and the zero-JS contract holds. The rate
-limiter counts only non-GET requests (`Kip\RateLimit`,
+limiter counts only non-GET requests to a configured prefix (`Kip\RateLimit`,
 [chapter 6](06-security.md)), which is one more reason the trigger is a
 POST. Set `max_tokens` and a timeout on every call, and cache results that
 only depend on their input.
