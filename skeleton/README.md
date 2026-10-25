@@ -43,12 +43,14 @@ php bin/kip user:create you@example.com --admin
   with login throttling, plus the password-reset flow
   (forgot/remind/reset/confirm; dev mail lands in `app/mail.log`).
 - `app/src/Controllers/OauthController.php`: "sign in with" Google,
-  GitHub, or Microsoft. Set a provider's `KIP_OAUTH_<PROVIDER>_CLIENT_ID`
-  and `KIP_OAUTH_<PROVIDER>_CLIENT_SECRET` environment variables and its
-  button appears on the login page; register
-  `{KIP_BASE_URL}/oauth/callback/{provider}` with the provider. The
-  policy and protections are documented in the
-  [security chapter](../docs/guide/06-security.md).
+  GitHub, Microsoft, Discord, Facebook, and Apple. A provider's button
+  appears on the login page only while its credentials are configured
+  AND pass the readiness probe (`php bin/kip oauth:check` reports each
+  provider's status); register `{KIP_BASE_URL}/oauth/callback/{provider}`
+  with the provider. Apple additionally needs the four
+  `KIP_OAUTH_APPLE_*` variables and `session_cookie_samesite => None`
+  (which forces the Secure cookie flag). The policy and protections are
+  documented in the [security chapter](../docs/guide/06-security.md).
 - `app/views/`: `layout.php`, `home/index.php`, `auth/login.php`,
   `auth/forgot.php`, `auth/reset.php`.
 - `app/migrations/`: `users` (with `is_admin`), `login_attempts`,
