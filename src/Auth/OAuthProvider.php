@@ -8,9 +8,10 @@ use Kip\Session;
 /**
  * One generic authorization-code client for "sign in with ..." providers,
  * driven by per-provider presets (Google, GitHub, Microsoft, Discord,
- * Facebook) plus explicit config for anything else. Session-bound single-use
- * state, PKCE S256 where the provider supports it, user-info mapped to a
- * provider uid plus email.
+ * Facebook, Apple) plus explicit config for anything else. Session-bound
+ * single-use state, PKCE S256 where the provider supports it, user-info
+ * mapped to a provider uid plus email (Apple maps the id_token instead: no
+ * user-info endpoint exists).
  *
  * The flow never trusts the request for the redirect URI: start() sends the
  * configured one, the flow pins it, and the token exchange repeats it
@@ -31,14 +32,16 @@ final class OAuthProvider
     /**
      * Endpoint presets. A config entry with the same key wins, so an app can
      * point a preset at a proxy or override a scope without redefining the
-     * rest. 'shape' picks the user-info mapper: oidc (sub, email,
+     * rest. 'shape' picks the identity mapper: oidc (sub, email,
      * email_verified), github (id, plus the emails endpoint for a verified
      * primary address), msgraph (id, mail/userPrincipalName; the response
      * carries no verification marker, so verified is always false and the
      * provider can never CREATE an account, only attach to one), discord
      * (id, email, its own verified flag; without the email scope the
      * provider is attach-only), facebook (id, email; it returns only a
-     * confirmed address, so presence marks verification).
+     * confirmed address, so presence marks verification), apple (the
+     * identity decodes from the id_token the token endpoint returns; no
+     * user-info call exists).
      */
     public const PRESETS = [
         'google' => [
@@ -84,9 +87,29 @@ final class OAuthProvider
             'pkce' => false,
             'shape' => 'facebook',
         ],
+        'apple' => [
+            // No user_url: Apple publishes no user-info endpoint, the id_token is
+            // the identity. response_mode=query keeps the callback a top-level GET
+            // navigation, so the session cookie flows under SameSite=Lax; form_post
+            // would POST cross-site and strip the cookie the pending state lives in.
+            // VERIFY AT EXECUTION against Apple's live authorize endpoint that query
+            // is accepted for response_type=code; if Apple refuses it, revert to
+            // form_post and document SameSite=None;Secure for the session cookie as
+            // the hosting requirement (the callback route already answers POST).
+            'authorize_url' => 'https://appleid.apple.com/auth/authorize',
+            'token_url' => 'https://appleid.apple.com/auth/token',
+            'scope' => 'email',
+            'pkce' => false,
+            'shape' => 'apple',
+            'client_secret_mode' => 'apple_jwt',
+            'id_token_iss' => 'https://appleid.apple.com',
+            'params' => ['response_mode' => 'query'],
+        ],
     ];
 
     private const REQUIRED = ['client_id', 'client_secret', 'redirect_uri', 'authorize_url', 'token_url', 'user_url'];
+    /** The apple shape: the client secret is minted (AppleSecret), the user_url does not exist, the signing key rides instead. */
+    private const REQUIRED_APPLE = ['client_id', 'redirect_uri', 'authorize_url', 'token_url', 'apple_team_id', 'apple_key_id'];
 
     /** @var array<string, mixed> preset merged with config, config winning */
     private array $merged;
@@ -102,16 +125,65 @@ final class OAuthProvider
         private Session $session,
     ) {
         $this->merged = array_merge(self::PRESETS[$name] ?? [], $config);
-        foreach (self::REQUIRED as $key) {
+        $isApple = self::isApple($name, $this->merged);
+        foreach ($isApple ? self::REQUIRED_APPLE : self::REQUIRED as $key) {
             $value = $this->merged[$key] ?? null;
             if (!is_string($value) || $value === '') {
                 throw new \InvalidArgumentException("OAuth provider '{$name}' config key '{$key}' is required");
             }
         }
-        foreach (['authorize_url', 'token_url', 'user_url', 'redirect_uri'] as $url) {
+        if ($isApple && self::keyOf($this->merged) === null) {
+            throw new \InvalidArgumentException("OAuth provider '{$name}' needs 'apple_key' (PEM text) or 'apple_key_file'");
+        }
+        foreach ($isApple
+            ? ['authorize_url', 'token_url', 'redirect_uri']
+            : ['authorize_url', 'token_url', 'user_url', 'redirect_uri'] as $url) {
             self::assertEndpoint($this->merged[$url], "{$name} {$url}");
         }
         self::assertTransport(extension_loaded('curl'), extension_loaded('openssl'), (int) ini_get('allow_url_fopen') === 1);
+    }
+
+    /** True when this name+entry resolves to the Apple id-token flow.
+     * @param array<string, mixed> $entry */
+    private static function isApple(string $name, array $entry): bool
+    {
+        $preset = self::PRESETS[$name] ?? [];
+        return ($entry['shape'] ?? $preset['shape'] ?? '') === 'apple'
+            || ($entry['client_secret_mode'] ?? $preset['client_secret_mode'] ?? '') === 'apple_jwt';
+    }
+
+    /** The PEM text: literal, or read from the file, null when neither.
+     * @param array<string, mixed> $merged */
+    private static function keyOf(array $merged): ?string
+    {
+        if (is_string($merged['apple_key'] ?? null) && $merged['apple_key'] !== '') return $merged['apple_key'];
+        $path = $merged['apple_key_file'] ?? null;
+        if (is_string($path) && $path !== '') {
+            $pem = @file_get_contents($path);
+            if (is_string($pem) && $pem !== '') return $pem;
+        }
+        return null;
+    }
+
+    /**
+     * The full-credentials check the readiness gate and controllers share: the
+     * client id plus, per mode, either the client secret or Apple's team, key
+     * id, and key material. A pure config probe: the presence of a key file
+     * path counts without reading it, only construction verifies the bytes.
+     */
+    public static function configured(string $name, mixed $entry): bool
+    {
+        if (!is_array($entry)) return false;
+        $clientId = $entry['client_id'] ?? null;
+        if (!is_string($clientId) || $clientId === '') return false;
+        if (self::isApple($name, $entry)) {
+            $key = $entry['apple_key'] ?? null;
+            $keyFile = $entry['apple_key_file'] ?? null;
+            return ((is_string($key) && $key !== '') || (is_string($keyFile) && $keyFile !== ''))
+                && is_string($entry['apple_team_id'] ?? null) && $entry['apple_team_id'] !== ''
+                && is_string($entry['apple_key_id'] ?? null) && $entry['apple_key_id'] !== '';
+        }
+        return is_string($entry['client_secret'] ?? null) && $entry['client_secret'] !== '';
     }
 
     /**
@@ -264,14 +336,17 @@ final class OAuthProvider
         return null;
     }
 
-    /** @param array<string, mixed> $flow */
-    private function exchange(string $code, array $flow): string
+    /**
+     * @param array<string, mixed> $flow
+     * @return array<string, mixed> the parsed token response (access_token, and the id_token where the provider issues one)
+     */
+    private function exchange(string $code, array $flow): array
     {
         $form = [
             'grant_type' => 'authorization_code',
             'code' => $code,
             'client_id' => $this->merged['client_id'],
-            'client_secret' => $this->merged['client_secret'],
+            'client_secret' => $this->secret(),
             'redirect_uri' => (string) $flow['redirect_uri'],
         ];
         if (is_string($flow['verifier'] ?? null) && $flow['verifier'] !== '') {
@@ -292,15 +367,31 @@ final class OAuthProvider
         if (!is_array($parsed) || !is_string($parsed['access_token'] ?? null) || $parsed['access_token'] === '') {
             throw new \RuntimeException("the {$this->name} token response carries no access token");
         }
-        return $parsed['access_token'];
+        return $parsed;
     }
 
-    /** @return array{uid: string, email: ?string, verified: bool} */
-    private function identity(#[\SensitiveParameter] string $token): array
+    /** The client secret as sent: the configured string, or the ES256 JWT minted for this request. */
+    private function secret(): string
     {
+        if (($this->merged['client_secret_mode'] ?? 'plain') === 'apple_jwt') {
+            return AppleSecret::mint($this->merged);
+        }
+        return (string) $this->merged['client_secret'];
+    }
+
+    /**
+     * @param array<string, mixed> $token the parsed token response
+     * @return array{uid: string, email: ?string, verified: bool}
+     */
+    private function identity(#[\SensitiveParameter] array $token): array
+    {
+        if ((string) ($this->merged['shape'] ?? 'oidc') === 'apple') {
+            return $this->appleIdentity($token); // no user-info call exists for Apple
+        }
+        $bearer = (string) ($token['access_token'] ?? '');
         [$status, $body] = $this->request('GET', (string) $this->merged['user_url'], [
             'Accept: application/json',
-            "Authorization: Bearer {$token}",
+            "Authorization: Bearer {$bearer}",
             'User-Agent: kip-oauth',
         ], null);
         if ($status < 200 || $status >= 300) {
@@ -311,12 +402,62 @@ final class OAuthProvider
             throw new \RuntimeException("the {$this->name} user response is not JSON");
         }
         return match ((string) ($this->merged['shape'] ?? 'oidc')) {
-            'github' => $this->githubIdentity($token, $data),
+            'github' => $this->githubIdentity($bearer, $data),
             'msgraph' => $this->msIdentity($data),
             'discord' => $this->discordIdentity($data),
             'facebook' => $this->facebookIdentity($data),
             default => $this->oidcIdentity($data),
         };
+    }
+
+    /**
+     * Apple publishes no user-info endpoint: the identity rides the id_token JWT
+     * inside the token response. That token arrived over the direct
+     * server-to-server code exchange, so per OIDC Core 3.1.3.7 the TLS channel
+     * stands in for signature verification; what is enforced is the exact issuer,
+     * our own client id as audience, freshness, and the subject. No front-channel
+     * id_token is ever read, so there is no impersonation path through the browser.
+     *
+     * @param array<string, mixed> $token
+     * @return array{uid: string, email: ?string, verified: bool}
+     */
+    private function appleIdentity(array $token): array
+    {
+        $jwt = $token['id_token'] ?? null;
+        if (!is_string($jwt) || substr_count($jwt, '.') !== 2) {
+            throw new \RuntimeException("the {$this->name} token response carries no id_token");
+        }
+        [, $payload, ] = explode('.', $jwt, 3);
+        $decoded = base64_decode(strtr($payload, '-_', '+/') . str_pad('', (4 - strlen($payload) % 4) % 4, '='), true);
+        try {
+            $claims = json_decode((string) $decoded, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            throw new \RuntimeException("the {$this->name} id_token payload is not JSON");
+        }
+        if (!is_array($claims)) {
+            throw new \RuntimeException("the {$this->name} id_token payload is not a claim set");
+        }
+        $iss = $claims['iss'] ?? null;
+        if (!is_string($iss) || !hash_equals((string) ($this->merged['id_token_iss'] ?? 'https://appleid.apple.com'), $iss)) {
+            throw new \RuntimeException("the {$this->name} id_token names a foreign issuer");
+        }
+        $aud = $claims['aud'] ?? null;
+        if (!is_string($aud) || !hash_equals((string) $this->merged['client_id'], $aud)) {
+            throw new \RuntimeException("the {$this->name} id_token names a different audience");
+        }
+        $exp = $claims['exp'] ?? null;
+        if (!is_numeric($exp) || (int) $exp < time()) {
+            throw new \RuntimeException("the {$this->name} id_token is expired");
+        }
+        $uid = $claims['sub'] ?? null;
+        if (!is_string($uid) || $uid === '') {
+            throw new \RuntimeException("the {$this->name} id_token carries no subject");
+        }
+        return [
+            'uid' => $uid,
+            'email' => self::emailOf($claims['email'] ?? null),
+            'verified' => filter_var($claims['email_verified'] ?? false, FILTER_VALIDATE_BOOL),
+        ];
     }
 
     /**

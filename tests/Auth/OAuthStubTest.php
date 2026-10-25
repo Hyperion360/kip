@@ -347,6 +347,57 @@ final class OAuthStubTest extends TestCase
         $this->assertFalse($identity['verified'], 'no email: nothing to verify, attach-only');
     }
 
+    public function test_apple_shape_validates_claims_and_maps_the_identity(): void
+    {
+        $b64 = fn(array $c): string => rtrim(strtr(base64_encode(json_encode($c)), '+/', '-_'), '=');
+        // The stub's client id is the trait's default ('stub-client'): mint the
+        // token before boot so the audience can name it.
+        $token = $b64(['alg' => 'ES256', 'kid' => 'k']) . '.' . $b64([
+            'iss' => 'https://appleid.apple.com', 'aud' => 'stub-client', 'exp' => time() + 300,
+            'sub' => '001234.abcdef.5678', 'email' => 'u@privaterelay.appleid.com', 'email_verified' => 'true',
+        ]) . '.c2ln';
+        $stub = $this->startOAuthStub(8116, ['KIP_OAUTH_STUB_PKCE' => '0', 'KIP_OAUTH_STUB_ID_TOKEN' => $token]);
+        $store = [];
+        // A real key generated AT RUNTIME: mint() must succeed here so the
+        // assertions exercise id_token validation, not a signing failure, and so
+        // no key material (not even a placeholder) ever lives in a tracked file.
+        $key = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+        $this->assertTrue(openssl_pkey_export($key, $pem));
+        $p = new OAuthProvider('apple', $this->config($stub, ['shape' => 'apple', 'pkce' => false,
+            'apple_team_id' => 'T', 'apple_key_id' => 'K', 'apple_key' => $pem]), new Session($store));
+        [$identity] = $this->dance($p, $store);
+        $this->assertSame('001234.abcdef.5678', $identity['uid']);
+        $this->assertSame('u@privaterelay.appleid.com', $identity['email']);
+        $this->assertTrue($identity['verified']);
+    }
+
+    public function test_apple_shape_refuses_a_foreign_issuer_stale_token_or_wrong_audience(): void
+    {
+        $b64 = fn(array $c): string => rtrim(strtr(base64_encode(json_encode($c)), '+/', '-_'), '=');
+        // Real runtime key: the RuntimeException these assertions expect must come
+        // from the CLAIM checks, never from a mint() failure on a fake key.
+        $key = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+        $this->assertTrue(openssl_pkey_export($key, $pem));
+        foreach ([
+            'foreign issuer' => ['iss' => 'https://evil.example', 'aud' => 'stub-client', 'exp' => time() + 300, 'sub' => 's'],
+            'expired' => ['iss' => 'https://appleid.apple.com', 'aud' => 'stub-client', 'exp' => time() - 10, 'sub' => 's'],
+            'wrong audience' => ['iss' => 'https://appleid.apple.com', 'aud' => 'someone-else', 'exp' => time() + 300, 'sub' => 's'],
+            'no subject' => ['iss' => 'https://appleid.apple.com', 'aud' => 'stub-client', 'exp' => time() + 300],
+        ] as $claims) {
+            $stub = $this->startOAuthStub(8117, ['KIP_OAUTH_STUB_PKCE' => '0', 'KIP_OAUTH_STUB_ID_TOKEN' => $b64(['alg' => 'ES256']) . '.' . $b64($claims) . '.x']);
+            $store = [];
+            $p = new OAuthProvider('apple', $this->config($stub, ['shape' => 'apple', 'pkce' => false,
+                'apple_team_id' => 'T', 'apple_key_id' => 'K', 'apple_key' => $pem]), new Session($store));
+            $url = $p->start();
+            [$code, $state] = $this->followAuthorize($url);
+            try {
+                $p->callback($state, $code);
+                $this->fail('expected refusal for ' . json_encode($claims));
+            } catch (\RuntimeException) { }
+            $this->stopOAuthStub();
+        }
+    }
+
     public function test_the_token_endpoint_answers_form_encoded_without_the_accept_header(): void
     {
         // The GitHub default: without Accept: application/json the endpoint

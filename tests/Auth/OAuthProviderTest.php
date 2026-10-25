@@ -92,6 +92,54 @@ final class OAuthProviderTest extends TestCase
         $this->assertSame('facebook', $facebook['shape']);
     }
 
+    public function test_apple_preset_pins_endpoints_form_post_and_no_pkce(): void
+    {
+        $apple = OAuthProvider::PRESETS['apple'];
+        $this->assertSame('https://appleid.apple.com/auth/authorize', $apple['authorize_url']);
+        $this->assertSame('https://appleid.apple.com/auth/token', $apple['token_url']);
+        $this->assertSame('email', $apple['scope']);
+        $this->assertFalse($apple['pkce'], 'Apple authenticates the token call with the signed client_secret instead');
+        $this->assertSame('apple', $apple['shape']);
+        $this->assertSame('query', $apple['params']['response_mode'] ?? null, 'the callback stays a top-level GET, so the session cookie rides SameSite=Lax');
+        $this->assertArrayNotHasKey('user_url', $apple, 'Apple has no user-info endpoint; the id_token is the identity');
+    }
+
+    public function test_apple_needs_keys_and_team_not_a_static_secret(): void
+    {
+        $store = [];
+        // Any non-empty string satisfies the constructor's presence check; mint
+        // never runs in this test, and a placeholder avoids putting PEM marker
+        // text in a tracked file (the no-key guard test would fail it).
+        $base = ['client_id' => 'org.example.signin', 'redirect_uri' => 'https://app.example.org/oauth/callback/apple',
+            'apple_team_id' => 'TEAM', 'apple_key_id' => 'KEY', 'apple_key' => 'test-key-bytes'];
+        // Complete: constructs, and start() carries response_mode + state + no PKCE.
+        $url = (new OAuthProvider('apple', $base, new Session($store)))->start();
+        $q = self::queryOf($url);
+        $this->assertSame('query', $q['response_mode'], 'GET callback: the session cookie survives SameSite=Lax');
+        $this->assertArrayNotHasKey('code_challenge', $q);
+
+        // Missing key material, team id, or key id each refuse.
+        foreach ([['apple_team_id' => null], ['apple_key_id' => null], ['apple_key' => null, 'apple_key_file' => null]] as $broken) {
+            try {
+                new OAuthProvider('apple', [...$base, ...$broken], new Session($store));
+                $this->fail('expected a refusal for ' . json_encode($broken));
+            } catch (\InvalidArgumentException) { }
+        }
+        // A static client_secret does not satisfy Apple: key material is required.
+        $this->expectException(\InvalidArgumentException::class);
+        new OAuthProvider('apple', ['client_id' => 'x', 'client_secret' => 's', 'redirect_uri' => 'https://a.example/c', 'apple_team_id' => 'T', 'apple_key_id' => 'K'], new Session($store));
+    }
+
+    public function test_configured_is_shape_aware(): void
+    {
+        $appleEntry = ['client_id' => 'org.example.signin', 'apple_team_id' => 'T', 'apple_key_id' => 'K', 'apple_key_file' => '/srv/secrets/key.p8'];
+        $this->assertTrue(OAuthProvider::configured('apple', $appleEntry), 'a key file stands in for the client secret');
+        $this->assertFalse(OAuthProvider::configured('apple', ['client_id' => 'x', 'client_secret' => 's']));
+        $this->assertTrue(OAuthProvider::configured('google', ['client_id' => 'x', 'client_secret' => 's']));
+        $this->assertFalse(OAuthProvider::configured('google', ['client_id' => 'x']));
+        $this->assertFalse(OAuthProvider::configured('google', 'junk'));
+    }
+
     public function test_a_logged_in_start_records_the_principal(): void
     {
         $store = [];

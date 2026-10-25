@@ -19,6 +19,10 @@
 //   KIP_OAUTH_STUB_EMAIL       the account email it reports (unset or '' omits the field, like the real providers)
 //   KIP_OAUTH_STUB_VERIFIED    1 when the email reports verified ('' omits the marker entirely)
 //   KIP_OAUTH_STUB_ID_KEY      the userinfo id field name ('sub' default, 'id' for the Discord/Facebook shapes)
+//   KIP_OAUTH_STUB_ID_TOKEN    the id_token the token response carries: a JSON response gains it verbatim, and the
+//                              client secret check then also accepts a well-formed three-segment JWT (three non-empty
+//                              base64url segments, the shape of the minted Sign in with Apple client secret) in place
+//                              of the registered secret; its claims are the client's problem, not the stub's
 //   KIP_OAUTH_STUB_USER_EMAIL  the /user response's own email field ('' = null)
 //   KIP_OAUTH_STUB_ALT_EMAIL   a secondary non-primary address on /user/emails
 //   KIP_OAUTH_STUB_POISON      1 to answer /userinfo with a 302 (the client must refuse)
@@ -37,6 +41,7 @@ $email = $env('KIP_OAUTH_STUB_EMAIL');
 $verifiedRaw = $env('KIP_OAUTH_STUB_VERIFIED', '1');
 $verified = $verifiedRaw === '1';
 $idKey = $env('KIP_OAUTH_STUB_ID_KEY', 'sub');
+$idToken = $env('KIP_OAUTH_STUB_ID_TOKEN');
 $userEmail = $env('KIP_OAUTH_STUB_USER_EMAIL');
 $altEmail = $env('KIP_OAUTH_STUB_ALT_EMAIL');
 $poison = $env('KIP_OAUTH_STUB_POISON') === '1';
@@ -108,9 +113,24 @@ if ($path === '/token') {
     if ($method !== 'POST') $fail(405, 'token is a POST');
     parse_str((string) file_get_contents('php://input'), $form);
     // Client credentials first: an unknown client or wrong secret never
-    // burns a code.
+    // burns a code. With an id_token configured, a well-formed three-segment
+    // JWT stands in for the registered secret: that is the shape the apple
+    // client sends (it mints its client secret, it does not store one). The
+    // stub checks the shape only, never the claims; that split keeps this
+    // file written from the RFC structure, shared with nothing in src/.
+    $jwtShape = static function (string $v): bool {
+        $segments = explode('.', $v);
+        if (count($segments) !== 3) return false;
+        foreach ($segments as $segment) {
+            if (preg_match('#^[A-Za-z0-9_-]+$#', $segment) !== 1) return false;
+        }
+        return true;
+    };
     if (($form['client_id'] ?? '') !== $client) $fail(401, 'unknown client');
-    if (hash_equals($secret, (string) ($form['client_secret'] ?? '')) !== true) $fail(401, 'wrong client secret');
+    $sentSecret = (string) ($form['client_secret'] ?? '');
+    if (hash_equals($secret, $sentSecret) !== true && !($idToken !== '' && $jwtShape($sentSecret))) {
+        $fail(401, 'wrong client secret');
+    }
     if (($form['grant_type'] ?? '') !== 'authorization_code') $fail(400, 'grant_type must be authorization_code');
     $code = (string) ($form['code'] ?? '');
     $file = $store . '/codes/' . hash('sha256', $code) . '.json';
@@ -128,7 +148,9 @@ if ($path === '/token') {
     }
     $token = $mintToken($user);
     if (str_contains((string) ($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json')) {
-        $json(['access_token' => $token, 'token_type' => 'Bearer', 'expires_in' => 3600]);
+        $payload = ['access_token' => $token, 'token_type' => 'Bearer', 'expires_in' => 3600];
+        if ($idToken !== '') $payload['id_token'] = $idToken;
+        $json($payload);
     }
     // The GitHub default: a form-encoded string, useless to a JSON parser.
     http_response_code(200);
