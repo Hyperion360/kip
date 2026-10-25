@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-25
+
+### Added
+- the rate_limit config accepts a `'*'` fallback consulted when no explicit prefix matches; the hit still records under the request's own canonical prefix (per-surface buckets stay independent), explicit entries including `''` for POST / always win, the fallback counts only spellings the router's grammar admits judged on the whole path (first segment up to 64 bytes, no doubled or trailing slashes; grammatical spellings that route nowhere are still charged, one row per distinct segment within the prune grace), the fallback window joins the prune grace, and a fallback hit refuses an open transaction
+
+### Fixed
+- Backup re-hardens its modes on every run (0700 store directory, 0600 on both new and stale artifacts) and a chmod that fails now raises instead of quietly shipping a world-readable backup
+- bin/release inserts the compiled section verbatim, so a fragment mentioning `$1` or `${2}` no longer vanishes as a regex backreference in the written changelog, and the one-line fragment refusal now catches a bare carriage return, which renders as a second line just like a newline
+
 ## [0.5.0] - 2026-10-04
 0.5.0 is the first tagged release. The v0.4.0 tag TODOS.md staged behind gate G-A was never executed, and this round adds two capabilities (bounded `busy_timeout`, the View override directory), which are MINOR bumps per docs/versioning.md; during 0.x a minor may break, but no breaking change rides along here. This is also the last hand-assembled section: every release after it is `changelog.d/` fragments combined by `bin/release`, and the file's legacy headings are normalized to the bracketed dated form that script emits.
 `Database` sets `PRAGMA busy_timeout = 5000` on every SQLite open: WAL lets readers proceed alongside one writer, but a second writer collides on the write lock, and a bounded 5-second wait turns intermittent write collisions into serialization, which is what multi-writer consumers (FPM workers plus a cron loop on the same files) need. The explicit pragma replaces PDO SQLite's implicit 60-second driver default with a stated contract. The two read-only opens that bypass `Database` (the admin panel's `ReadOnlyConnection` and the `make:migration` ledger read in `bin/kip`) set the same pragma; `busy_timeout` is per-connection state, so no write is involved.

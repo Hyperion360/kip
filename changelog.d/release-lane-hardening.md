@@ -1,1 +1,0 @@
-Fixed: bin/release inserts the compiled section verbatim, so a fragment mentioning `$1` or `${2}` no longer vanishes as a regex backreference in the written changelog, and the one-line fragment refusal now catches a bare carriage return, which renders as a second line just like a newline
