@@ -384,6 +384,21 @@ final class Auth
         $this->session->set('pwd_epoch', substr($hash, 0, self::EPOCH_LEN));
     }
 
+    /**
+     * Establish a session for a user the app has already authenticated by its own
+     * policy: an OAuth identity whose owner passed the app's gates before this
+     * call. False (and no session) when the user row is gone. The password-hash
+     * epoch rides along exactly as in attempt(), so a later password change
+     * invalidates this session too.
+     */
+    public function resume(int $userId): bool
+    {
+        $user = $this->db->one('SELECT id, password_hash FROM users WHERE id = ?', [$userId]);
+        if ($user === null) return false;
+        $this->establishSession((int) $user['id'], (string) $user['password_hash']);
+        return true;
+    }
+
     /** Memoized: does oauth_identities exist (the app adopted OAuth)? */
     private function oauthIdentitiesPresent(): bool
     {

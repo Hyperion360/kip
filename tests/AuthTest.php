@@ -360,4 +360,22 @@ final class AuthTest extends TestCase
         $store = ['user_id' => 1];
         $this->assertFalse((new Auth($this->db, new Session($store), static function (): void {}))->sessionValid());
     }
+
+    public function test_resume_establishes_a_session_for_an_existing_user(): void
+    {
+        $store = [];
+        $auth = new Auth($this->db, new Session($store), static function (): void {});
+        $auth->register('u@x.y', 'pass-pass-pass');
+        $this->assertTrue($auth->resume(1));
+        $this->assertTrue($auth->sessionValid());
+        $this->assertSame(1, $store['user_id']);
+    }
+
+    public function test_resume_refuses_a_gone_user_without_touching_the_session(): void
+    {
+        $store = [];
+        $auth = new Auth($this->db, new Session($store), static function (): void {});
+        $this->assertFalse($auth->resume(999));
+        $this->assertArrayNotHasKey('user_id', $store);
+    }
 }
