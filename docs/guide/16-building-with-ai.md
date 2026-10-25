@@ -265,7 +265,10 @@ stays provider-neutral. Two rules with teeth: tools that write
 go through the same validated actions a human would use (never let the model
 compose SQL against the content database; if you must query with it, do it
 read-only over allowlisted views), and anything expensive to reverse lands
-in a review queue first, not in production state. Kip's admin panel
+in a review queue first, not in production state. And a retried tool
+call must be a no-op, not a second write: most duplicate updates come from
+one agent retrying a call that already succeeded, so derive an idempotency
+key from the step and let the write path deduplicate on it. Kip's admin panel
 ([chapter 12](12-admin-panel.md)) is a ready-made review surface. A third
 rule the sample bakes in: a tool takes ONE array argument and validates its
 own named fields, because binding positional arguments from JSON key order
@@ -335,9 +338,12 @@ radius of a debug session.
 
 **Evaluate model changes like code changes.** A prompt edit is a production
 deploy. Keep a golden set of inputs with expected outcomes (twenty real
-examples beat zero), run it on every prompt or model change, and gate the
-change on the pass rate the way you gate on the test suite. Log enough to
-debug failures: the raw prompt, the raw output, and the step counts. Cap
+examples beat zero), run it at least three times on every prompt or model
+change, and gate on the worst run, not the average: identical code can pass
+one run and fail the next, and a single-run pass rate hides that churn.
+Score the trajectory (which tools ran, with which arguments), not only the
+reply prose. Log enough to debug failures: the raw prompt, the raw output,
+and the step counts. Cap
 any self-correction loop at one or two rounds; beyond that you are paying
 latency and tokens for noise.
 
