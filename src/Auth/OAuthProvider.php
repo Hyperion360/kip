@@ -28,6 +28,8 @@ final class OAuthProvider
     public const STATE_TTL = 600;
     /** Concurrent pending flows kept (multi-tab); the oldest is evicted beyond this. */
     public const MAX_PENDING = 3;
+    /** Seconds a probe may take: the readiness gate rides page renders, so its network half is tight. */
+    public const PROBE_TIMEOUT = 3;
 
     /**
      * Endpoint presets. A config entry with the same key wins, so an app can
@@ -216,6 +218,56 @@ final class OAuthProvider
         if ($scheme !== 'https' && !$loopbackHttp) {
             throw new \RuntimeException("{$what} must be an https URL (http is allowed only on a loopback host)");
         }
+    }
+
+    /**
+     * The readiness gate's credential check. Generic providers get a sentinel
+     * authorization_code POST: the code is bogus for everyone, so invalid_client
+     * is the only answer that indicts the credentials; any other refusal proves
+     * they were accepted. Facebook hides that distinction behind error objects,
+     * so it gets its documented app-token endpoint instead (200 = healthy; the
+     * token is discarded in locals like every other). 429 and transport trouble
+     * return null: indeterminate, the health layer keeps the previous state.
+     *
+     * @return bool|null true healthy, false unhealthy, null indeterminate
+     */
+    public function probe(): ?bool
+    {
+        try {
+            if (($this->merged['shape'] ?? 'oidc') === 'facebook') {
+                // The app-token endpoint IS the configured token URL with the
+                // client_credentials grant, so tests can point it at the stub.
+                [$status, $body] = $this->request('GET', (string) $this->merged['token_url'] . '?'
+                    . http_build_query(['grant_type' => 'client_credentials',
+                        'client_id' => $this->merged['client_id'], 'client_secret' => $this->secret()]),
+                    ['Accept: application/json'], null, self::PROBE_TIMEOUT);
+                if ($status === 429) return null;
+                if ($status >= 200 && $status < 300) return true;
+                if ($status >= 400 && $status < 500) return false;
+                return null;
+            }
+            [$status, $body] = $this->request('POST', (string) $this->merged['token_url'], [
+                'Accept: application/json', 'Content-Type: application/x-www-form-urlencoded',
+            ], http_build_query([
+                'grant_type' => 'authorization_code',
+                'code' => bin2hex(random_bytes(16)),
+                'redirect_uri' => $this->merged['redirect_uri'],
+                'client_id' => $this->merged['client_id'],
+                'client_secret' => $this->secret(),
+            ]), self::PROBE_TIMEOUT);
+        } catch (\RuntimeException) {
+            return null;
+        }
+        if ($status === 429) return null;
+        $parsed = json_decode($body, true);
+        $error = is_array($parsed) && is_string($parsed['error'] ?? null) ? $parsed['error'] : null;
+        if ($error === 'invalid_client') return false;
+        if ($status >= 200 && $status < 300) return true;
+        // A healthy verdict needs an OAuth-shaped refusal (a JSON error naming the
+        // code, the grant, or the request): a bare 404, an HTML error page, or any
+        // non-OAuth 4xx proves nothing about the credentials and stays null.
+        if ($status >= 400 && $status < 500 && $error !== null && $error !== 'invalid_client') return true;
+        return null;
     }
 
     /**
@@ -582,7 +634,7 @@ final class OAuthProvider
      * @param list<string> $headers
      * @return array{int, string} the HTTP status and body
      */
-    private function request(string $method, string $url, array $headers, ?string $form): array
+    private function request(string $method, string $url, array $headers, ?string $form, int $timeout = 20): array
     {
         if (extension_loaded('curl')) {
             $handle = curl_init($url);
@@ -593,7 +645,7 @@ final class OAuthProvider
                 CURLOPT_CUSTOMREQUEST => $method,
                 CURLOPT_HTTPHEADER => $headers,
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 20,
+                CURLOPT_TIMEOUT => $timeout,
                 CURLOPT_FOLLOWLOCATION => false, // a redirect must never forward a bearer token
             ];
             if ($form !== null) {
@@ -613,7 +665,7 @@ final class OAuthProvider
                 'header' => implode("\r\n", $headers),
                 'content' => $form ?? '',
                 'ignore_errors' => true,
-                'timeout' => 20,
+                'timeout' => $timeout,
                 'follow_location' => 0, // same rule as curl: no redirects
             ]]);
             $body = @file_get_contents($url, false, $context);

@@ -404,6 +404,54 @@ final class OAuthStubTest extends TestCase
         }
     }
 
+    public function test_probe_calls_verdicts_from_the_token_endpoint_answers(): void
+    {
+        $store = [];
+        // healthy: the sentinel code is refused as a code problem, creds accepted
+        $stub = $this->startOAuthStub(8118, ['KIP_OAUTH_STUB_PROBE' => 'invalid_grant']);
+        $p = new OAuthProvider('google', $this->config($stub), new Session($store));
+        $this->assertTrue($p->probe());
+        $this->stopOAuthStub();
+
+        // unhealthy: the credentials themselves are rejected
+        $stub = $this->startOAuthStub(8119, ['KIP_OAUTH_STUB_PROBE' => 'invalid_client']);
+        $p = new OAuthProvider('google', $this->config($stub), new Session($store));
+        $this->assertFalse($p->probe());
+        $this->stopOAuthStub();
+
+        // indeterminate: rate limit and server trouble keep the previous state
+        $stub = $this->startOAuthStub(8120, ['KIP_OAUTH_STUB_PROBE' => '429']);
+        $p = new OAuthProvider('google', $this->config($stub), new Session($store));
+        $this->assertNull($p->probe());
+        $this->stopOAuthStub();
+
+        $stub = $this->startOAuthStub(8121, ['KIP_OAUTH_STUB_PROBE' => '500']);
+        $p = new OAuthProvider('google', $this->config($stub), new Session($store));
+        $this->assertNull($p->probe());
+        $this->stopOAuthStub();
+
+        // indeterminate: the endpoint is unreachable at all
+        $p = new OAuthProvider('google', ['client_id' => 'c', 'client_secret' => 's', 'redirect_uri' => 'https://a.example/c',
+            'authorize_url' => 'https://127.0.0.1:1/authorize', 'token_url' => 'https://127.0.0.1:1/token', 'user_url' => 'https://127.0.0.1:1/u'], new Session($store));
+        $this->assertNull($p->probe());
+    }
+
+    public function test_facebook_probe_uses_the_app_token_endpoint(): void
+    {
+        $store = [];
+        // 200 with an app access token: healthy, token discarded. 4xx: unhealthy.
+        $stub = $this->startOAuthStub(8122, ['KIP_OAUTH_STUB_PROBE' => 'fb_ok']);
+        $p = new OAuthProvider('facebook', $this->config($stub, ['shape' => 'facebook', 'pkce' => false,
+            'token_url' => $stub['base'] . '/fbtoken']), new Session($store));
+        $this->assertTrue($p->probe());
+        $this->stopOAuthStub();
+
+        $stub = $this->startOAuthStub(8123, ['KIP_OAUTH_STUB_PROBE' => 'fb_bad']);
+        $p = new OAuthProvider('facebook', $this->config($stub, ['shape' => 'facebook', 'pkce' => false,
+            'token_url' => $stub['base'] . '/fbtoken']), new Session($store));
+        $this->assertFalse($p->probe());
+    }
+
     public function test_the_token_endpoint_answers_form_encoded_without_the_accept_header(): void
     {
         // The GitHub default: without Accept: application/json the endpoint

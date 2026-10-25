@@ -26,6 +26,9 @@
 //   KIP_OAUTH_STUB_USER_EMAIL  the /user response's own email field ('' = null)
 //   KIP_OAUTH_STUB_ALT_EMAIL   a secondary non-primary address on /user/emails
 //   KIP_OAUTH_STUB_POISON      1 to answer /userinfo with a 302 (the client must refuse)
+//   KIP_OAUTH_STUB_PROBE       when set, /token and /fbtoken skip the flow and answer the scripted probe shape:
+//                              invalid_grant (400 error object), invalid_client (401), 429, 500, fb_ok (200 with an
+//                              app access token), fb_bad (400 error object)
 //   KIP_OAUTH_STUB_STORE       directory codes and the request log live in
 
 $env = static fn(string $k, string $d = ''): string => (string) (getenv($k) !== false ? getenv($k) : $d);
@@ -45,6 +48,7 @@ $idToken = $env('KIP_OAUTH_STUB_ID_TOKEN');
 $userEmail = $env('KIP_OAUTH_STUB_USER_EMAIL');
 $altEmail = $env('KIP_OAUTH_STUB_ALT_EMAIL');
 $poison = $env('KIP_OAUTH_STUB_POISON') === '1';
+$probe = $env('KIP_OAUTH_STUB_PROBE');
 $store = $env('KIP_OAUTH_STUB_STORE', sys_get_temp_dir() . '/kip-oauth-stub');
 @mkdir($store . '/codes', 0777, true);
 
@@ -79,6 +83,26 @@ $userOfToken = static function (string $token): ?string {
     return is_array($payload) && is_string($payload['u'] ?? null) ? $payload['u'] : null;
 };
 
+// The scripted probe: when KIP_OAUTH_STUB_PROBE is set, the token endpoint
+// (and the /fbtoken route the Facebook app-token probe uses) answers these
+// canned verdicts instead of running the flow. The values are the cases the
+// client's probe() must tell apart: an OAuth error naming the code (the
+// credentials were accepted), invalid_client (they were not), a rate limit
+// and a server fault (indeterminate), and the two Facebook app-token
+// answers, whose error objects hide the code-vs-credentials distinction.
+$probeAnswer = static function () use ($probe, $json, $fail): void {
+    if ($probe === '') return;
+    match ($probe) {
+        'invalid_grant' => $json(['error' => 'invalid_grant'], 400),
+        'invalid_client' => $json(['error' => 'invalid_client'], 401),
+        '429' => $json(['error' => 'slow_down'], 429),
+        '500' => $json(['error' => 'invalid_request'], 500),
+        'fb_ok' => $json(['access_token' => 'probe-app-token', 'token_type' => 'Bearer']),
+        'fb_bad' => $json(['error' => ['message' => 'Error validating application', 'type' => 'OAuthException', 'code' => 101]], 400),
+        default => $fail(500, 'unknown probe script ' . $probe),
+    };
+};
+
 if ($path === '/authorize') {
     if ($method !== 'GET') $fail(405, 'authorize is a GET');
     $q = $_GET;
@@ -110,6 +134,7 @@ if ($path === '/authorize') {
 }
 
 if ($path === '/token') {
+    $probeAnswer();
     if ($method !== 'POST') $fail(405, 'token is a POST');
     parse_str((string) file_get_contents('php://input'), $form);
     // Client credentials first: an unknown client or wrong secret never
@@ -134,9 +159,11 @@ if ($path === '/token') {
     if (($form['grant_type'] ?? '') !== 'authorization_code') $fail(400, 'grant_type must be authorization_code');
     $code = (string) ($form['code'] ?? '');
     $file = $store . '/codes/' . hash('sha256', $code) . '.json';
-    if ($code === '' || !is_file($file)) $fail(400, 'unknown or already-used code');
+    // A code problem is an OAuth error object naming the grant, so a client
+    // probing the endpoint can read the refusal as "credentials accepted".
+    if ($code === '' || !is_file($file)) $json(['error' => 'invalid_grant', 'error_description' => 'unknown or already-used code'], 400);
     // Atomic single-use claim: the rename either succeeds once or fails.
-    if (!@rename($file, $file . '.claimed')) $fail(400, 'unknown or already-used code');
+    if (!@rename($file, $file . '.claimed')) $json(['error' => 'invalid_grant', 'error_description' => 'unknown or already-used code'], 400);
     $bound = json_decode((string) file_get_contents($file . '.claimed'), true);
     if (!is_array($bound) || time() - (int) ($bound['created'] ?? 0) > 120) $fail(400, 'expired code');
     if (($form['redirect_uri'] ?? '') !== ($bound['redirect_uri'] ?? '')) $fail(400, 'redirect_uri differs from the authorize-time value');
@@ -157,6 +184,14 @@ if ($path === '/token') {
     header('Content-Type: application/x-www-form-urlencoded');
     echo 'access_token=' . rawurlencode($token) . '&token_type=Bearer';
     exit;
+}
+
+if ($path === '/fbtoken') {
+    // Facebook's app-token endpoint: the probe GETs it with the
+    // client_credentials grant, so the tests point the configured token URL
+    // here and the scripted probe answers for it.
+    $probeAnswer();
+    $fail(404, 'fbtoken answers only a scripted probe');
 }
 
 $bearer = static function () use ($userOfToken, $fail): string {
