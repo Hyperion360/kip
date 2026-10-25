@@ -209,4 +209,35 @@ final class OAuthFlowTest extends TestCase
         $this->assertSame(404, $this->client->get('/oauth/start/github')->status, 'configured-but-unset is unconfigured');
         $this->assertSame(404, $this->client->get('/oauth/callback/ghost')->status);
     }
+
+    public function test_the_login_page_hides_a_provider_whose_credentials_fail_the_probe(): void
+    {
+        $this->boot(['KIP_OAUTH_STUB_PROBE' => 'invalid_client']); // the stub now indicts every credential
+        $login = $this->client->get('/auth/login');
+        $this->assertSame(200, $login->status);
+        $this->assertStringNotContainsString('oauth/start/', (string) $login->body, 'a failing provider never reaches the skin');
+        $this->assertStringContainsString('action="/auth/attempt"', (string) $login->body, 'the password form always renders');
+    }
+
+    public function test_the_login_page_shows_a_provider_whose_credentials_pass(): void
+    {
+        $this->boot(); // the stub's ordinary token answers indict the bogus code, not the client
+        $login = $this->client->get('/auth/login');
+        $this->assertStringContainsString('oauth/start/test', (string) $login->body);
+    }
+
+    public function test_the_callback_answers_post_with_the_same_refusal_contract(): void
+    {
+        $this->boot();
+        $post = $this->client->post('/oauth/callback/test', ['state' => 'forged', 'code' => 'nope']);
+        $this->assertSame(302, $post->status, 'form_post callbacks route: no 405');
+        $this->assertStringContainsString('/auth/login?oauth=failed', (string) $post->headers['Location']);
+        $this->assertSame('no-store', $post->headers['Cache-Control'] ?? '', 'the hardened response either verb');
+    }
+
+    public function test_the_two_bundled_bins_stay_byte_identical(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $this->assertFileEquals($root . '/skeleton/bin/kip', $root . '/examples/blog/bin/kip', 'the hard constraint, now pinned');
+    }
 }

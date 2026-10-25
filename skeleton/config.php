@@ -15,11 +15,13 @@ return [
     'uploads' => ['dir' => __DIR__ . '/public/uploads'],
     'base_url' => getenv('KIP_BASE_URL') ?: 'http://localhost:8080',   // absolute links in emails; also pins the OAuth redirect URI
     'mail'     => ['transport' => 'log', 'log_path' => $dataDir . '/mail.log', 'from' => 'noreply@localhost'],
-    // "Sign in with a provider" (guide ch. 6). A provider appears on the login
-    // page once BOTH its env vars are set; the redirect URI is
+    // "Sign in with a provider" (guide ch. 6). A provider's button appears on
+    // the login page only while its credentials are configured AND pass the
+    // readiness probe (Kip\Auth\OAuthHealth); 'probe' => false trades the live
+    // check for config-only gating. The redirect URI is
     // {base_url}/oauth/callback/{provider} and must match the provider's own
     // registration exactly, so KIP_BASE_URL has to be the site's real URL.
-    'oauth' => ['providers' => [
+    'oauth' => ['probe' => true, 'providers' => [
         'google' => [
             'client_id' => getenv('KIP_OAUTH_GOOGLE_CLIENT_ID') ?: null,
             'client_secret' => getenv('KIP_OAUTH_GOOGLE_CLIENT_SECRET') ?: null,
@@ -31,5 +33,19 @@ return [
         'microsoft' => [
             'client_id' => getenv('KIP_OAUTH_MICROSOFT_CLIENT_ID') ?: null,
             'client_secret' => getenv('KIP_OAUTH_MICROSOFT_CLIENT_SECRET') ?: null,
+        ],
+        'discord' => [
+            'client_id' => getenv('KIP_OAUTH_DISCORD_CLIENT_ID') ?: null,
+            'client_secret' => getenv('KIP_OAUTH_DISCORD_CLIENT_SECRET') ?: null,
+        ],
+        'facebook' => [
+            'client_id' => getenv('KIP_OAUTH_FACEBOOK_CLIENT_ID') ?: null,
+            'client_secret' => getenv('KIP_OAUTH_FACEBOOK_CLIENT_SECRET') ?: null,
+        ],
+        'apple' => [
+            'client_id' => getenv('KIP_OAUTH_APPLE_CLIENT_ID') ?: null,      // the Services ID
+            'apple_team_id' => getenv('KIP_OAUTH_APPLE_TEAM_ID') ?: null,
+            'apple_key_id' => getenv('KIP_OAUTH_APPLE_KEY_ID') ?: null,
+            'apple_key_file' => getenv('KIP_OAUTH_APPLE_KEY_FILE') ?: null,  // the .p8, chmod 600
         ],
     ]],];

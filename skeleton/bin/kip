@@ -254,6 +254,37 @@ try {
             throw new RuntimeException('query failed: ' . preg_replace('/[\x00-\x1f\x7f]+/', ' ', $e->getMessage()));
         }
     })(),
+    'oauth:check' => (function () use ($config) {
+        // Readiness report for the "Sign in with ..." gate (guide ch. 6). The
+        // operator is the audience, so every configured provider gets a FRESH
+        // probe and the page-render cache is deliberately bypassed: rotated or
+        // revoked credentials report the truth immediately, never a stale
+        // READY. Exit 1 when any configured provider is not ready, so setup
+        // scripts and deploys gate on it.
+        $oauth = $config['oauth'] ?? [];
+        $providers = is_array($oauth) ? ($oauth['providers'] ?? []) : [];
+        $probeOn = !is_array($oauth) || ($oauth['probe'] ?? null) !== false;
+        if ($providers === []) { echo "No OAuth providers configured.\n"; return; }
+        $base = rtrim((string) ($config['base_url'] ?? ''), '/');
+        $checked = 0;
+        $failed = 0;
+        foreach ($providers as $name => $entry) {
+            if (!Kip\Auth\OAuthProvider::configured((string) $name, $entry)) continue;
+            $entry['redirect_uri'] = $base . '/oauth/callback/' . $name;
+            $checked++;
+            if (!$probeOn) { printf("%-12s %s\n", $name, 'CONFIGURED (probe off)'); continue; }
+            try {
+                $sessionData = []; // Session takes its array by reference, so a variable, not a literal
+                $verdict = (new Kip\Auth\OAuthProvider((string) $name, $entry, new Kip\Session($sessionData)))->probe();
+            } catch (\Throwable) {
+                $verdict = null; // a broken entry reports INDETERMINATE, not a stack trace
+            }
+            printf("%-12s %s\n", $name, $verdict === true ? 'READY' : ($verdict === false ? 'FAILING' : 'INDETERMINATE'));
+            if ($verdict !== true) $failed++;
+        }
+        if ($checked === 0) { echo "No OAuth providers fully configured.\n"; exit(1); }
+        if ($failed > 0) exit(1);
+    })(),
     'openapi' => (function () use ($config, $argv) {
         // Mirrors App's own namespace selection (ch. 2 + ch. 3): the app
         // namespace first, the framework admin namespace when the panel is
@@ -444,7 +475,7 @@ try {
         );
         echo "Artifact ready: {$artifact}\n";
     })(),
-    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]|cache:clear|build]\n"),
+    default => print("Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db [\"SELECT ...\"]|oauth:check|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]|cache:clear|build]\n"),
     };
 } catch (\Throwable $e) {
     // A failed deploy needs a stated failure, not a stack trace on stdout.

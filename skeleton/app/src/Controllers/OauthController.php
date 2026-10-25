@@ -14,6 +14,8 @@ use Kip\{App, Auth, Auth\OAuthProvider, Http\Request, Http\Response, Session};
  */
 final class OauthController
 {
+    private ?\Kip\Auth\OAuthHealth $oauthHealth = null;
+
     public function __construct(
         private Auth $auth,
         private Session $session,
@@ -22,19 +24,19 @@ final class OauthController
     ) {}
 
     /**
-     * The configured providers, config order: an entry with both a client
-     * id and a client secret. Anything else (absent, or secrets left null)
-     * is unconfigured and neither offered on the login page nor routable.
+     * The configured provider names whose credentials currently pass the
+     * readiness probe: the list the login page renders as buttons.
      *
      * @return list<string>
      */
     public function enabled(): array
     {
-        $enabled = [];
-        foreach ($this->providers() as $name => $entry) {
-            if (self::configured($name, $entry)) $enabled[] = $name;
+        $health = $this->health();
+        $names = [];
+        foreach ($this->entries() as $name => $entry) {
+            if ($health->healthy($name, $entry)) $names[] = $name;
         }
-        return $enabled;
+        return $names;
     }
 
     /** GET /oauth/start/{provider}: away to the provider, principal recorded. */
@@ -45,7 +47,9 @@ final class OauthController
         return $this->away($client->start($this->principal()));
     }
 
-    /** GET /oauth/callback/{provider}: the login-or-register policy. */
+    /** GET or POST /oauth/callback/{provider}: the login-or-register policy. POST is Apple's form_post. */
+    #[\Kip\Routing\Get]
+    #[\Kip\Routing\Post]
     public function callback(string $provider): Response
     {
         $client = $this->client($provider);
@@ -71,34 +75,48 @@ final class OauthController
     }
 
     /**
+     * Every configured provider entry with the redirect URI pinned: the one
+     * shape the flow (client()), the gate (health()), and the views (enabled())
+     * all read, so a provider is offered, routed, and probed on identical facts.
+     * @return array<string, array<string, mixed>>
+     */
+    private function entries(): array
+    {
+        $oauth = $this->app->config('oauth');
+        $providers = is_array($oauth) ? ($oauth['providers'] ?? []) : [];
+        $base = rtrim((string) $this->app->config('base_url', ''), '/');
+        $entries = [];
+        foreach ($providers as $name => $entry) {
+            if (OAuthProvider::configured((string) $name, $entry)) {
+                $entry['redirect_uri'] = $base . '/oauth/callback/' . $name;
+                $entries[(string) $name] = $entry;
+            }
+        }
+        return $entries;
+    }
+
+    private function health(): \Kip\Auth\OAuthHealth
+    {
+        if ($this->oauthHealth !== null) return $this->oauthHealth;
+        $dsn = $this->app->config('cache_db')['dsn'] ?? null;
+        $cache = null;
+        if (is_string($dsn) && $dsn !== '' && !str_contains($dsn, ':memory:')) {
+            try { $cache = new \Kip\Database($dsn); } catch (\Throwable) { $cache = null; } // an unwritable cache degrades to per-request memory, never a failed login page
+        }
+        $oauth = $this->app->config('oauth');
+        return $this->oauthHealth = new \Kip\Auth\OAuthHealth($cache, $this->entries(), !is_array($oauth) || ($oauth['probe'] ?? null) !== false);
+    }
+
+    /**
      * The provider client for $provider, or null when it is not configured.
-     * The redirect URI is built from base_url at BOTH ends of the flow, never
-     * from the request, and must match the provider's registration exactly.
      * A configured-but-broken entry fails loud here (the framework's
      * exception surfaces), instead of quietly pretending to be a 404.
      */
     private function client(string $provider): ?OAuthProvider
     {
-        $entry = $this->providers()[$provider] ?? null;
-        if (!self::configured($provider, $entry)) return null;
-        $entry['redirect_uri'] = rtrim((string) $this->app->config('base_url', ''), '/') . '/oauth/callback/' . $provider;
+        $entry = $this->entries()[$provider] ?? null;
+        if ($entry === null) return null;
         return new OAuthProvider($provider, $entry, $this->session);
-    }
-
-    /** @return array<string, mixed> the oauth.providers config map, empty when absent */
-    private function providers(): array
-    {
-        $oauth = $this->app->config('oauth');
-        $providers = is_array($oauth) ? ($oauth['providers'] ?? []) : [];
-        return is_array($providers) ? $providers : [];
-    }
-
-    /** @param array<string, mixed>|null $entry */
-    private static function configured(string $name, mixed $entry): bool
-    {
-        return is_string($name) && is_array($entry)
-            && is_string($entry['client_id'] ?? null) && $entry['client_id'] !== ''
-            && is_string($entry['client_secret'] ?? null) && $entry['client_secret'] !== '';
     }
 
     /** The logged-in user id, or null for a guest: what a flow binds to. */
