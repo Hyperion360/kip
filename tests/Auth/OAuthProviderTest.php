@@ -94,13 +94,16 @@ final class OAuthProviderTest extends TestCase
 
     public function test_apple_preset_pins_endpoints_form_post_and_no_pkce(): void
     {
+        // form_post is Apple's documented requirement while the email scope is
+        // requested: the query spelling is refused by the live authorize
+        // endpoint, and the email scope is what the registration policy needs.
         $apple = OAuthProvider::PRESETS['apple'];
         $this->assertSame('https://appleid.apple.com/auth/authorize', $apple['authorize_url']);
         $this->assertSame('https://appleid.apple.com/auth/token', $apple['token_url']);
         $this->assertSame('email', $apple['scope']);
         $this->assertFalse($apple['pkce'], 'Apple authenticates the token call with the signed client_secret instead');
         $this->assertSame('apple', $apple['shape']);
-        $this->assertSame('query', $apple['params']['response_mode'] ?? null, 'the callback stays a top-level GET, so the session cookie rides SameSite=Lax');
+        $this->assertSame('form_post', $apple['params']['response_mode'] ?? null, 'Apple requires form_post while scope=email is requested');
         $this->assertArrayNotHasKey('user_url', $apple, 'Apple has no user-info endpoint; the id_token is the identity');
     }
 
@@ -115,7 +118,7 @@ final class OAuthProviderTest extends TestCase
         // Complete: constructs, and start() carries response_mode + state + no PKCE.
         $url = (new OAuthProvider('apple', $base, new Session($store)))->start();
         $q = self::queryOf($url);
-        $this->assertSame('query', $q['response_mode'], 'GET callback: the session cookie survives SameSite=Lax');
+        $this->assertSame('form_post', $q['response_mode'], 'Apple requires form_post while scope=email is requested');
         $this->assertArrayNotHasKey('code_challenge', $q);
 
         // Missing key material, team id, or key id each refuse.

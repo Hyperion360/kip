@@ -91,13 +91,14 @@ final class OAuthProvider
         ],
         'apple' => [
             // No user_url: Apple publishes no user-info endpoint, the id_token is
-            // the identity. response_mode=query keeps the callback a top-level GET
-            // navigation, so the session cookie flows under SameSite=Lax; form_post
-            // would POST cross-site and strip the cookie the pending state lives in.
-            // VERIFY AT EXECUTION against Apple's live authorize endpoint that query
-            // is accepted for response_type=code; if Apple refuses it, revert to
-            // form_post and document SameSite=None;Secure for the session cookie as
-            // the hosting requirement (the callback route already answers POST).
+            // the identity. response_mode MUST be form_post while the email scope
+            // is requested: Apple's live authorize endpoint refuses the query
+            // spelling for scope=email with invalid_request (its documented rule,
+            // corroborated by several integrations' reports). The cross-site POST
+            // drops the session cookie under SameSite=Lax, so hosts enabling Sign
+            // in with Apple set session_cookie_samesite to None, which forces the
+            // Secure flag (see SessionStarter). VERIFY AT SETUP against a live
+            // Services ID: a stub can never prove Apple's side.
             'authorize_url' => 'https://appleid.apple.com/auth/authorize',
             'token_url' => 'https://appleid.apple.com/auth/token',
             'scope' => 'email',
@@ -105,7 +106,7 @@ final class OAuthProvider
             'shape' => 'apple',
             'client_secret_mode' => 'apple_jwt',
             'id_token_iss' => 'https://appleid.apple.com',
-            'params' => ['response_mode' => 'query'],
+            'params' => ['response_mode' => 'form_post'],
         ],
     ];
 

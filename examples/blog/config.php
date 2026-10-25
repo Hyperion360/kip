@@ -14,8 +14,13 @@ return [
     // limiter (guide chapter 6): 30 POSTs per minute per address under
     // /comments, counted before routing, past-cap answered 429.
     'rate_limit' => ['comments' => ['max' => 30, 'window' => 60]],
+    'base_url' => getenv('KIP_BASE_URL') ?: 'http://localhost:8080',   // absolute links in emails; oauth:check needs it to build redirect URIs
     'app_dir' => __DIR__ . '/app',
     'trusted_proxy' => (bool) getenv('KIP_TRUSTED_PROXY'),
+    // The session cookie's SameSite attribute: Lax (default), Strict, or None.
+    // None forces the Secure flag; hosts enabling Sign in with Apple need it
+    // because Apple's form_post callback is a cross-site POST.
+    'session_cookie_samesite' => 'Lax',
     // "Sign in with a provider" (guide ch. 6). A provider's button appears on
     // the login page only while its credentials are configured AND pass the
     // readiness probe (Kip\Auth\OAuthHealth); 'probe' => false trades the live

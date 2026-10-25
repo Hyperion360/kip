@@ -362,7 +362,7 @@ which the client consults when `/user` answers with no email. Discord
 maps its own verified-email flag, Facebook returns an address only when
 the person confirmed it (presence is the marker), and Apple reads
 `email_verified` from its id_token, so the three new providers register
-the same way Google does; a provider without either signal (Microsoft)
+the same way Google does; a provider with none of those signals (Microsoft)
 stays attach-only. A password reset severs the account's linked
 identities, because a reset often
 signals compromise and re-linking costs the owner one click
@@ -423,8 +423,8 @@ Services ID for the web flow, and register the exact redirect URI
 `{KIP_BASE_URL}/oauth/callback/apple` on that Services ID. Then create
 the Sign in with Apple key (a `.p8` file), note its Key ID, and place
 the file at a path only the app's system user can read (`chmod 600`),
-outside the repository: the repo-wide guard test refuses any tracked
-key file. Four environment variables finish the setup:
+outside the repository: this repository's own guard test refuses any
+tracked key file (your app's repository needs its own equivalent). Four environment variables finish the setup:
 
 ```
 KIP_OAUTH_APPLE_CLIENT_ID=com.example.signin   # the Services ID
@@ -450,11 +450,14 @@ as audience, expiry, and the subject. No `id_token` arriving through the
 browser is ever read, so there is no front-channel token to verify and
 no impersonation path through it.
 
-The shipped preset pins `response_mode=query`, so Apple returns to the
-callback with a top-level GET navigation and the session cookie flows
-under SameSite=Lax. The callback route answers both GET and POST, so
-`response_mode=form_post` keeps working where an app overrides the
-preset's `params` and needs it.
+The shipped preset pins `response_mode=form_post`, Apple's documented
+requirement while the `email` scope is requested: the query spelling is
+refused by its live authorize endpoint. The form_post callback is a
+cross-site POST, which drops the session cookie under SameSite=Lax, so
+a host enabling Sign in with Apple sets
+`session_cookie_samesite` to `None` in `config.php`. `None` forces the
+Secure cookie flag (browsers reject `SameSite=None` without it), so the
+site must serve https. The callback route answers both GET and POST.
 
 ### The readiness gate
 
@@ -471,9 +474,9 @@ stays hidden. Cache trouble degrades to per-request memory and never
 fails a page.
 
 The two cached TTLs trade detection speed for render cost. A failing
-probe hides a provider within five minutes; a provider that degrades
-after a cached healthy verdict stays visible up to the one-hour healthy
-TTL. `kip oauth:check` ([chapter 8](08-cli.md)) always forces fresh
+probe hides a provider within five minutes; an indeterminate one keeps
+the previous verdict and re-stamps it, so a long outage probes at most
+once per TTL and never blinks a working provider off. `kip oauth:check` ([chapter 8](08-cli.md)) always forces fresh
 probes instead of reading the cache, so it reports rotated or revoked
 credentials immediately, and it exits non-zero when any configured
 provider is not ready.

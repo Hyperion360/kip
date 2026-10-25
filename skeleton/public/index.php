@@ -11,7 +11,7 @@ ob_start(); // lazy session may start mid-render; nothing may flush before heade
 // Request::$secure in the kernel): Request::secureFromServer.
 $https = Kip\Http\Request::secureFromServer(trustedProxy: $config['trusted_proxy']);
 
-$app = new Kip\App($config, Kip\Session::lazy(new Kip\SessionStarter($https)));
+$app = new Kip\App($config, Kip\Session::lazy(new Kip\SessionStarter($https, $config['session_cookie_samesite'] ?? 'Lax')));
 $app->handle(Kip\Http\Request::fromGlobals(trustedProxy: $config['trusted_proxy']))->send();
 ob_end_flush();
 // Work queued with App::defer() runs after the response is out. Under PHP-FPM the

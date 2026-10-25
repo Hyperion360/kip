@@ -6,7 +6,20 @@ namespace Kip;
 /** Starts the native PHP session on demand and exposes $_SESSION by reference. */
 final class SessionStarter
 {
-    public function __construct(private bool $secureCookie = false) {}
+    private const SAMESITE_VALUES = ['Lax', 'Strict', 'None'];
+
+    /** The cookie's SameSite attribute, config-driven, Lax by default. */
+    private string $samesite;
+
+    public function __construct(private bool $secureCookie = false, string $samesite = 'Lax')
+    {
+        if (!in_array($samesite, self::SAMESITE_VALUES, true)) {
+            throw new \RuntimeException(
+                'session_cookie_samesite must be one of Lax, Strict, None; got ' . $samesite
+            );
+        }
+        $this->samesite = $samesite;
+    }
 
     /** @return array<string, mixed> the live session store */
     public function &start(): array
@@ -20,8 +33,12 @@ final class SessionStarter
             ini_set('session.use_strict_mode', '1');
             session_set_cookie_params([
                 'httponly' => true,
-                'samesite' => 'Lax',
-                'secure'   => $this->secureCookie,
+                'samesite' => $this->samesite,
+                // SameSite=None without the Secure flag is rejected by every
+                // browser, so None forces Secure regardless of the https
+                // detection: a host that opts in has accepted the https
+                // requirement that comes with it.
+                'secure'   => $this->samesite === 'None' ? true : $this->secureCookie,
             ]);
             session_start();
         }

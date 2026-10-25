@@ -61,4 +61,36 @@ final class SessionStarterTest extends TestCase
         $two = &(new SessionStarter())->start(); // second start must not wipe state
         $this->assertSame(1, $two['marker'] ?? null);
     }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function test_samesite_is_configurable(): void
+    {
+        (new SessionStarter(samesite: 'Strict'))->start();
+        $this->assertSame('Strict', session_get_cookie_params()['samesite']);
+        session_destroy();
+    }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function test_samesite_none_forces_secure(): void
+    {
+        // SameSite=None without Secure is rejected by every browser, so the
+        // starter forces the flag regardless of the https detection.
+        (new SessionStarter(secureCookie: false, samesite: 'None'))->start();
+        $params = session_get_cookie_params();
+        $this->assertSame('None', $params['samesite']);
+        $this->assertTrue($params['secure']);
+        session_destroy();
+    }
+
+    public function test_an_unknown_samesite_value_is_a_startup_refusal(): void
+    {
+        try {
+            new SessionStarter(samesite: 'lax'); // case-exact: junk is junk
+            $this->fail('expected the junk SameSite value to be refused');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Lax, Strict, None', $e->getMessage());
+        }
+    }
 }

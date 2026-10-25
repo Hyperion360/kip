@@ -11,6 +11,10 @@ return [
     'cache_db' => ['dsn' => 'sqlite:' . $dataDir . '/cache.sqlite', 'ttl_seconds' => 3600],
     'app_dir' => __DIR__ . '/app',
     'trusted_proxy' => (bool) getenv('KIP_TRUSTED_PROXY'),
+    // The session cookie's SameSite attribute: Lax (default), Strict, or None.
+    // None forces the Secure flag; hosts enabling Sign in with Apple need it
+    // because Apple's form_post callback is a cross-site POST.
+    'session_cookie_samesite' => getenv('KIP_SESSION_SAMESITE') ?: 'Lax',
     'admin'   => ['enabled' => true],   // /admin CRUD panel, gate: users.is_admin = 1
     'uploads' => ['dir' => __DIR__ . '/public/uploads'],
     'base_url' => getenv('KIP_BASE_URL') ?: 'http://localhost:8080',   // absolute links in emails; also pins the OAuth redirect URI
