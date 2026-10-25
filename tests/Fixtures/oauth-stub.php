@@ -5,10 +5,10 @@
 // implements: /authorize issues single-use codes bound to the registered
 // redirect URI and PKCE challenge, /token exchanges them (form-encoded
 // unless the request asks for JSON, the GitHub behavior), and the user
-// endpoints answer the three shapes the client maps (oidc, github,
-// msgraph). Every check is written from the RFC structure on purpose and
-// shared with nothing in src/, so a client bug cannot cancel itself out
-// against a server that repeats it.
+// endpoints answer the shapes the client maps (oidc, github, msgraph, plus
+// the Discord/Facebook userinfo payloads). Every check is written from the
+// RFC structure on purpose and shared with nothing in src/, so a client bug
+// cannot cancel itself out against a server that repeats it.
 //
 // Configuration through the environment (set by the harness):
 //   KIP_OAUTH_STUB_CLIENT      the client id (default stub-client)
@@ -16,8 +16,9 @@
 //   KIP_OAUTH_STUB_REDIRECT    the ONE registered redirect URI, exact match
 //   KIP_OAUTH_STUB_PKCE        1 to require a S256 challenge at authorize
 //   KIP_OAUTH_STUB_USER        the subject this IdP answers for
-//   KIP_OAUTH_STUB_EMAIL       the account email it reports
-//   KIP_OAUTH_STUB_VERIFIED    1 when the email reports verified
+//   KIP_OAUTH_STUB_EMAIL       the account email it reports (unset or '' omits the field, like the real providers)
+//   KIP_OAUTH_STUB_VERIFIED    1 when the email reports verified ('' omits the marker entirely)
+//   KIP_OAUTH_STUB_ID_KEY      the userinfo id field name ('sub' default, 'id' for the Discord/Facebook shapes)
 //   KIP_OAUTH_STUB_USER_EMAIL  the /user response's own email field ('' = null)
 //   KIP_OAUTH_STUB_ALT_EMAIL   a secondary non-primary address on /user/emails
 //   KIP_OAUTH_STUB_POISON      1 to answer /userinfo with a 302 (the client must refuse)
@@ -29,8 +30,13 @@ $secret = $env('KIP_OAUTH_STUB_SECRET', 'stub-secret');
 $redirect = $env('KIP_OAUTH_STUB_REDIRECT');
 $pkce = $env('KIP_OAUTH_STUB_PKCE', '1') === '1';
 $user = $env('KIP_OAUTH_STUB_USER', 'stub-user-1');
-$email = $env('KIP_OAUTH_STUB_EMAIL', 'user@example.org');
-$verified = $env('KIP_OAUTH_STUB_VERIFIED', '1') === '1';
+// No default address: unset and '' both mean "this account has none", which
+// is what the Facebook flow needs (proc_open cannot deliver an empty env
+// value, so the two must mean the same thing anyway).
+$email = $env('KIP_OAUTH_STUB_EMAIL');
+$verifiedRaw = $env('KIP_OAUTH_STUB_VERIFIED', '1');
+$verified = $verifiedRaw === '1';
+$idKey = $env('KIP_OAUTH_STUB_ID_KEY', 'sub');
 $userEmail = $env('KIP_OAUTH_STUB_USER_EMAIL');
 $altEmail = $env('KIP_OAUTH_STUB_ALT_EMAIL');
 $poison = $env('KIP_OAUTH_STUB_POISON') === '1';
@@ -149,7 +155,20 @@ if ($path === '/userinfo') {
         http_response_code(302);
         exit;
     }
-    $json(['sub' => $user, 'email' => $email, 'email_verified' => $verified]);
+    // The payload mirrors what the real providers ship: the id field key
+    // follows the provider family (sub for the OIDC shape, id for Discord
+    // and Facebook), an absent address is omitted rather than sent empty,
+    // and a verification marker, when one exists at all, is spelled both
+    // ways (email_verified for OIDC, verified for Discord) so each shape
+    // reads its own key. An empty KIP_OAUTH_STUB_VERIFIED omits the marker,
+    // the Facebook situation.
+    $payload = [$idKey => $user];
+    if ($email !== '') $payload['email'] = $email;
+    if ($verifiedRaw !== '') {
+        $payload['email_verified'] = $verified;
+        $payload['verified'] = $verified;
+    }
+    $json($payload);
 }
 
 if ($path === '/user') {

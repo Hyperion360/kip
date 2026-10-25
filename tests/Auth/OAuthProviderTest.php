@@ -73,6 +73,25 @@ final class OAuthProviderTest extends TestCase
         $this->assertSame('S256', $q['code_challenge_method']);
     }
 
+    public function test_discord_and_facebook_presets_pin_their_endpoints(): void
+    {
+        $discord = OAuthProvider::PRESETS['discord'];
+        $this->assertSame('https://discord.com/oauth2/authorize', $discord['authorize_url']);
+        $this->assertSame('https://discord.com/api/oauth2/token', $discord['token_url']);
+        $this->assertSame('https://discord.com/api/users/@me', $discord['user_url']);
+        $this->assertSame('identify email', $discord['scope']);
+        $this->assertTrue($discord['pkce'], 'Discord tolerates PKCE params; send them');
+        $this->assertSame('discord', $discord['shape']);
+
+        $facebook = OAuthProvider::PRESETS['facebook'];
+        $this->assertSame('https://www.facebook.com/dialog/oauth', $facebook['authorize_url']);
+        $this->assertSame('https://graph.facebook.com/oauth/access_token', $facebook['token_url']);
+        $this->assertSame('https://graph.facebook.com/me?fields=id,email', $facebook['user_url']);
+        $this->assertSame('public_profile,email', $facebook['scope'], 'Facebook scopes are comma-separated, verbatim');
+        $this->assertFalse($facebook['pkce'], 'the Facebook web flow has no PKCE');
+        $this->assertSame('facebook', $facebook['shape']);
+    }
+
     public function test_a_logged_in_start_records_the_principal(): void
     {
         $store = [];

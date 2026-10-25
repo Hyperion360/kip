@@ -316,6 +316,37 @@ final class OAuthStubTest extends TestCase
         $this->assertSame(['uid' => 'stub-user-1', 'email' => 'user@example.org', 'verified' => false], $identity);
     }
 
+    public function test_discord_shape_maps_id_and_email_verified_flag(): void
+    {
+        $stub = $this->startOAuthStub(8113, ['KIP_OAUTH_STUB_USER' => '1234567890', 'KIP_OAUTH_STUB_EMAIL' => 'u@example.org', 'KIP_OAUTH_STUB_VERIFIED' => '1', 'KIP_OAUTH_STUB_ID_KEY' => 'id']);
+        $store = [];
+        $p = new OAuthProvider('discord', $this->config($stub, ['shape' => 'discord', 'pkce' => true]), new Session($store));
+        [$identity] = $this->dance($p, $store);
+        $this->assertSame('1234567890', $identity['uid']);
+        $this->assertSame('u@example.org', $identity['email']);
+        $this->assertTrue($identity['verified']);
+    }
+
+    public function test_facebook_shape_treats_email_presence_as_verified_and_absence_as_not(): void
+    {
+        $stub = $this->startOAuthStub(8114, ['KIP_OAUTH_STUB_PKCE' => '0', 'KIP_OAUTH_STUB_USER' => 'fb-1', 'KIP_OAUTH_STUB_EMAIL' => 'u@example.org', 'KIP_OAUTH_STUB_ID_KEY' => 'id', 'KIP_OAUTH_STUB_VERIFIED' => '']);
+        $store = [];
+        $p = new OAuthProvider('facebook', $this->config($stub, ['shape' => 'facebook', 'pkce' => false]), new Session($store));
+        [$identity] = $this->dance($p, $store);
+        $this->assertTrue($identity['verified'], 'Facebook only returns confirmed addresses; presence is the marker');
+        // The harness keeps one stub at a time: stop the first server before
+        // the second case starts its own, so no stray process outlives the
+        // test and answers the next run's port probe.
+        $this->stopOAuthStub();
+
+        $stub = $this->startOAuthStub(8115, ['KIP_OAUTH_STUB_PKCE' => '0', 'KIP_OAUTH_STUB_USER' => 'fb-1', 'KIP_OAUTH_STUB_EMAIL' => '', 'KIP_OAUTH_STUB_ID_KEY' => 'id']);
+        $store = [];
+        $p = new OAuthProvider('facebook', $this->config($stub, ['shape' => 'facebook', 'pkce' => false]), new Session($store));
+        [$identity] = $this->dance($p, $store);
+        $this->assertNull($identity['email']);
+        $this->assertFalse($identity['verified'], 'no email: nothing to verify, attach-only');
+    }
+
     public function test_the_token_endpoint_answers_form_encoded_without_the_accept_header(): void
     {
         // The GitHub default: without Accept: application/json the endpoint

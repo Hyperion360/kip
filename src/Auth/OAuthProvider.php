@@ -7,9 +7,10 @@ use Kip\Session;
 
 /**
  * One generic authorization-code client for "sign in with ..." providers,
- * driven by per-provider presets (Google, GitHub, Microsoft) plus explicit
- * config for anything else. Session-bound single-use state, PKCE S256 where
- * the provider supports it, user-info mapped to a provider uid plus email.
+ * driven by per-provider presets (Google, GitHub, Microsoft, Discord,
+ * Facebook) plus explicit config for anything else. Session-bound single-use
+ * state, PKCE S256 where the provider supports it, user-info mapped to a
+ * provider uid plus email.
  *
  * The flow never trusts the request for the redirect URI: start() sends the
  * configured one, the flow pins it, and the token exchange repeats it
@@ -34,7 +35,10 @@ final class OAuthProvider
      * email_verified), github (id, plus the emails endpoint for a verified
      * primary address), msgraph (id, mail/userPrincipalName; the response
      * carries no verification marker, so verified is always false and the
-     * provider can never CREATE an account, only attach to one).
+     * provider can never CREATE an account, only attach to one), discord
+     * (id, email, its own verified flag; without the email scope the
+     * provider is attach-only), facebook (id, email; it returns only a
+     * confirmed address, so presence marks verification).
      */
     public const PRESETS = [
         'google' => [
@@ -61,6 +65,24 @@ final class OAuthProvider
             'scope' => 'openid email profile',
             'pkce' => true,
             'shape' => 'msgraph',
+        ],
+        'discord' => [
+            'authorize_url' => 'https://discord.com/oauth2/authorize',
+            'token_url' => 'https://discord.com/api/oauth2/token',
+            'user_url' => 'https://discord.com/api/users/@me',
+            'scope' => 'identify email',
+            'pkce' => true,
+            'shape' => 'discord',
+        ],
+        'facebook' => [
+            // Versionless endpoints: they outlive any pinned graph version and
+            // are the documented shape for the login flow.
+            'authorize_url' => 'https://www.facebook.com/dialog/oauth',
+            'token_url' => 'https://graph.facebook.com/oauth/access_token',
+            'user_url' => 'https://graph.facebook.com/me?fields=id,email',
+            'scope' => 'public_profile,email', // Facebook scopes are comma-separated
+            'pkce' => false,
+            'shape' => 'facebook',
         ],
     ];
 
@@ -291,6 +313,8 @@ final class OAuthProvider
         return match ((string) ($this->merged['shape'] ?? 'oidc')) {
             'github' => $this->githubIdentity($token, $data),
             'msgraph' => $this->msIdentity($data),
+            'discord' => $this->discordIdentity($data),
+            'facebook' => $this->facebookIdentity($data),
             default => $this->oidcIdentity($data),
         };
     }
@@ -371,6 +395,41 @@ final class OAuthProvider
             'email' => self::emailOf($data['mail'] ?? null) ?? self::emailOf($data['userPrincipalName'] ?? null),
             'verified' => false,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array{uid: string, email: ?string, verified: bool}
+     */
+    private function discordIdentity(array $data): array
+    {
+        $uid = $data['id'] ?? null;
+        if (!is_int($uid) && !is_string($uid)) {
+            throw new \RuntimeException("the {$this->name} user response carries no id");
+        }
+        // Discord's own `verified` flag is its email-verification marker; without
+        // the email scope both keys are absent and the provider is attach-only.
+        return [
+            'uid' => (string) $uid,
+            'email' => self::emailOf($data['email'] ?? null),
+            'verified' => filter_var($data['verified'] ?? false, FILTER_VALIDATE_BOOL),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array{uid: string, email: ?string, verified: bool}
+     */
+    private function facebookIdentity(array $data): array
+    {
+        $uid = $data['id'] ?? null;
+        if (!is_int($uid) && !is_string($uid)) {
+            throw new \RuntimeException("the {$this->name} user response carries no id");
+        }
+        // Facebook documents that it returns an email only when the person has a
+        // confirmed address, and it ships no verification marker: presence is it.
+        $email = self::emailOf($data['email'] ?? null);
+        return ['uid' => (string) $uid, 'email' => $email, 'verified' => $email !== null];
     }
 
     private static function emailOf(mixed $email): ?string
