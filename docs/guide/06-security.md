@@ -310,16 +310,22 @@ with [chapter 11's](11-testing.md) `TestClient`.
 
 ## Signing in with OAuth providers
 
-The skeleton ships "sign in with" Google, GitHub, and Microsoft over one
-generic client, `Kip\Auth\OAuthProvider` (`src/Auth/OAuthProvider.php`),
-driven entirely by config: set a provider's two environment variables and
-its button appears on the login page.
+The skeleton ships "sign in with" Google, GitHub, Microsoft, Discord,
+Facebook, and Apple over one generic client, `Kip\Auth\OAuthProvider`
+(`src/Auth/OAuthProvider.php`), driven entirely by config: set a
+provider's environment variables (two for most, four for Apple) and,
+while its credentials pass the readiness probe
+([the readiness gate](#the-readiness-gate) below), its button appears on
+the login page.
 
 | Provider | Client id | Client secret | PKCE |
 |---|---|---|---|
 | Google | `KIP_OAUTH_GOOGLE_CLIENT_ID` | `KIP_OAUTH_GOOGLE_CLIENT_SECRET` | yes, S256 |
 | GitHub | `KIP_OAUTH_GITHUB_CLIENT_ID` | `KIP_OAUTH_GITHUB_CLIENT_SECRET` | no, its web flow has none |
 | Microsoft | `KIP_OAUTH_MICROSOFT_CLIENT_ID` | `KIP_OAUTH_MICROSOFT_CLIENT_SECRET` | yes, S256 (its v2 endpoint requires it) |
+| Discord | `KIP_OAUTH_DISCORD_CLIENT_ID` | `KIP_OAUTH_DISCORD_CLIENT_SECRET` | yes, S256 |
+| Facebook | `KIP_OAUTH_FACEBOOK_CLIENT_ID` | `KIP_OAUTH_FACEBOOK_CLIENT_SECRET` | no, its web flow has none |
+| Apple | `KIP_OAUTH_APPLE_CLIENT_ID` (the Services ID), plus `KIP_OAUTH_APPLE_TEAM_ID`, `KIP_OAUTH_APPLE_KEY_ID`, `KIP_OAUTH_APPLE_KEY_FILE` | none: the client secret is minted per request from the key | no, it authenticates the token call with the signed secret instead |
 
 Register the redirect URI `{KIP_BASE_URL}/oauth/callback/{provider}` with
 the provider, exactly. The client builds it from `base_url` at both ends
@@ -352,8 +358,13 @@ Microsoft's user-info response carries no email-verification marker, so a
 Microsoft sign-in maps to unverified always: Microsoft can attach to an
 existing account but never create one. Google reports `email_verified`;
 GitHub reports a verified primary address through its emails endpoint,
-which the client consults when `/user` answers with no email. A password
-reset severs the account's linked identities, because a reset often
+which the client consults when `/user` answers with no email. Discord
+maps its own verified-email flag, Facebook returns an address only when
+the person confirmed it (presence is the marker), and Apple reads
+`email_verified` from its id_token, so the three new providers register
+the same way Google does; a provider without either signal (Microsoft)
+stays attach-only. A password reset severs the account's linked
+identities, because a reset often
 signals compromise and re-linking costs the owner one click
 (`Auth::resetPassword()`).
 
@@ -395,11 +406,82 @@ An app that calls either without the `oauth_identities` table gets a
 `RuntimeException` naming the migration to apply, not a raw database
 error.
 
-A provider beyond the three presets is a config entry with explicit
+A provider beyond the six presets is a config entry with explicit
 endpoints (`authorize_url`, `token_url`, `user_url`, and for the GitHub
-shape `emails_url`), a `shape` (`oidc`, `github`, or `msgraph`), and
+shape `emails_url`; the Apple shape needs no `user_url`), a `shape`
+(`oidc`, `github`, `msgraph`, `discord`, `facebook`, or `apple`), and
 optional `scope` and `params`; PKCE defaults on for a custom provider,
 set `pkce => false` if the endpoint rejects the challenge.
+
+### Apple, the key-based provider
+
+Sign in with Apple requires a paid Apple Developer Program membership,
+USD 99 per year. Without one, leave the four environment variables unset
+and the provider never appears on the login page. With one, the console
+work is: create an App ID with Sign in with Apple enabled, create a
+Services ID for the web flow, and register the exact redirect URI
+`{KIP_BASE_URL}/oauth/callback/apple` on that Services ID. Then create
+the Sign in with Apple key (a `.p8` file), note its Key ID, and place
+the file at a path only the app's system user can read (`chmod 600`),
+outside the repository: the repo-wide guard test refuses any tracked
+key file. Four environment variables finish the setup:
+
+```
+KIP_OAUTH_APPLE_CLIENT_ID=com.example.signin   # the Services ID
+KIP_OAUTH_APPLE_TEAM_ID=XXXXXXXXXX
+KIP_OAUTH_APPLE_KEY_ID=XXXXXXXXXX
+KIP_OAUTH_APPLE_KEY_FILE=/etc/kip/AuthKey_XXXXXXXXXX.p8
+```
+
+Apple demands a client secret that is itself an ES256-signed JWT naming
+the team, the key, and Apple (`https://appleid.apple.com`) as its
+audience. Kip mints that JWT fresh for every token-endpoint call
+(`Kip\Auth\AppleSecret`, `src/Auth/AppleSecret.php`), so there is no
+stored secret to rotate and nothing to leak at rest. The minted JWT
+expires after 180 days, Apple's own ceiling; a per-request mint never
+reaches it. The `.p8` file is the only long-lived material. A config
+entry can carry the PEM text as `apple_key` instead of a file path; the
+skeleton wires the file path to the environment.
+
+Apple publishes no user-info endpoint: the identity decodes from the
+`id_token` the token endpoint returns over the direct server-to-server
+exchange. What is enforced on it: the exact issuer, Kip's own client id
+as audience, expiry, and the subject. No `id_token` arriving through the
+browser is ever read, so there is no front-channel token to verify and
+no impersonation path through it.
+
+The shipped preset pins `response_mode=query`, so Apple returns to the
+callback with a top-level GET navigation and the session cookie flows
+under SameSite=Lax. The callback route answers both GET and POST, so
+`response_mode=form_post` keeps working where an app overrides the
+preset's `params` and needs it.
+
+### The readiness gate
+
+A provider's button renders only while its credentials pass a live
+probe. At render time `Kip\Auth\OAuthHealth` (`src/Auth/OAuthHealth.php`)
+sends a sentinel request to the provider's own token endpoint (a
+three-second timeout): `invalid_client` indicts the credentials, any
+other OAuth-shaped refusal proves they were accepted, and a timeout, a
+429, or a 5xx is indeterminate. Verdicts cache in the cache database:
+healthy for one hour, failing for five minutes, and a page render probes
+only on a cache miss. An indeterminate probe keeps the previous verdict;
+with no previous verdict the gate fails closed and the unproven provider
+stays hidden. Cache trouble degrades to per-request memory and never
+fails a page.
+
+The two cached TTLs trade detection speed for render cost. A failing
+probe hides a provider within five minutes; a provider that degrades
+after a cached healthy verdict stays visible up to the one-hour healthy
+TTL. `kip oauth:check` ([chapter 8](08-cli.md)) always forces fresh
+probes instead of reading the cache, so it reports rotated or revoked
+credentials immediately, and it exits non-zero when any configured
+provider is not ready.
+
+Hosts without outbound network at boot time set
+`'oauth' => ['probe' => false]`: the gate then reads config completeness
+only, and a fully configured provider's button renders without any
+network call.
 
 ## Credentials are POST-only
 

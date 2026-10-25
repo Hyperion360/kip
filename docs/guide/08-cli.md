@@ -12,7 +12,10 @@ is derived directly from source (or a throwaway copy) instead, using
 the tutorial's own migration names as placeholders; the `make:` outputs
 below came from a throwaway copy, and the `build` output below is from
 a real run in one (a worktree of this repository, against
-`examples/blog`, machine-specific middles elided).
+`examples/blog`, machine-specific middles elided). The `oauth:check`
+no-credentials output below is a real run against `examples/blog` (no
+provider environment variables set); its per-provider output is derived
+from source, the live example has no provider credentials to probe.
 
 Every command also shares one failure contract: an unexpected framework
 exception (a database that will not open, an unreadable migrations
@@ -22,7 +25,7 @@ outcomes and their exit codes.
 
 ```
 $ php bin/kip
-Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db ["SELECT ..."]|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]|cache:clear|build]
+Usage: kip [migrate|rollback|serve|logs|logs:prune|backup|user:create <email> [password] [--admin]|queue:work [--once]|db ["SELECT ..."]|oauth:check|openapi [file]|make:feature <Name>|make:controller <Name>|make:migration <label> [--feature=<Name>]|schedule [--due]|cache:clear|build]
 ```
 
 Exit code 0 -- no argument, or an unrecognized one, prints usage and exits
@@ -348,6 +351,47 @@ Error cases, all exit **1** under the shared `kip:` contract: a query
 error (`kip: RuntimeException: query failed: no such table: nosuch`),
 a missing database file (it is never created), and a `db.dsn` that is
 not a file-backed SQLite database.
+
+## `oauth:check`
+
+One line per configured OAuth provider, each probed fresh against the
+provider's own token endpoint, the page-render verdict cache
+([chapter 6](06-security.md)) deliberately bypassed, so rotated or
+revoked credentials report the truth immediately and never a stale
+READY:
+
+```
+$ php bin/kip oauth:check
+google       READY
+github       READY
+discord      FAILING
+microsoft    INDETERMINATE
+```
+
+`READY` means the credentials passed, `FAILING` means the provider
+refused them, and `INDETERMINATE` means the probe could not decide (a
+timeout, a 429, a 5xx, or a config entry that cannot construct, which
+prints instead of stack-tracing). With
+`'oauth' => ['probe' => false]` the command skips the network half and
+reports `CONFIGURED (probe off)` per configured provider.
+
+Entries whose credentials are incomplete are skipped silently; when no
+entry is fully configured the command prints one line and exits **1**
+(this is the real `examples/blog` answer with no provider environment
+variables set):
+
+```
+$ php bin/kip oauth:check
+No OAuth providers fully configured.
+```
+
+With no providers block at all it prints `No OAuth providers
+configured.` and exits **0**. Exit code **0** means every configured
+provider is READY (also when none is), **1** when any is FAILING or
+INDETERMINATE, and **1** when entries exist but none is fully
+configured, so a deploy script or a cron job can gate on it. The
+command writes nothing and needs no cache database, it is safe to run
+on any schedule.
 
 ## `openapi [file]`
 
