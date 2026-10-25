@@ -40,11 +40,12 @@ final class OAuthFlowTest extends TestCase
      * looks without its env vars.
      *
      * @param array<string, string> $stubEnv
+     * @param array<string, mixed> $configExtra merged into the App config (cache_db, flags)
      */
-    private function boot(array $stubEnv = []): void
+    private function boot(array $stubEnv = [], array $configExtra = []): void
     {
         $stub = $this->startOAuthStub(self::PORT, $stubEnv);
-        $this->app = new App([
+        $config = [
             'env' => 'dev',
             'db' => ['dsn' => 'sqlite::memory:'],
             'controller_namespace' => 'App\\Controllers\\',
@@ -61,7 +62,8 @@ final class OAuthFlowTest extends TestCase
                 ],
                 'github' => ['client_id' => null, 'client_secret' => null],
             ]],
-        ]);
+        ];
+        $this->app = new App([...$config, ...$configExtra]);
         $this->db = $this->app->container->make(Database::class);
         foreach (['001_create_users', '002_create_login_attempts', '004_create_password_resets', '009_create_oauth_identities'] as $file) {
             (require dirname(__DIR__, 2) . "/skeleton/app/migrations/{$file}.php")->up($this->db);
@@ -239,5 +241,40 @@ final class OAuthFlowTest extends TestCase
     {
         $root = dirname(__DIR__, 2);
         $this->assertFileEquals($root . '/skeleton/bin/kip', $root . '/examples/blog/bin/kip', 'the hard constraint, now pinned');
+    }
+
+    public function test_a_failed_verdict_persists_in_the_cache_db_across_requests(): void
+    {
+        // The production wiring: cache_db is a real file-backed sqlite, the
+        // probe is scripted unhealthy, and the SECOND render must read the
+        // cached verdict instead of probing again.
+        $cacheFile = tempnam(sys_get_temp_dir(), 'kip-oauth-cache-');
+        $this->assertNotFalse($cacheFile);
+        try {
+            $this->boot(['KIP_OAUTH_STUB_PROBE' => 'invalid_client'], ['cache_db' => ['dsn' => 'sqlite:' . $cacheFile]]);
+            $first = $this->client->get('/auth/login');
+            $this->assertSame(200, $first->status);
+            $this->assertStringNotContainsString('oauth/start/', (string) $first->body, 'a failing provider never reaches the skin');
+            $row = (new Database('sqlite:' . $cacheFile))->one("SELECT healthy FROM oauth_health WHERE provider = 'test'");
+            $this->assertNotNull($row, 'the verdict landed in the cache database');
+            $this->assertSame(0, (int) $row['healthy']);
+
+            $second = $this->client->get('/auth/login');
+            $this->assertSame(200, $second->status);
+            $this->assertStringNotContainsString('oauth/start/', (string) $second->body);
+            $probes = substr_count((string) file_get_contents($this->stubRequestLog()), 'POST /token');
+            $this->assertSame(1, $probes, "one probe across both renders, the second read the cache (got {$probes})");
+        } finally {
+            foreach ([$cacheFile, $cacheFile . '-wal', $cacheFile . '-shm'] as $f) {
+                if (is_file($f)) @unlink($f);
+            }
+            $this->stopOAuthStub();
+        }
+    }
+
+    /** The stub's request log path (the trait's store dir carries requests.log). */
+    private function stubRequestLog(): string
+    {
+        return (string) $this->oauthStub['store'] . '/requests.log';
     }
 }
