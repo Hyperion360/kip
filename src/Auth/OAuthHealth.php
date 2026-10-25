@@ -10,7 +10,8 @@ use Kip\Database;
  * provider's own token endpoint. Verdicts cache in the cache database (healthy
  * for an hour, failed for five minutes) so a page render probes only on a
  * miss; an indeterminate probe (timeout, 429, 5xx) keeps the previous verdict
- * and, with none, fails closed: an unproven provider stays hidden.
+ * and re-stamps it (a sliding window, so an outage probes at most once per
+ * TTL) and, with none, fails closed: an unproven provider stays hidden.
  * 'oauth' => ['probe' => false] turns the network half off: readiness then
  * means config-complete, for hosts with no outbound network at boot time.
  * Cache trouble degrades to per-request memory, never a failed page.
@@ -70,7 +71,14 @@ final class OAuthHealth
         $verdict = $this->prober !== null ? ($this->prober)($name) : $this->probeProvider($name, $entry);
         if ($verdict === null) {
             $prior = $this->cached($name, true);
-            if ($prior !== null) return $this->memo[$key] = $prior; // keep the previous verdict, its clock keeps running
+            if ($prior !== null) {
+                // Sliding window: keep the previous verdict AND re-stamp it, so a
+                // long outage probes at most once per TTL instead of on every
+                // render, and the provider stays visible until an actual false
+                // verdict lands (never blinked off by a timeout alone).
+                $this->store($name, $prior);
+                return $this->memo[$key] = $prior;
+            }
             $this->store($name, false); // indeterminate with no prior: hidden for the failed TTL, so an outage never probes on every render
             return $this->memo[$key] = false;
         }
