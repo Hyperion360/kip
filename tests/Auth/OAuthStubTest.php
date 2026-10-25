@@ -378,12 +378,15 @@ final class OAuthStubTest extends TestCase
         // from the CLAIM checks, never from a mint() failure on a fake key.
         $key = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
         $this->assertTrue(openssl_pkey_export($key, $pem));
+        // The key is the exact refusal wording the claim check throws with: the
+        // catch asserts on it, so a swallowed fail() (itself a RuntimeException)
+        // cannot let a deleted check pass the loop vacuously.
         foreach ([
-            'foreign issuer' => ['iss' => 'https://evil.example', 'aud' => 'stub-client', 'exp' => time() + 300, 'sub' => 's'],
-            'expired' => ['iss' => 'https://appleid.apple.com', 'aud' => 'stub-client', 'exp' => time() - 10, 'sub' => 's'],
-            'wrong audience' => ['iss' => 'https://appleid.apple.com', 'aud' => 'someone-else', 'exp' => time() + 300, 'sub' => 's'],
-            'no subject' => ['iss' => 'https://appleid.apple.com', 'aud' => 'stub-client', 'exp' => time() + 300],
-        ] as $claims) {
+            'names a foreign issuer' => ['iss' => 'https://evil.example', 'aud' => 'stub-client', 'exp' => time() + 300, 'sub' => 's'],
+            'is expired' => ['iss' => 'https://appleid.apple.com', 'aud' => 'stub-client', 'exp' => time() - 10, 'sub' => 's'],
+            'names a different audience' => ['iss' => 'https://appleid.apple.com', 'aud' => 'someone-else', 'exp' => time() + 300, 'sub' => 's'],
+            'carries no subject' => ['iss' => 'https://appleid.apple.com', 'aud' => 'stub-client', 'exp' => time() + 300],
+        ] as $refusal => $claims) {
             $stub = $this->startOAuthStub(8117, ['KIP_OAUTH_STUB_PKCE' => '0', 'KIP_OAUTH_STUB_ID_TOKEN' => $b64(['alg' => 'ES256']) . '.' . $b64($claims) . '.x']);
             $store = [];
             $p = new OAuthProvider('apple', $this->config($stub, ['shape' => 'apple', 'pkce' => false,
@@ -393,7 +396,10 @@ final class OAuthStubTest extends TestCase
             try {
                 $p->callback($state, $code);
                 $this->fail('expected refusal for ' . json_encode($claims));
-            } catch (\RuntimeException) { }
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString($refusal, $e->getMessage(), 'the claim check refused, named for its reason');
+                $this->assertStringNotContainsString('expected refusal', $e->getMessage(), 'the fail() text itself must never surface as the refusal');
+            }
             $this->stopOAuthStub();
         }
     }
