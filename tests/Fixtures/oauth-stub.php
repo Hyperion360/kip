@@ -118,6 +118,17 @@ if ($path === '/authorize') {
     // EXACT equality against the one registered callback: prefix and suffix
     // tricks both die here.
     if ($q['redirect_uri'] !== $redirect) $fail(400, 'redirect_uri is not the registered callback');
+    // The Apple spelling: form_post hands the browser an auto-submitting
+    // cross-site form instead of a redirect, exactly like the real IdP.
+    if (($q['response_mode'] ?? '') === 'form_post') {
+        $code = bin2hex(random_bytes(16));
+        file_put_contents($store . '/codes/' . hash('sha256', $code) . '.json', json_encode(['user' => $user, 'email' => $email, 'challenge' => null, 'method' => null, 'redirect_uri' => $q['redirect_uri'], 'created' => time()]));
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!doctype html><html><body><form id="f" method="post" action="' . htmlspecialchars($redirect) . '">'
+            . '<input type="hidden" name="code" value="' . $code . '"><input type="hidden" name="state" value="' . htmlspecialchars($q['state']) . '">'
+            . '</form><script>document.getElementById("f").submit()</script></body></html>';
+        exit;
+    }
     $challenge = $q['code_challenge'] ?? '';
     if ($pkce) {
         if (!is_string($challenge) || preg_match('#^[A-Za-z0-9_-]{43,128}$#', $challenge) !== 1) {
@@ -156,9 +167,10 @@ if ($path === '/token') {
         }
         return true;
     };
-    if (($form['client_id'] ?? '') !== $client) $fail(401, 'unknown client');
     $sentSecret = (string) ($form['client_secret'] ?? '');
-    if (hash_equals($secret, $sentSecret) !== true && !($idToken !== '' && $jwtShape($sentSecret))) {
+    $jwtClient = $idToken !== '' && $jwtShape($sentSecret); // Apple client auth: the JWT is the secret, any sub allowed, claims are the client's problem
+    if (($form['client_id'] ?? '') !== $client && !$jwtClient) $fail(401, 'unknown client');
+    if (hash_equals($secret, $sentSecret) !== true && !$jwtClient) {
         $fail(401, 'wrong client secret');
     }
     if (($form['grant_type'] ?? '') !== 'authorization_code') $fail(400, 'grant_type must be authorization_code');
