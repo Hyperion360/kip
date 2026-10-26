@@ -457,7 +457,11 @@ cross-site POST, which drops the session cookie under SameSite=Lax, so
 a host enabling Sign in with Apple sets
 `session_cookie_samesite` to `None` in `config.php`. `None` forces the
 Secure cookie flag (browsers reject `SameSite=None` without it), so the
-site must serve https. The callback route answers both GET and POST.
+site must serve https. The callback route answers both GET and POST and
+carries `#[CrossSite]`: the kernel admits that one cross-site POST because
+the session-bound single-use `state` is its proof, which is also why the
+skeleton gives the `/oauth` segment its own `rate_limit` bucket (20 per
+minute) in place of the origin check every other guest POST gets.
 
 ### The readiness gate
 

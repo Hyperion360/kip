@@ -13,7 +13,7 @@ return [
     // Guest comments have no session, so their flood cap is the fixed-window
     // limiter (guide chapter 6): 30 POSTs per minute per address under
     // /comments, counted before routing, past-cap answered 429.
-    'rate_limit' => ['comments' => ['max' => 30, 'window' => 60]],
+    'rate_limit' => ['comments' => ['max' => 30, 'window' => 60], 'oauth' => ['max' => 20, 'window' => 60]], // oauth: the cross-site-admitted callback POST
     'base_url' => getenv('KIP_BASE_URL') ?: 'http://localhost:8080',   // absolute links in emails; oauth:check needs it to build redirect URIs
     'app_dir' => __DIR__ . '/app',
     'trusted_proxy' => (bool) getenv('KIP_TRUSTED_PROXY'),

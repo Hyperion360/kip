@@ -25,6 +25,11 @@ return [
     // check for config-only gating. The redirect URI is
     // {base_url}/oauth/callback/{provider} and must match the provider's own
     // registration exactly, so KIP_BASE_URL has to be the site's real URL.
+    // Per first URL segment, non-GET only (guide ch. 6). The OAuth callback is
+    // the one guest POST the kernel admits cross-site (Apple's form_post), so it
+    // carries its own bucket; the state check inside is cheap, the throttle
+    // keeps a flood from leaning on the session store.
+    'rate_limit' => ['oauth' => ['max' => 20, 'window' => 60]],
     'oauth' => ['probe' => true, 'providers' => [
         'google' => [
             'client_id' => getenv('KIP_OAUTH_GOOGLE_CLIENT_ID') ?: null,
