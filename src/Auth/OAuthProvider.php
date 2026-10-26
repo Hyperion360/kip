@@ -238,13 +238,16 @@ final class OAuthProvider
             if (($this->merged['shape'] ?? 'oidc') === 'facebook') {
                 // The app-token endpoint IS the configured token URL with the
                 // client_credentials grant, so tests can point it at the stub.
-                [$status, $body] = $this->request('GET', (string) $this->merged['token_url'] . '?'
-                    . http_build_query(['grant_type' => 'client_credentials',
-                        'client_id' => $this->merged['client_id'], 'client_secret' => $this->secret()]),
-                    ['Accept: application/json'], null, self::PROBE_TIMEOUT);
-                if ($status === 429) return null;
+                // POSTed as a form body: a GET would write the app secret into
+                // the provider's request logs and any proxy on the way.
+                [$status] = $this->request('POST', (string) $this->merged['token_url'], [
+                    'Accept: application/json', 'Content-Type: application/x-www-form-urlencoded',
+                ], http_build_query(['grant_type' => 'client_credentials',
+                    'client_id' => $this->merged['client_id'], 'client_secret' => $this->secret()]),
+                    self::PROBE_TIMEOUT);
+                if ($status === 429 || $status >= 500) return null;
                 if ($status >= 200 && $status < 300) return true;
-                if ($status >= 400 && $status < 500) return false;
+                if ($status >= 400) return false;
                 return null;
             }
             [$status, $body] = $this->request('POST', (string) $this->merged['token_url'], [
@@ -259,7 +262,9 @@ final class OAuthProvider
         } catch (\RuntimeException) {
             return null;
         }
-        if ($status === 429) return null;
+        // 429 and any 5xx are indeterminate before the body is read: an outage
+        // that echoes an upstream invalid_client is not a credential verdict.
+        if ($status === 429 || $status >= 500) return null;
         $parsed = json_decode($body, true);
         $error = is_array($parsed) && is_string($parsed['error'] ?? null) ? $parsed['error'] : null;
         if ($error === 'invalid_client') return false;
@@ -267,7 +272,7 @@ final class OAuthProvider
         // A healthy verdict needs an OAuth-shaped refusal (a JSON error naming the
         // code, the grant, or the request): a bare 404, an HTML error page, or any
         // non-OAuth 4xx proves nothing about the credentials and stays null.
-        if ($status >= 400 && $status < 500 && $error !== null && $error !== 'invalid_client') return true;
+        if ($status >= 400 && $error !== null) return true; // 5xx already returned null above
         return null;
     }
 
@@ -426,7 +431,9 @@ final class OAuthProvider
     /** The client secret as sent: the configured string, or the ES256 JWT minted for this request. */
     private function secret(): string
     {
-        if (($this->merged['client_secret_mode'] ?? 'plain') === 'apple_jwt') {
+        // The same predicate the constructor and configured() use, so a custom
+        // entry spelled 'shape' => 'apple' without the mode still mints.
+        if (self::isApple($this->name, $this->merged)) {
             return AppleSecret::mint($this->merged);
         }
         return (string) $this->merged['client_secret'];
@@ -438,7 +445,7 @@ final class OAuthProvider
      */
     private function identity(#[\SensitiveParameter] array $token): array
     {
-        if ((string) ($this->merged['shape'] ?? 'oidc') === 'apple') {
+        if (self::isApple($this->name, $this->merged)) {
             return $this->appleIdentity($token); // no user-info call exists for Apple
         }
         $bearer = (string) ($token['access_token'] ?? '');

@@ -329,7 +329,7 @@ final class OAuthStubTest extends TestCase
 
     public function test_facebook_shape_treats_email_presence_as_verified_and_absence_as_not(): void
     {
-        $stub = $this->startOAuthStub(8114, ['KIP_OAUTH_STUB_PKCE' => '0', 'KIP_OAUTH_STUB_USER' => 'fb-1', 'KIP_OAUTH_STUB_EMAIL' => 'u@example.org', 'KIP_OAUTH_STUB_ID_KEY' => 'id', 'KIP_OAUTH_STUB_VERIFIED' => '']);
+        $stub = $this->startOAuthStub(8114, ['KIP_OAUTH_STUB_PKCE' => '0', 'KIP_OAUTH_STUB_USER' => 'fb-1', 'KIP_OAUTH_STUB_EMAIL' => 'u@example.org', 'KIP_OAUTH_STUB_ID_KEY' => 'id', 'KIP_OAUTH_STUB_VERIFIED' => 'omit']); // no marker at all: presence of the email is what the shape trusts
         $store = [];
         $p = new OAuthProvider('facebook', $this->config($stub, ['shape' => 'facebook', 'pkce' => false]), new Session($store));
         [$identity] = $this->dance($p, $store);
@@ -450,6 +450,57 @@ final class OAuthStubTest extends TestCase
         $p = new OAuthProvider('facebook', $this->config($stub, ['shape' => 'facebook', 'pkce' => false,
             'token_url' => $stub['base'] . '/fbtoken']), new Session($store));
         $this->assertFalse($p->probe());
+        // The app token travels as a POST body, never a GET query where the
+        // secret would land in request logs: the stub's log pins the verb.
+        $this->assertStringContainsString('POST /fbtoken', (string) file_get_contents($stub['store'] . '/requests.log'));
+        $this->assertStringNotContainsString('GET /fbtoken', (string) file_get_contents($stub['store'] . '/requests.log'));
+        $this->stopOAuthStub();
+
+        // Rate limit and server fault are indeterminate on the Facebook path too.
+        foreach (['429', '500'] as $script) {
+            $stub = $this->startOAuthStub(8124, ['KIP_OAUTH_STUB_PROBE' => $script]);
+            $p = new OAuthProvider('facebook', $this->config($stub, ['shape' => 'facebook', 'pkce' => false,
+                'token_url' => $stub['base'] . '/fbtoken']), new Session($store));
+            $this->assertNull($p->probe(), "a {$script} must never blink the provider off");
+            $this->stopOAuthStub();
+        }
+    }
+
+    public function test_probe_verdict_edges_a_2xx_is_healthy_and_non_oauth_or_outage_answers_stay_indeterminate(): void
+    {
+        $store = [];
+        // 2xx: the token endpoint answered success, credentials passed.
+        $stub = $this->startOAuthStub(8125, ['KIP_OAUTH_STUB_PROBE' => 'ok']);
+        $p = new OAuthProvider('google', $this->config($stub), new Session($store));
+        $this->assertTrue($p->probe());
+        $this->stopOAuthStub();
+
+        // A reverse proxy's plain-text 404 carries no OAuth shape: it proves
+        // nothing about the credentials and must not read as healthy.
+        $stub = $this->startOAuthStub(8126, ['KIP_OAUTH_STUB_PROBE' => 'html_404']);
+        $p = new OAuthProvider('google', $this->config($stub), new Session($store));
+        $this->assertNull($p->probe(), 'a non-OAuth 4xx is indeterminate, never healthy');
+        $this->stopOAuthStub();
+
+        // A 5xx whose body echoes invalid_client is an outage, not a verdict.
+        $stub = $this->startOAuthStub(8127, ['KIP_OAUTH_STUB_PROBE' => '500_invalid_client']);
+        $p = new OAuthProvider('google', $this->config($stub), new Session($store));
+        $this->assertNull($p->probe(), 'a 5xx stays indeterminate whatever its body says');
+    }
+
+    public function test_discord_shape_without_email_markers_is_attach_only(): void
+    {
+        // No email scope granted: Discord omits both markers. The identity still
+        // maps (uid), but it can only attach to a signed-in account.
+        // 'omit' is the explicit switch: an empty env value never survives proc_open.
+        $stub = $this->startOAuthStub(8128, ['KIP_OAUTH_STUB_USER' => '42', 'KIP_OAUTH_STUB_ID_KEY' => 'id',
+            'KIP_OAUTH_STUB_EMAIL' => '', 'KIP_OAUTH_STUB_VERIFIED' => 'omit']);
+        $store = [];
+        $p = new OAuthProvider('discord', $this->config($stub, ['shape' => 'discord', 'pkce' => true]), new Session($store));
+        [$identity] = $this->dance($p, $store);
+        $this->assertSame('42', $identity['uid']);
+        $this->assertNull($identity['email']);
+        $this->assertFalse($identity['verified']);
     }
 
     public function test_the_token_endpoint_answers_form_encoded_without_the_accept_header(): void

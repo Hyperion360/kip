@@ -17,7 +17,8 @@
 //   KIP_OAUTH_STUB_PKCE        1 to require a S256 challenge at authorize
 //   KIP_OAUTH_STUB_USER        the subject this IdP answers for
 //   KIP_OAUTH_STUB_EMAIL       the account email it reports (unset or '' omits the field, like the real providers)
-//   KIP_OAUTH_STUB_VERIFIED    1 when the email reports verified ('' omits the marker entirely)
+//   KIP_OAUTH_STUB_VERIFIED    1 when the email reports verified; 'omit' leaves the marker out entirely
+//                              (an empty value never reaches the stub: proc_open drops empty env, so a word is the switch)
 //   KIP_OAUTH_STUB_ID_KEY      the userinfo id field name ('sub' default, 'id' for the Discord/Facebook shapes)
 //   KIP_OAUTH_STUB_ID_TOKEN    the id_token the token response carries: a JSON response gains it verbatim, and the
 //                              client secret check then also accepts a well-formed three-segment JWT (three non-empty
@@ -27,7 +28,8 @@
 //   KIP_OAUTH_STUB_ALT_EMAIL   a secondary non-primary address on /user/emails
 //   KIP_OAUTH_STUB_POISON      1 to answer /userinfo with a 302 (the client must refuse)
 //   KIP_OAUTH_STUB_PROBE       when set, /token and /fbtoken skip the flow and answer the scripted probe shape:
-//                              invalid_grant (400 error object), invalid_client (401), 429, 500, fb_ok (200 with an
+//                              invalid_grant (400 error object), invalid_client (401), 429, 500, 500_invalid_client
+//                              (500 whose body echoes invalid_client), ok (200 token body), fb_ok (200 with an
 //                              app access token), fb_bad (400 error object)
 //   KIP_OAUTH_STUB_STORE       directory codes and the request log live in
 
@@ -97,6 +99,9 @@ $probeAnswer = static function () use ($probe, $json, $fail): void {
         'invalid_client' => $json(['error' => 'invalid_client'], 401),
         '429' => $json(['error' => 'slow_down'], 429),
         '500' => $json(['error' => 'invalid_request'], 500),
+        '500_invalid_client' => $json(['error' => 'invalid_client'], 500), // an outage echoing the upstream error
+        'ok' => $json(['access_token' => 'probe-token', 'token_type' => 'Bearer']),
+        'html_404' => $fail(404, 'nothing here'), // a reverse proxy's plain-text 404, no OAuth shape
         'fb_ok' => $json(['access_token' => 'probe-app-token', 'token_type' => 'Bearer']),
         'fb_bad' => $json(['error' => ['message' => 'Error validating application', 'type' => 'OAuthException', 'code' => 101]], 400),
         default => $fail(500, 'unknown probe script ' . $probe),
@@ -187,9 +192,10 @@ if ($path === '/token') {
 }
 
 if ($path === '/fbtoken') {
-    // Facebook's app-token endpoint: the probe GETs it with the
-    // client_credentials grant, so the tests point the configured token URL
-    // here and the scripted probe answers for it.
+    // Facebook's app-token endpoint: the probe POSTs the client_credentials
+    // grant to it (never a GET: the secret would land in request logs), so
+    // the tests point the configured token URL here and the scripted probe
+    // answers for it.
     $probeAnswer();
     $fail(404, 'fbtoken answers only a scripted probe');
 }
@@ -221,7 +227,7 @@ if ($path === '/userinfo') {
     // the Facebook situation.
     $payload = [$idKey => $user];
     if ($email !== '') $payload['email'] = $email;
-    if ($verifiedRaw !== '') {
+    if ($verifiedRaw !== '' && $verifiedRaw !== 'omit') {
         $payload['email_verified'] = $verified;
         $payload['verified'] = $verified;
     }
