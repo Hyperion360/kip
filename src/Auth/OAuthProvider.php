@@ -159,13 +159,14 @@ final class OAuthProvider
      * @param array<string, mixed> $merged */
     private static function keyOf(array $merged): ?string
     {
-        if (is_string($merged['apple_key'] ?? null) && $merged['apple_key'] !== '') return $merged['apple_key'];
-        $path = $merged['apple_key_file'] ?? null;
-        if (is_string($path) && $path !== '') {
-            $pem = @file_get_contents($path);
-            if (is_string($pem) && $pem !== '') return $pem;
+        // One resolver (AppleSecret::pem) owns the spellings and precedence; an
+        // unreadable configured file is reported as exactly that, not as
+        // "missing key material".
+        try {
+            return AppleSecret::pem($merged);
+        } catch (\RuntimeException) {
+            return null; // unreadable at construction or readiness: treated as absent, mint() names the cause when it runs
         }
-        return null;
     }
 
     /**

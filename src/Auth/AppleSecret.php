@@ -32,14 +32,8 @@ final class AppleSecret
                 throw new \InvalidArgumentException("Apple sign-in config key '{$key}' is required");
             }
         }
-        $pem = $config['apple_key'] ?? null;
-        if (is_string($config['apple_key_file'] ?? null) && $config['apple_key_file'] !== '') {
-            $pem = @file_get_contents((string) $config['apple_key_file']);
-            if ($pem === false) {
-                throw new \RuntimeException('cannot read the Apple signing key file');
-            }
-        }
-        if (!is_string($pem) || $pem === '') {
+        $pem = self::pem($config);
+        if ($pem === null) {
             throw new \InvalidArgumentException("Apple sign-in needs 'apple_key' (PEM text) or 'apple_key_file'");
         }
         if (!extension_loaded('openssl')) {
@@ -64,6 +58,27 @@ final class AppleSecret
             throw new \RuntimeException('the Apple client-secret signature failed');
         }
         return $segments[0] . '.' . $segments[1] . '.' . self::b64(self::derToRaw($der));
+    }
+
+    /**
+     * The one resolver for Apple key material, shared with OAuthProvider's
+     * construction and readiness checks so the two spellings and their
+     * precedence can never drift: literal `apple_key` PEM text wins, else the
+     * `apple_key_file` path is read. Null when neither yields bytes; a path
+     * that is configured but unreadable throws, naming the real cause.
+     *
+     * @param array<string, mixed> $config
+     */
+    public static function pem(array $config): ?string
+    {
+        if (is_string($config['apple_key'] ?? null) && $config['apple_key'] !== '') return $config['apple_key'];
+        $path = $config['apple_key_file'] ?? null;
+        if (!is_string($path) || $path === '') return null;
+        $pem = @file_get_contents($path);
+        if ($pem === false) {
+            throw new \RuntimeException('cannot read the Apple signing key file');
+        }
+        return $pem !== '' ? $pem : null;
     }
 
     /**
