@@ -390,6 +390,7 @@ final class OAuthStubTest extends TestCase
             $stub = $this->startOAuthStub(8117, ['KIP_OAUTH_STUB_PKCE' => '0', 'KIP_OAUTH_STUB_ID_TOKEN' => $b64(['alg' => 'ES256']) . '.' . $b64($claims) . '.x']);
             $store = [];
             $p = new OAuthProvider('apple', $this->config($stub, ['shape' => 'apple', 'pkce' => false,
+                'params' => ['response_mode' => 'query'],
                 'apple_team_id' => 'T', 'apple_key_id' => 'K', 'apple_key' => $pem]), new Session($store));
             $url = $p->start();
             [$code, $state] = $this->followAuthorize($url);
