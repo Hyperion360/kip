@@ -363,7 +363,10 @@ final class OAuthStubTest extends TestCase
         // no key material (not even a placeholder) ever lives in a tracked file.
         $key = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
         $this->assertTrue(openssl_pkey_export($key, $pem));
+        // response_mode=query keeps this wire test on the 302 dance the harness
+        // drives; the shipped preset pins form_post (proven live in the skeleton).
         $p = new OAuthProvider('apple', $this->config($stub, ['shape' => 'apple', 'pkce' => false,
+            'params' => ['response_mode' => 'query'],
             'apple_team_id' => 'T', 'apple_key_id' => 'K', 'apple_key' => $pem]), new Session($store));
         [$identity] = $this->dance($p, $store);
         $this->assertSame('001234.abcdef.5678', $identity['uid']);
