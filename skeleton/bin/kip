@@ -263,14 +263,14 @@ try {
         // scripts and deploys gate on it.
         $oauth = $config['oauth'] ?? [];
         $providers = is_array($oauth) ? ($oauth['providers'] ?? []) : [];
-        $probeOn = !is_array($oauth) || ($oauth['probe'] ?? null) !== false;
+        $probeOn = Kip\Auth\OAuthHealth::probeEnabled($oauth);
         if ($providers === []) { echo "No OAuth providers configured.\n"; return; }
-        $base = rtrim((string) ($config['base_url'] ?? ''), '/');
+        // The same normalizer the skeleton controller's gate reads, so this
+        // report and the login page can never disagree on what is configured.
+        $entries = Kip\Auth\OAuthHealth::entries($oauth, (string) ($config['base_url'] ?? ''));
         $checked = 0;
         $failed = 0;
-        foreach ($providers as $name => $entry) {
-            if (!Kip\Auth\OAuthProvider::configured((string) $name, $entry)) continue;
-            $entry['redirect_uri'] = $base . '/oauth/callback/' . $name;
+        foreach ($entries as $name => $entry) {
             $checked++;
             // A provider name is operator config, not attacker input, but it is
             // printed to a terminal: strip control bytes the way kip db does.

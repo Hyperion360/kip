@@ -51,6 +51,36 @@ final class OAuthHealth
         }
     }
 
+    /**
+     * The one normalizer for the 'oauth' config block: every provider entry
+     * that passes OAuthProvider::configured(), with its redirect URI pinned
+     * from base_url. The skeleton controller (flow, gate, views) and the
+     * oauth:check CLI read this, so a provider is offered, routed, probed and
+     * reported on identical facts.
+     *
+     * @param mixed $oauth the 'oauth' config value (array with 'providers', or anything else)
+     * @return array<string, array<string, mixed>>
+     */
+    public static function entries(mixed $oauth, string $baseUrl): array
+    {
+        $providers = is_array($oauth) && is_array($oauth['providers'] ?? null) ? $oauth['providers'] : [];
+        $base = rtrim($baseUrl, '/');
+        $entries = [];
+        foreach ($providers as $name => $entry) {
+            if (OAuthProvider::configured((string) $name, $entry)) {
+                $entry['redirect_uri'] = $base . '/oauth/callback/' . $name;
+                $entries[(string) $name] = $entry;
+            }
+        }
+        return $entries;
+    }
+
+    /** Whether the live probe is on for this 'oauth' config block (anything but an explicit false). */
+    public static function probeEnabled(mixed $oauth): bool
+    {
+        return !is_array($oauth) || ($oauth['probe'] ?? null) !== false;
+    }
+
     /** The configured provider names whose credentials currently pass.
      * @return list<string> */
     public function ready(): array

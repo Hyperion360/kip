@@ -78,17 +78,7 @@ final class OauthController
      */
     private function entries(): array
     {
-        $oauth = $this->app->config('oauth');
-        $providers = is_array($oauth) ? ($oauth['providers'] ?? []) : [];
-        $base = rtrim((string) $this->app->config('base_url', ''), '/');
-        $entries = [];
-        foreach ($providers as $name => $entry) {
-            if (OAuthProvider::configured((string) $name, $entry)) {
-                $entry['redirect_uri'] = $base . '/oauth/callback/' . $name;
-                $entries[(string) $name] = $entry;
-            }
-        }
-        return $entries;
+        return \Kip\Auth\OAuthHealth::entries($this->app->config('oauth'), (string) $this->app->config('base_url', ''));
     }
 
     private function health(): \Kip\Auth\OAuthHealth
@@ -100,7 +90,7 @@ final class OauthController
             try { $cache = new \Kip\Database($dsn); } catch (\Throwable) { $cache = null; } // an unwritable cache degrades to per-request memory, never a failed login page
         }
         $oauth = $this->app->config('oauth');
-        return $this->oauthHealth = new \Kip\Auth\OAuthHealth($cache, $this->entries(), !is_array($oauth) || ($oauth['probe'] ?? null) !== false);
+        return $this->oauthHealth = new \Kip\Auth\OAuthHealth($cache, $this->entries(), \Kip\Auth\OAuthHealth::probeEnabled($oauth));
     }
 
     /**
