@@ -118,6 +118,7 @@ final class Router
         $declarers = self::declarers(new \ReflectionClass($class));
         $requiresAuth = self::hasAttributeIn($declarers, $action, 'Auth');
         $isJson = self::hasAttributeIn($declarers, $action, 'Json');
+        $crossSite = self::hasAttributeIn($declarers, $action, 'CrossSite');
         $allowed = self::verbsIn($declarers, $action) ?: ['GET'];
         if (!in_array($requestMethod, $allowed, true)) {
             // The route exists but the verb is wrong. That's a 405, not a 404 (review 9A)
@@ -125,7 +126,7 @@ final class Router
         }
 
         $policy = self::authPolicyIn($declarers, $action);
-        return new RouteMatch($class, $action, $args, $requiresAuth, $isJson, $policy);
+        return new RouteMatch($class, $action, $args, $requiresAuth, $isJson, $policy, $crossSite);
     }
 
     /**

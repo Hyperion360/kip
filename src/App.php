@@ -425,7 +425,11 @@ final class App
                 if ($match->requiresAuth) {
                     // Ambient authority at stake: the session token is mandatory (v0.2 T2).
                     if (!$tokenOk) return new Response('Invalid or missing CSRF token', 403);
-                } elseif (!$tokenOk && !$this->sameOriginProof($request)) {
+                } elseif (!$tokenOk && !$match->crossSite && !$this->sameOriginProof($request)) {
+                    // #[CrossSite] marks a guest action whose one real caller IS
+                    // cross-site (an OAuth provider form-posting the code back) and
+                    // that proves the request itself with a session-bound single-use
+                    // state; the origin proof would reject exactly that caller.
                     return new Response('Cross-site request rejected', 403);
                 }
                 // A #[Json] route whose body claims a JSON media type but does not

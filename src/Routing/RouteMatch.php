@@ -24,6 +24,7 @@ final class RouteMatch
         public readonly bool $requiresAuth,
         public readonly bool $json = false,
         public readonly ?string $policy = null,
+        public readonly bool $crossSite = false,
     ) {}
 
     public function invoke(Container $scope): mixed

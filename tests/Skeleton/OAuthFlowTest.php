@@ -44,6 +44,10 @@ final class OAuthFlowTest extends TestCase
      */
     private function boot(array $stubEnv = [], array $configExtra = []): void
     {
+        // The cache-less readiness memo is process-wide and every test here
+        // names its provider 'test': a fresh boot must not inherit the last
+        // test's verdict.
+        \Kip\Auth\OAuthHealth::resetClaims();
         $stub = $this->startOAuthStub(self::PORT, $stubEnv);
         $config = [
             'env' => 'dev',
@@ -235,6 +239,45 @@ final class OAuthFlowTest extends TestCase
         $this->assertSame(302, $post->status, 'form_post callbacks route: no 405');
         $this->assertStringContainsString('/auth/login?oauth=failed', (string) $post->headers['Location']);
         $this->assertSame('no-store', $post->headers['Cache-Control'] ?? '', 'the hardened response either verb');
+    }
+
+    public function test_a_real_browser_form_post_callback_passes_the_kernel_and_a_forged_state_is_still_refused(): void
+    {
+        // Apple form-posts the code back from appleid.apple.com: a cross-site
+        // POST that carries Sec-Fetch-Site: cross-site and a foreign Origin.
+        // The kernel's same-origin proof would 403 exactly that caller, so the
+        // callback is #[CrossSite]: the kernel admits it and the session-bound
+        // single-use state is the proof. A forged state still lands on the
+        // clean login redirect, never a 403 and never a session.
+        $this->boot();
+        $crossSite = ['sec-fetch-site' => 'cross-site', 'origin' => 'https://appleid.apple.com'];
+        $post = $this->client->post('/oauth/callback/test', ['state' => 'forged', 'code' => 'nope'], $crossSite);
+        $this->assertSame(302, $post->status, 'the kernel admits the cross-site form_post; the controller decides');
+        $this->assertStringContainsString('/auth/login?oauth=failed', (string) $post->headers['Location']);
+        $this->assertNull($this->client->session->get('user_id'), 'a forged state never logs anyone in');
+
+        // Control: a cross-site POST to a route WITHOUT #[CrossSite] is still refused.
+        $other = $this->client->post('/auth/attempt', ['email' => 'a@b.c', 'password' => 'x'], $crossSite);
+        $this->assertSame(403, $other->status, 'the exemption is per action, the rest of the app keeps its origin proof');
+    }
+
+    public function test_probe_off_renders_the_button_without_any_network_call(): void
+    {
+        // The air-gapped escape hatch: 'probe' => false means config-complete IS
+        // ready, and the stub must never hear a probe. The scripted failure
+        // proves the probe would have hidden the button had it run.
+        $this->boot(['KIP_OAUTH_STUB_PROBE' => 'invalid_client'], ['oauth' => ['probe' => false, 'providers' => [
+            'test' => [
+                'client_id' => 'stub-client', 'client_secret' => 'stub-secret',
+                'authorize_url' => 'http://127.0.0.1:' . self::PORT . '/authorize',
+                'token_url' => 'http://127.0.0.1:' . self::PORT . '/token',
+                'user_url' => 'http://127.0.0.1:' . self::PORT . '/userinfo',
+            ],
+        ]]]);
+        $login = $this->client->get('/auth/login');
+        $this->assertStringContainsString('oauth/start/test', (string) $login->body, 'probe off: a configured provider renders');
+        $log = $this->oauthStub['store'] . '/requests.log';
+        $this->assertFalse(is_file($log) && str_contains((string) file_get_contents($log), 'POST /token'), 'probe off: no network call at all');
     }
 
     public function test_the_two_bundled_bins_stay_byte_identical(): void

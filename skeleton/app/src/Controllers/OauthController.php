@@ -31,12 +31,7 @@ final class OauthController
      */
     public function enabled(): array
     {
-        $health = $this->health();
-        $names = [];
-        foreach ($this->entries() as $name => $entry) {
-            if ($health->healthy($name, $entry)) $names[] = $name;
-        }
-        return $names;
+        return $this->health()->ready(); // the gate's own notion of ready, one implementation
     }
 
     /** GET /oauth/start/{provider}: away to the provider, principal recorded. */
@@ -50,6 +45,7 @@ final class OauthController
     /** GET or POST /oauth/callback/{provider}: the login-or-register policy. POST is Apple's form_post. */
     #[\Kip\Routing\Get]
     #[\Kip\Routing\Post]
+    #[\Kip\Routing\CrossSite]
     public function callback(string $provider): Response
     {
         $client = $this->client($provider);
