@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-26
+
+### Added
+- Auth::resume() establishes a session for a user the app already authenticated by its own policy, the seam app-owned OAuth gates call after their checks
+- Discord, Facebook, and Apple sign-in with per-provider presets and a readiness gate: buttons render only while credentials pass a live probe (kip oauth:check), Apple authenticates with a per-request ES256 client-secret JWT and no signature-checked id_token is ever accepted from the front channel
+
 ## [0.5.1] - 2026-10-25
 
 ### Added
