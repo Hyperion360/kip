@@ -272,14 +272,17 @@ try {
             if (!Kip\Auth\OAuthProvider::configured((string) $name, $entry)) continue;
             $entry['redirect_uri'] = $base . '/oauth/callback/' . $name;
             $checked++;
-            if (!$probeOn) { printf("%-12s %s\n", $name, 'CONFIGURED (probe off)'); continue; }
+            // A provider name is operator config, not attacker input, but it is
+            // printed to a terminal: strip control bytes the way kip db does.
+            $shown = preg_replace('/[\x00-\x1f\x7f]+/', ' ', (string) $name);
+            if (!$probeOn) { printf("%-12s %s\n", $shown, 'CONFIGURED (probe off)'); continue; }
             try {
                 $sessionData = []; // Session takes its array by reference, so a variable, not a literal
                 $verdict = (new Kip\Auth\OAuthProvider((string) $name, $entry, new Kip\Session($sessionData)))->probe();
             } catch (\Throwable) {
                 $verdict = null; // a broken entry reports INDETERMINATE, not a stack trace
             }
-            printf("%-12s %s\n", $name, $verdict === true ? 'READY' : ($verdict === false ? 'FAILING' : 'INDETERMINATE'));
+            printf("%-12s %s\n", $shown, $verdict === true ? 'READY' : ($verdict === false ? 'FAILING' : 'INDETERMINATE'));
             if ($verdict !== true) $failed++;
         }
         if ($checked === 0) { echo "No OAuth providers fully configured.\n"; exit(1); }

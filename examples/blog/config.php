@@ -20,7 +20,7 @@ return [
     // The session cookie's SameSite attribute: Lax (default), Strict, or None.
     // None forces the Secure flag; hosts enabling Sign in with Apple need it
     // because Apple's form_post callback is a cross-site POST.
-    'session_cookie_samesite' => 'Lax',
+    'session_cookie_samesite' => getenv('KIP_SESSION_SAMESITE') ?: 'Lax',
     // "Sign in with a provider" (guide ch. 6). A provider's button appears on
     // the login page only while its credentials are configured AND pass the
     // readiness probe (Kip\Auth\OAuthHealth); 'probe' => false trades the live

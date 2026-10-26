@@ -119,6 +119,12 @@ that logic.
   `X-Forwarded-For`/`X-Forwarded-Proto`. Read [chapter 6](06-security.md)
   before flipping this on. The wrong hop being trusted breaks the login
   throttle's IP-based key.
+- **`KIP_SESSION_SAMESITE`**, read by the two shipped apps' `config.php`
+  into `session_cookie_samesite`: `Lax` (the default), `Strict`, or `None`.
+  `None` forces the Secure cookie flag, so the site must serve https; it is
+  the setting Sign in with Apple needs, because Apple form-posts its
+  callback cross-site ([chapter 6](06-security.md)). Any other value
+  refuses to start, naming the three legal ones.
 - **`KIP_DATA_DIR`**, read by the two shipped apps' `config.php` (not
   the framework itself) to point all three SQLite databases at one
   writable directory outside the app, instead of `app/` beside

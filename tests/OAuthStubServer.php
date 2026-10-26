@@ -26,6 +26,15 @@ trait OAuthStubServer
      */
     protected function startOAuthStub(int $port, array $env = []): array
     {
+        // An orphan from an aborted run (a failing assertion skips the stop)
+        // still listens here with ITS env, so a fresh start would silently
+        // talk to the wrong stub and every later test on the port fails for
+        // the wrong reason. Refuse loudly with the remedy instead.
+        $orphan = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.25);
+        if ($orphan !== false) {
+            fclose($orphan);
+            throw new \RuntimeException("port {$port} is already taken, an orphaned OAuth stub from an earlier run; free it (lsof -ti :{$port} | xargs kill) and rerun");
+        }
         $router = __DIR__ . '/Fixtures/oauth-stub.php';
         $store = sys_get_temp_dir() . '/kip-oauth-stub-' . bin2hex(random_bytes(4));
         mkdir($store . '/codes', 0777, true);
