@@ -46,3 +46,6 @@ docs/superpowers/
 # workspace-private tooling and design canvases
 .zcodeignore
 Kip admin panel design/
+
+# private working memory (local-only)
+TODOS.md
