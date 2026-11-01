@@ -504,7 +504,17 @@ final class App
             return new Response((string) $result);
         } catch (\Kip\Routing\MethodNotAllowedException $e) {
             // A guest learns nothing about a gated route: the same redirect a right-verb request gets.
-            if ($e->requiresAuth && !$this->authSessionValid($active)) return Response::redirect('/auth/login');
+            if ($e->requiresAuth && !$this->authSessionValid($active)) {
+                if ($this->config['guest_verb_mismatch_as_404'] ?? false) {
+                    // Opt-in: the guest gets exactly what an unknown path gets, hook included.
+                    try {
+                        return $this->notFoundResponse($request);
+                    } catch (\Throwable $inner) {
+                        return $this->errorResponse($inner, $request);
+                    }
+                }
+                return Response::redirect('/auth/login');
+            }
             return (new Response('Method not allowed', 405))->withHeader('Allow', $e->getMessage()); // review 9A
         } catch (\Throwable $e) {
             return $this->errorResponse($e, $request);

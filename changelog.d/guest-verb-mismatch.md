@@ -1,0 +1,1 @@
+Added: opt-in config key guest_verb_mismatch_as_404, which answers an anonymous request with an unsupported verb on an #[Auth] route with the same 404 as an unknown path (through the App::notFound() hook when registered); default behaviour is unchanged

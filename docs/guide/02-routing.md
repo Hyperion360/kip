@@ -280,6 +280,23 @@ itself; a redirect is usually right for GET and HEAD only. Register it once per
 handler becomes the standard 500, and a return value that is neither `Response`
 nor `null` is a `LogicException`.
 
+### Hiding gated routes from anonymous callers
+
+By default an anonymous request to a gated route (`#[Auth]`) with an
+unsupported verb gets the login redirect, and a logged-in caller gets a 405
+with an `Allow` header. Either answer differs from an unknown path, so a
+caller can tell that the route exists. Set `'guest_verb_mismatch_as_404' => true`
+in the app config to answer that anonymous request exactly as an unknown path
+is answered: the `App::notFound()` hook if one is registered, else the standard
+404 with no `Allow` header. The default is `false` and nothing changes unless
+you opt in.
+
+The trade-off: an anonymous browser that mistypes the verb on a gated route
+(a GET to a POST-only action) sees a 404 instead of being sent to log in, and
+the gated route's GET behaviour (the login redirect) still differs from a 404,
+so this closes the verb-mismatch signal only. Logged-in callers and routes
+that are not gated keep the 405.
+
 ## How it works
 
 `Router::match(Request $request): ?RouteMatch` returns `null` on a 404

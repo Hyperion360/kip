@@ -490,6 +490,15 @@ Hosts without outbound network at boot time set
 only, and a fully configured provider's button renders without any
 network call.
 
+## Keeping gated routes from confirming themselves
+
+A wrong-verb request to a gated route normally gets the login redirect (when
+anonymous) or a 405 with `Allow` (when logged in), both of which differ from an
+unknown path. For apps that treat route existence as sensitive, set
+`'guest_verb_mismatch_as_404' => true` and an anonymous caller gets the same
+404 as for any unknown path. Details and the trade-off are in
+[routing](02-routing.md#hiding-gated-routes-from-anonymous-callers).
+
 ## Credentials are POST-only
 
 `Request::postStr()` reads only `$_POST`, never falling back to
