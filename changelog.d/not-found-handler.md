@@ -1,0 +1,1 @@
+Added: App::notFound(callable $handler), a hook for requests that match no route (including dotted or capitalised paths the convention grammar skips); the handler receives the Request and returns a Response or null for the standard 404, so an application can redirect legacy URLs; it runs after the rate limiter, never for matched routes or 405s

@@ -253,10 +253,37 @@ rate limiter's `'*'` fallback, which the convention grammar would otherwise
 skip. A path no pattern matches goes to convention matching untouched, and
 dots stay a 404 there.
 
+## Handling unmatched paths
+
+Dotted and capitalised paths such as `/old.html` or `/About` never reach
+convention matching, so an application cannot redirect legacy URLs from a
+controller. `App::notFound()` is the hook for that. It takes one callable that
+receives the `Request` and returns a `Response`, or `null` to fall through to
+the standard 404:
+
+```php
+$app->notFound(function (Request $request): ?Response {
+    return match ($request->path) {
+        '/old.html', '/About' => Response::redirect('/about', 301),
+        default => null,
+    };
+});
+```
+
+The handler runs for any request that matches no route, after routing fails
+and before the 404 is built. It does not run for a matched route or for a 405.
+The rate limiter runs first, as for any request, and the response leaves
+through the same path as every other, so headers added to responses apply to
+it. The handler sees every verb (GET, HEAD, POST and the rest) and decides for
+itself; a redirect is usually right for GET and HEAD only. Register it once per
+`App`; a second call throws `LogicException`. An exception thrown by the
+handler becomes the standard 500, and a return value that is neither `Response`
+nor `null` is a `LogicException`.
+
 ## How it works
 
 `Router::match(Request $request): ?RouteMatch` returns `null` on a 404
-(handled by `App::process()` as `new Response('Page not found', 404)`),
+(handled by `App::process()`: the `App::notFound()` hook if one is registered, else `new Response('Page not found', 404)`),
 throws `MethodNotAllowedException` on a verb mismatch (caught by
 `App::process()` and turned into the 405), or returns a `RouteMatch`, the
 resolved class, method, args, and whether `#[Auth]` was present. `App`

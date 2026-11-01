@@ -22,6 +22,8 @@ final class App
     private bool $deferFallbackArmed = false;
     /** @var array<string, \Closure> named authorization policies, registered once per App via policy() */
     private array $policies = [];
+    /** @var (\Closure(Request): ?Response)|null app hook for requests that match no route, set once via notFound() */
+    private ?\Closure $notFoundHandler = null;
 
     /** @param array<string, mixed> $config */
     public function __construct(private array $config, ?Session $session = null)
@@ -238,6 +240,25 @@ final class App
         $this->router->route($pattern, $controller, $action);
     }
 
+    /**
+     * Register the hook for requests that match no route: paths the convention
+     * grammar skips (dots, capitals) and plain unknown paths alike. The handler
+     * receives the Request and returns a Response (a legacy-URL redirect, say)
+     * or null to fall through to the standard 404. It runs after routing fails
+     * and after the rate limiter, before the 404 is built; it does not run for
+     * matched routes or for 405s. It sees every verb and decides for itself.
+     * One handler per App; a second registration is an error.
+     *
+     * @param callable(Request): ?Response $handler
+     */
+    public function notFound(callable $handler): void
+    {
+        if ($this->notFoundHandler !== null) {
+            throw new \LogicException('A not-found handler is already registered; there is one per App');
+        }
+        $this->notFoundHandler = \Closure::fromCallable($handler);
+    }
+
     public function config(string $key, mixed $default = null): mixed
     {
         return $this->config[$key] ?? $default;
@@ -418,7 +439,7 @@ final class App
                 }
             }
             $match = $this->router->match($request);
-            if ($match === null) return new Response('Page not found', 404);
+            if ($match === null) return $this->notFoundResponse($request);
             // Review 1A + 7A: request state (Request AND Session) lives in a
             // per-request scope, never the long-lived container, worker-mode
             // guarantee (D7). The boot Session alone would go stale under a
@@ -490,6 +511,17 @@ final class App
         } finally {
             if ($db !== null && $db->transactionDepth() > $depth) $db->rollBackToDepth($depth);
         }
+    }
+
+    /** The app's not-found hook gets the first word; null (or no hook) is the standard 404. */
+    private function notFoundResponse(Request $request): Response
+    {
+        /** @var mixed $response userland code: trust the declared type only after checking it */
+        $response = $this->notFoundHandler !== null ? ($this->notFoundHandler)($request) : null;
+        if ($response !== null && !$response instanceof Response) {
+            throw new \LogicException('The not-found handler must return ?Response, got ' . get_debug_type($response));
+        }
+        return $response ?? new Response('Page not found', 404);
     }
 
     /**
