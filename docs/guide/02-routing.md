@@ -223,6 +223,36 @@ too few (fewer than the method's *required* parameters) both 404. A method
 with an optional parameter (`function show(string $id, string $tab = 'main')`)
 accepts either one or two trailing segments.
 
+## Pattern routes
+
+Convention cannot express `/blog/<slug>`, a top-level `/<slug>` page, or a
+dotted file name like `/sitemap.xml`. Register those explicitly with
+`App::route()` (or `Router::route()`); registered routes are checked before
+convention matching:
+
+```php
+$app->route('/sitemap.xml', FeedController::class, 'sitemap');
+$app->route('/blog/<slug>', PostController::class, 'show');
+$app->route('/<slug>', PageController::class, 'show');
+```
+
+A literal segment is lowercase letters and digits with single `-`, `_` or `.`
+separators, so `sitemap.xml` is legal. A `<name>` segment matches one segment
+in the convention grammar (lowercase letters, digits, single `-` or `_`) and
+arrives as a positional string argument, left to right. The first registered
+route that matches wins, so list specific patterns before broad ones
+(`/sitemap.xml` before `/<slug>`). Registration fails loudly on a bad
+pattern, an unknown controller or action, or a parameter count the action
+cannot accept.
+
+The target action is read exactly like a convention action: `#[Post]` and the
+other verb attributes, `#[Auth]`, `#[Json]`, `#[CrossSite]`, the 405 on a
+wrong verb, and HEAD served by GET. The login gate, CSRF check, and rate
+limiter run unchanged. A POST to a dotted pattern route is counted by the
+rate limiter's `'*'` fallback, which the convention grammar would otherwise
+skip. A path no pattern matches goes to convention matching untouched, and
+dots stay a 404 there.
+
 ## How it works
 
 `Router::match(Request $request): ?RouteMatch` returns `null` on a 404

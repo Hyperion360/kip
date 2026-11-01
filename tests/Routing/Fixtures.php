@@ -66,3 +66,16 @@ final class CatalogController
     public function index(): array { return ['catalog' => true]; }
     public function item(string $id): array { return ['id' => $id]; }
 }
+
+final class SitePagesController
+{
+    public function sitemap(): string { return 'sitemap'; }
+    public function rss(): string { return 'rss'; }
+    public function post(string $slug): string { return "post:$slug"; }
+    public function page(string $slug): string { return "page:$slug"; }
+    public function tagged(string $tag, string $page = '1'): string { return "tag:$tag:$page"; }
+    #[Post]
+    public function submit(string $slug): string { return "submit:$slug"; }
+    #[Auth]
+    public function secret(string $slug): string { return "secret:$slug"; }
+}

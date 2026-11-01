@@ -116,11 +116,12 @@ final class RateLimit
      * Returns null when the request is allowed (or no limit applies: the
      * prefix has no explicit entry and no '*' fallback is configured, which
      * never touches the database), or the Retry-After seconds when it is
-     * over the limit. The optional $now is the test clock
+     * over the limit. $routed marks a path an explicit pattern route owns
+     * (see the fallback gate in the body). The optional $now is the test clock
      * seam; production always passes nothing and reads the real clock once,
      * immediately before the upsert.
      */
-    public function check(string $path, string $ip, ?int $now = null): ?int
+    public function check(string $path, string $ip, ?int $now = null, bool $routed = false): ?int
     {
         $raw = self::firstSegmentOf($path);
         $prefix = Router::studly($raw);
@@ -143,10 +144,14 @@ final class RateLimit
             // within the prune grace. Explicit prefixes keep today's
             // semantics: a spelling that canonicalizes to a configured key
             // counts.
-            if ($raw !== '' && (strlen($raw) > self::MAX_FALLBACK_SEGMENT || preg_match(self::SEGMENT, $raw) !== 1)) {
+            // $routed: the router vouches that an explicit pattern route owns
+            // this path (its literals come from the app's own table, its
+            // parameters were checked against the segment grammar), so the
+            // convention grammar, which refuses dots, must not exempt it.
+            if ($raw !== '' && (strlen($raw) > self::MAX_FALLBACK_SEGMENT || (!$routed && preg_match(self::SEGMENT, $raw) !== 1))) {
                 return null;
             }
-            if (preg_match(self::PATH, $path) !== 1) {
+            if (!$routed && preg_match(self::PATH, $path) !== 1) {
                 return null;
             }
             $limit = $this->catchAll;

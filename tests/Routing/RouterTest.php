@@ -269,4 +269,137 @@ final class RouterTest extends TestCase
         // Billing\BillingController: the declared-name guard applies to the feature form too.
         $this->assertNull($r->match(new Request('GET', '/bil-ling', [], [], [])));
     }
+
+    // ------------------------------------------------------------ pattern routes
+
+    private function routed(): Router
+    {
+        $r = $this->router();
+        $r->route('/sitemap.xml', SitePagesController::class, 'sitemap');
+        $r->route('/rss.xml', SitePagesController::class, 'rss');
+        $r->route('/blog/<slug>', SitePagesController::class, 'post');
+        $r->route('/tag/<tag>/<page>', SitePagesController::class, 'tagged');
+        $r->route('/<slug>', SitePagesController::class, 'page');
+        return $r;
+    }
+
+    private function get(Router $r, string $path, string $verb = 'GET'): ?\Kip\Routing\RouteMatch
+    {
+        return $r->match(new Request($verb, $path, [], [], []));
+    }
+
+    public function test_dot_literal_paths_match_and_still_404_in_convention(): void
+    {
+        $r = $this->routed();
+        $this->assertSame('sitemap', $this->get($r, '/sitemap.xml')->invoke(new Container()));
+        $this->assertSame('rss', $this->get($r, '/rss.xml')->invoke(new Container()));
+        // The convention whitelist is untouched: no pattern, a dot is still a 404.
+        $this->assertNull($this->get($this->router(), '/sitemap.xml'));
+        $this->assertNull($this->get($r, '/sitemap.xmlx'));
+        $this->assertNull($this->get($r, '/sitemap.xml/'));
+        $this->assertNull($this->get($r, '/Sitemap.xml'));
+        $this->assertNull($this->get($r, '/other.xml'));
+    }
+
+    public function test_parameters_bind_left_to_right(): void
+    {
+        $r = $this->routed();
+        $this->assertSame('post:hello-world', $this->get($r, '/blog/hello-world')->invoke(new Container()));
+        $this->assertSame('tag:php:2', $this->get($r, '/tag/php/2')->invoke(new Container()));
+        $this->assertSame('page:about', $this->get($r, '/about')->invoke(new Container()));
+    }
+
+    public function test_pattern_beats_convention_when_both_match(): void
+    {
+        $r = $this->router();
+        $this->assertSame('list', $this->get($r, '/posts')->invoke(new Container()));
+        $r->route('/posts', SitePagesController::class, 'sitemap');
+        $this->assertSame('sitemap', $this->get($r, '/posts')->invoke(new Container()));
+        // Sibling convention paths the pattern does not cover still resolve by convention.
+        $this->assertSame('show:42', $this->get($r, '/posts/show/42')->invoke(new Container()));
+    }
+
+    public function test_first_registered_pattern_wins(): void
+    {
+        $r = $this->router();
+        $r->route('/<slug>', SitePagesController::class, 'page');
+        $r->route('/sitemap.xml', SitePagesController::class, 'sitemap');
+        // '/<slug>' cannot swallow the dotted path (a param is one NAME segment), so both coexist.
+        $this->assertSame('sitemap', $this->get($r, '/sitemap.xml')->invoke(new Container()));
+        $r2 = $this->router();
+        $r2->route('/blog/<slug>', SitePagesController::class, 'post');
+        $r2->route('/blog/<slug>', SitePagesController::class, 'page');
+        $this->assertSame('post:x', $this->get($r2, '/blog/x')->invoke(new Container()));
+    }
+
+    public function test_unmatched_paths_fall_through_to_convention_untouched(): void
+    {
+        $r = $this->routed();
+        $this->assertSame('show:42', $this->get($r, '/posts/show/42')->invoke(new Container()));
+        $this->assertSame('home', $this->get($r, '/')->invoke(new Container()));
+        $this->assertNull($this->get($r, '/posts/nope/1/2/3'));
+        $this->assertNull($this->get($r, '/blog/a/b'));
+        $this->assertNull($this->get($r, '/blog//x'));
+        $this->assertNull($this->get($r, '/blog/Hello'));
+        $this->assertNull($this->get($r, '/blog/he.llo'));
+        $this->assertNull($this->get($r, '/blog/..'));
+    }
+
+    public function test_pattern_routes_honor_verbs_auth_and_405(): void
+    {
+        $r = $this->router();
+        $r->route('/blog/<slug>/comments', SitePagesController::class, 'submit');
+        $r->route('/vault/<slug>', SitePagesController::class, 'secret');
+        $this->assertSame('submit:a', $this->get($r, '/blog/a/comments', 'POST')->invoke(new Container()));
+        try {
+            $this->get($r, '/blog/a/comments');
+            $this->fail('expected a 405');
+        } catch (\Kip\Routing\MethodNotAllowedException $e) {
+            $this->assertSame('POST', $e->getMessage());
+        }
+        $m = $this->get($r, '/vault/x');
+        $this->assertTrue($m->requiresAuth);
+        $this->assertFalse($this->get($r, '/blog/a/comments', 'POST')->requiresAuth);
+    }
+
+    public function test_head_is_served_by_a_pattern_get_route(): void
+    {
+        $this->assertSame('sitemap', $this->get($this->routed(), '/sitemap.xml', 'HEAD')->invoke(new Container()));
+    }
+
+    public function test_has_route_for_reports_patterns_only(): void
+    {
+        $r = $this->routed();
+        $this->assertTrue($r->hasRouteFor('/sitemap.xml'));
+        $this->assertTrue($r->hasRouteFor('/blog/x'));
+        $this->assertFalse($r->hasRouteFor('/posts/show/1'));
+        $this->assertFalse($r->hasRouteFor('/blog//x'));
+        $this->assertFalse($this->router()->hasRouteFor('/sitemap.xml'));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('badRegistrations')]
+    public function test_bad_registrations_fail_loud(string $pattern, string $class, string $action): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->router()->route($pattern, $class, $action);
+    }
+
+    /** @return array<string, array{string, string, string}> */
+    public static function badRegistrations(): array
+    {
+        $c = SitePagesController::class;
+        return [
+            'no leading slash' => ['blog', $c, 'page'],
+            'uppercase literal' => ['/Blog', $c, 'sitemap'],
+            'dot segment' => ['/..', $c, 'sitemap'],
+            'leading dot' => ['/.hidden', $c, 'sitemap'],
+            'double dot' => ['/a..b', $c, 'sitemap'],
+            'trailing slash' => ['/blog/', $c, 'sitemap'],
+            'repeated param' => ['/<a>/<a>', $c, 'tagged'],
+            'unknown class' => ['/x', 'Kip\\Tests\\Routing\\Nope', 'index'],
+            'unknown action' => ['/x', $c, 'nope'],
+            'too many params' => ['/<a>/<b>/<c>/<d>', $c, 'tagged'],
+            'too few params' => ['/x', $c, 'post'],
+        ];
+    }
 }

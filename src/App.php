@@ -226,6 +226,18 @@ final class App
     }
 
     /** Read-only config access for app code (base_url etc.). */
+    /**
+     * Register an explicit pattern route, checked before convention routing:
+     * `$app->route('/blog/<slug>', PostController::class, 'show')`. Literal
+     * segments may contain dots ('/sitemap.xml'). See Router::route().
+     *
+     * @param class-string $controller
+     */
+    public function route(string $pattern, string $controller, string $action = 'index'): void
+    {
+        $this->router->route($pattern, $controller, $action);
+    }
+
     public function config(string $key, mixed $default = null): mixed
     {
         return $this->config[$key] ?? $default;
@@ -400,7 +412,7 @@ final class App
             // plain body matches the framework's other error responses;
             // Retry-After says when the window resets.
             if ($this->rateLimit !== null && !in_array($request->method, ['GET', 'HEAD'], true)) {
-                $retryAfter = $this->rateLimit->check($request->path, $request->ip);
+                $retryAfter = $this->rateLimit->check($request->path, $request->ip, routed: $this->router->hasRouteFor($request->path));
                 if ($retryAfter !== null) {
                     return new Response('Too many requests', 429, ['Retry-After' => (string) $retryAfter]);
                 }

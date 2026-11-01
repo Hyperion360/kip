@@ -1,0 +1,1 @@
+Added: explicit pattern routes (App::route() and Router::route()) checked before convention matching, with parameters like /blog/<slug> and /<slug> and dotted literals like /sitemap.xml; verb attributes, #[Auth], CSRF and the rate limiter apply unchanged, and unmatched paths fall through to convention

@@ -55,8 +55,107 @@ final class Router
         private ?string $featureNamespace = null,
     ) {}
 
+    /**
+     * Explicit routes, checked in registration order BEFORE convention matching.
+     *
+     * @var list<array{segments: list<array{string, bool}>, class: class-string, action: string}>
+     */
+    private array $routes = [];
+
+    /**
+     * Register an explicit pattern route. The pattern is '/'-separated segments:
+     * a literal (lowercase letters, digits, and single '-', '_' or '.' separators,
+     * so 'sitemap.xml' and 'rss.xml' are legal) or a parameter written <name>,
+     * which matches one convention-grammar segment (Router::NAME) and is passed
+     * to the action as a positional string argument, left to right. The first
+     * registered route that matches wins, so list specific patterns before
+     * broader ones ('/sitemap.xml' before '/<slug>'). Verb attributes, #[Auth],
+     * #[Json] and #[CrossSite] on the target action are honored exactly as on a
+     * convention route. A path no pattern matches falls through to convention
+     * matching untouched.
+     *
+     * @param class-string $controller
+     */
+    public function route(string $pattern, string $controller, string $action = 'index'): void
+    {
+        if ($pattern === '/') {
+            $segments = [];
+        } else {
+            if (!str_starts_with($pattern, '/')) {
+                throw new \InvalidArgumentException("Route pattern \"{$pattern}\" must start with '/'");
+            }
+            $segments = [];
+            $names = [];
+            foreach (explode('/', substr($pattern, 1)) as $part) {
+                if (preg_match('/^<([a-z_][a-z0-9_]*)>$/D', $part, $m) === 1) {
+                    if (in_array($m[1], $names, true)) {
+                        throw new \InvalidArgumentException("Route pattern \"{$pattern}\" repeats the parameter <{$m[1]}>");
+                    }
+                    $names[] = $m[1];
+                    $segments[] = ['', true];
+                } elseif (preg_match('/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/D', $part) === 1) {
+                    $segments[] = [$part, false];
+                } else {
+                    throw new \InvalidArgumentException("Route pattern \"{$pattern}\" has an invalid segment \"{$part}\": use lowercase letters, digits, single '-', '_' or '.' separators, or <name>");
+                }
+            }
+        }
+        if (!class_exists($controller) || (new \ReflectionClass($controller))->getName() !== $controller) {
+            throw new \InvalidArgumentException("Route \"{$pattern}\" names controller {$controller}, which does not exist");
+        }
+        if (!method_exists($controller, $action)) {
+            throw new \InvalidArgumentException("Route \"{$pattern}\" names {$controller}::{$action}, which does not exist");
+        }
+        $method = new \ReflectionMethod($controller, $action);
+        if (!$method->isPublic() || str_starts_with($action, '__')) {
+            throw new \InvalidArgumentException("Route \"{$pattern}\" names {$controller}::{$action}, which is not a public action");
+        }
+        $params = count(array_filter($segments, static fn(array $s): bool => $s[1]));
+        if ($params > $method->getNumberOfParameters() || $params < $method->getNumberOfRequiredParameters()) {
+            throw new \InvalidArgumentException("Route \"{$pattern}\" captures {$params} parameter(s) but {$controller}::{$action} takes {$method->getNumberOfRequiredParameters()} to {$method->getNumberOfParameters()}");
+        }
+        $this->routes[] = ['segments' => $segments, 'class' => $controller, 'action' => $action];
+    }
+
+    /**
+     * True when a registered pattern matches the path (any verb). The rate
+     * limiter asks this so a dotted literal path, which the convention grammar
+     * (PATH) refuses, is still counted under its own bucket instead of
+     * slipping past the '*' fallback.
+     */
+    public function hasRouteFor(string $path): bool
+    {
+        return $this->matchRoute($path) !== null;
+    }
+
+    /** @return ?array{route: array{segments: list<array{string, bool}>, class: class-string, action: string}, args: list<string>} */
+    private function matchRoute(string $path): ?array
+    {
+        if ($this->routes === [] || $path === '' || $path[0] !== '/') return null;
+        // Empty segments mean '//' or a trailing slash: one canonical URL per page, as in convention.
+        $parts = $path === '/' ? [] : explode('/', substr($path, 1));
+        foreach ($this->routes as $route) {
+            if (count($route['segments']) !== count($parts)) continue;
+            $args = [];
+            foreach ($route['segments'] as $i => [$literal, $isParam]) {
+                if ($isParam) {
+                    if (preg_match(self::NAME, $parts[$i]) !== 1) continue 2;
+                    $args[] = $parts[$i];
+                } elseif ($parts[$i] !== $literal) {
+                    continue 2;
+                }
+            }
+            return ['route' => $route, 'args' => $args];
+        }
+        return null;
+    }
+
     public function match(Request $request): ?RouteMatch
     {
+        $explicit = $this->matchRoute($request->path);
+        if ($explicit !== null) {
+            return $this->resolve($request, $explicit['route']['class'], $explicit['route']['action'], $explicit['args']);
+        }
         // Lowercase-only (no i-flag), no consecutive slashes, no trailing slash:
         // /POSTS/SHOW/1, /posts//show/1 and /posts/1/ are all 404, one canonical
         // URL per page (reviews 9A, D15). Request stores the path as given, so a
@@ -95,6 +194,20 @@ final class Router
         if ($class === null) return null;
         if (!method_exists($class, $action)) return null;
 
+        return $this->resolve($request, $class, $action, $args);
+    }
+
+    /**
+     * The one place a resolved controller, action and argument list becomes a
+     * RouteMatch: arity checks, then the verb, #[Auth], #[Json], #[CrossSite]
+     * and policy reading. Convention and explicit routes both end here, so
+     * neither can drift from the other's security semantics.
+     *
+     * @param class-string $class
+     * @param list<string> $args
+     */
+    private function resolve(Request $request, string $class, string $action, array $args): ?RouteMatch
+    {
         $method = new \ReflectionMethod($class, $action);
         if (!$method->isPublic() || str_starts_with($action, '__')) return null;
         if (count($args) > $method->getNumberOfParameters()) return null;
