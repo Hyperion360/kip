@@ -227,7 +227,6 @@ final class App
         }
     }
 
-    /** Read-only config access for app code (base_url etc.). */
     /**
      * Register an explicit pattern route, checked before convention routing:
      * `$app->route('/blog/<slug>', PostController::class, 'show')`. Literal
@@ -259,6 +258,7 @@ final class App
         $this->notFoundHandler = \Closure::fromCallable($handler);
     }
 
+    /** Read-only config access for app code (base_url etc.). */
     public function config(string $key, mixed $default = null): mixed
     {
         return $this->config[$key] ?? $default;

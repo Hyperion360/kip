@@ -241,7 +241,10 @@ separators, so `sitemap.xml` is legal. A `<name>` segment matches one segment
 in the convention grammar (lowercase letters, digits, single `-` or `_`) and
 arrives as a positional string argument, left to right. The first registered
 route that matches wins, so list specific patterns before broad ones
-(`/sitemap.xml` before `/<slug>`). Registration fails loudly on a bad
+(`/sitemap.xml` before `/<slug>`). Pattern routes are checked before
+convention routes, so a broad pattern such as `/<slug>` shadows single-segment
+convention controllers like `/posts`, and it makes a POST to an unknown
+single-segment path answer 405 instead of 404. Registration fails loudly on a bad
 pattern, an unknown controller or action, or a parameter count the action
 cannot accept.
 
