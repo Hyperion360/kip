@@ -43,6 +43,9 @@ first time; after that, treat this as a reference you dip into.
     workflow for building Kip apps with AI coding agents: plan, review,
     execute, gate, building many features at once, and adding AI features
     to your app without dependencies.
+17. [Usability](17-usability.md): the usability contract: pages that answer
+    the reader's questions by eye, context inferred before it is asked for,
+    interaction as a cost, and state always visible.
 
 ## Companion pages
 

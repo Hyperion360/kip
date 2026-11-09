@@ -1,7 +1,7 @@
 # Kip: agent instructions
 
 Kip is a plain-PHP, batteries-included, server-rendered framework: PHP 8.3+,
-zero runtime dependencies, zero JavaScript, SQLite by default. Written and
+zero runtime dependencies, no JavaScript required, SQLite by default. Written and
 maintained by Danilo Stern-Sapad (https://danilosapad.com/) on behalf of
 Hyperion360 Inc (https://hyperion360.com/). MIT licensed.
 
@@ -25,8 +25,18 @@ the [user guide](docs/guide/README.md), [architecture](docs/architecture.md),
 
 - Root `composer.json` `require` stays exactly `{"php": ">=8.3", "ext-pdo": "*"}`.
   Zero runtime dependencies is a contract, not a current state.
-- Zero JavaScript: no build step, no bundler, no npm, ever. Every feature works
-  with scripting disabled.
+- JavaScript is enhancement only: every feature works with scripting disabled,
+  and no script is ever required to read, navigate, or submit.
+- Enhancement scripts are hand-written vanilla JavaScript: cross-browser,
+  safe for screen readers and keyboards, DRY, KISS, no third-party libraries
+  or frameworks, no build step, no bundler, no npm, no transpilation, ever.
+  This binds everything the repository ships; apps built on Kip set their
+  own rules.
+- Interface work follows the usability contract
+  ([docs/guide/17-usability.md](docs/guide/17-usability.md)): the page
+  answers the reader's questions by eye, context is inferred before it is
+  asked for, interaction is a cost paid only when it buys something, and
+  state is always visible.
 - Every framework class in `src/` is `final`, except `Kip\Migrations\Migration`,
   the abstract base your own migrations extend.
 - `skeleton/bin/kip` and `examples/blog/bin/kip` must stay byte-identical.

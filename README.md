@@ -4,8 +4,8 @@ Kip is a plain-PHP, batteries-included framework for server-rendered apps:
 you write PHP classes and templates, and Kip handles routing, sessions,
 auth, database migrations, caching, uploads, email, the audit log, and a
 schema-driven admin panel. It has **zero runtime dependencies** (Composer is
-used only for autoloading), **zero JavaScript**, and one dependency you
-already have: PHP 8.3+.
+used only for autoloading), **no JavaScript required**, and one dependency
+you already have: PHP 8.3+.
 
 Kip's deployment contract is part of the pitch: it runs unchanged on ordinary
 shared hosting (cPanel-style PHP 8.3 accounts) and on the cheapest VPS tier,
@@ -25,10 +25,15 @@ server, one SQLite database, HTML over the wire. If that is the kind of app
 you are building, whether it is your first or your fiftieth, Kip should feel
 like a head start.
 
-Zero JavaScript means the framework: no build step, no bundler, no npm, and
-every framework feature works with scripting disabled. Your app is free to
-add plain JavaScript where it earns its keep; the default Content-Security-
-Policy permits it, and Kip will never require a JS framework or ship one.
+No JavaScript is required: every framework feature works with scripting
+disabled. When a script earns its keep, it stays progressive enhancement:
+plain, hand-written vanilla JavaScript, DRY and KISS, cross-browser down to
+old browsers, safe for screen readers and keyboards, with no third-party
+libraries or frameworks. There is no build step, no bundler, no npm, and no
+transpilation: the file you write is the file the browser runs. Those rules
+bind everything this repository ships; your app may set its own. The default
+Content-Security-Policy permits scripts, and Kip will never require a JS
+framework or ship one.
 
 Kip grew out of a 2011 framework called MVC-Lite, written by
 [Danilo Stern-Sapad](https://danilosapad.com/); this is its modern
@@ -93,7 +98,7 @@ removable by deleting its `config.php` key. Absence means off.
 - **Audit log**: every request timed and logged to a separate database, with
   secret redaction.
 - **Admin panel**: schema-driven CRUD over your tables with masked secrets,
-  two-step deletes, and a strict allowlist. Zero JavaScript.
+  two-step deletes, and a strict allowlist. No JavaScript required.
 - **Uploads**: extension denylist *and* allowlist, magic-byte content checks,
   authoritative on-disk size, random names.
 - **Email**: SMTP (with STARTTLS peer verification and strict timeouts) or
@@ -111,9 +116,10 @@ removable by deleting its `config.php` key. Absence means off.
   exactly `php >= 8.3` and `ext-pdo`: zero packages, not merely few. The
   dependency list never grows; optional features may use bundled PHP
   extensions, never a package.
-- **Zero JavaScript, as a contract.** Every feature, including the admin
-  panel and two-step deletes, works with scripting disabled. There is no
-  build step, no bundler, no npm.
+- **No JavaScript required, as a contract.** Every feature, including the
+  admin panel and two-step deletes, works with scripting disabled. Scripts
+  are progressive enhancement only: vanilla, dependency-free, no build
+  step, no bundler, no npm.
 - **The batteries are decided.** Where micro-frameworks leave auth, caching,
   and migrations as an exercise, and full-stack frameworks make each one a
   configuration surface, Kip ships one opinionated, tested version of each.
@@ -134,9 +140,9 @@ removable by deleting its `config.php` key. Absence means off.
 - **[Tutorial](docs/tutorial.md)**: build a blog with Kip in about an hour,
   starting from `skeleton/` and ending at the complete `examples/blog/` app.
   Start here.
-- **[User guide](docs/guide/README.md)**: sixteen chapters: one per
-  battery, plus the performance contract and a workflow for building with
-  AI agents.
+- **[User guide](docs/guide/README.md)**: seventeen chapters: one per
+  battery, plus the performance contract, the usability contract, and a
+  workflow for building with AI agents.
 - **[Architecture](docs/architecture.md)**: how the pieces fit together;
   request lifecycle, cache invalidation, security lanes.
 - **[Versioning](docs/versioning.md)**: the versioning and stability

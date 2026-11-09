@@ -31,7 +31,7 @@ without it), never a package.
 
 ## JSON endpoints: opt-in per route, not a REST framework
 
-Kip renders HTML and ships zero JavaScript, so for a long time it had no
+Kip renders HTML and ships no required JavaScript, so for a long time it had no
 JSON story at all: an API layer exists to serve JS or mobile SDK
 clients, and consumers of that kind were deliberately absent. When real
 demand arrived (webhooks and simple integrations, both session-less
@@ -62,8 +62,8 @@ framework, and that's fine.
 Kip runs unchanged on ordinary shared hosting and the cheapest VPS tier.
 That is a design constraint, not an accident: the runtime requirement list
 (PHP 8.3 and the PDO extension) is the whole server spec, because zero
-dependencies and zero JavaScript mean there is nothing to compile, bundle,
-or configure before serving. Copy the app tree, point the host at
+dependencies and a build-free JavaScript policy mean there is nothing to
+compile, bundle, or configure before serving. Copy the app tree, point the host at
 `public/`, run `php bin/kip migrate`, and the app is live. One server, one
 SQLite file, no build step, no config wrangling. The one-server ceiling
 above is the same bet read from the operations side: what keeps the
@@ -90,6 +90,19 @@ app serves: one choice, one path, so the two surfaces cannot disagree.
 Below 800px the same markup restyles: the sidebar
 becomes a top bar and tables become cards, all CSS. Users who want a CSS
 framework add one themselves; Kip never ships or depends on one.
+
+JavaScript is the same story one level down: enhancement, not absence.
+Every feature works with scripting disabled, and a script earns its place
+only by making something easier or faster than the HTML round trip. When
+one is warranted, it is hand-written vanilla JavaScript: cross-browser
+down to old browsers, safe for screen readers and keyboards, DRY and KISS,
+no third-party libraries or frameworks, and no build step, because the
+file written is the file the browser runs. Scripting that vanishes when
+disabled can never strand a reader, and skipping the toolchain keeps the
+deployment contract above honest. These rules bind everything this
+repository ships; an application may set its own. The standard a script has
+to meet, and the design rules every page holds to, are the usability
+contract in [guide chapter 17](guide/17-usability.md).
 
 ## Batteries where the design space agrees, delegation where it doesn't
 

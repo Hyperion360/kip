@@ -1,0 +1,1 @@
+Changed: the zero-JavaScript contract is now a progressive-enhancement policy: every framework feature still works with scripting disabled, and enhancement scripts are hand-written vanilla JavaScript with no libraries, no build step, no bundler, and no npm.

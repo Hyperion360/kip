@@ -127,14 +127,35 @@ convention only.
 
 ## Adding your own JavaScript
 
-Zero JavaScript means the framework: no build step, no bundler, no npm, and
-every framework feature works with scripting disabled. Your app is free to
-add plain JavaScript where it earns its keep; the default
-Content-Security-Policy permits it, and Kip will never require a JS
-framework or ship one. A `<script>` tag in your layout is the whole
-integration: templates are plain PHP files, so nothing in the framework
-needs to know a script exists, and the default policy that lets it run is
+No JavaScript is required: every framework feature works with scripting
+disabled. A `<script>` tag in your layout is the whole integration:
+templates are plain PHP files, so nothing in the framework needs to know a
+script exists, and the default Content-Security-Policy that lets it run is
 listed with the other security headers in [chapter 6](06-security.md).
+
+The framework holds itself to a progressive-enhancement policy, and it is
+the shape that keeps the no-build deployment contract intact if your app
+follows it too:
+
+- **Enhancement only.** A script exists to make something easier or faster
+  than the HTML round trip: inline feedback, a quicker toggle, fewer
+  reloads. If a form POST and a re-render do the job, ship those and skip
+  the script.
+- **Nothing breaks without it.** Content, navigation, and form submission
+  work with scripting disabled; the script adds convenience, never a
+  requirement. Every framework feature holds to this unconditionally,
+  screen readers and old browsers included.
+- **Vanilla and dependency-free.** Hand-written JavaScript only: no
+  libraries, no frameworks, no npm, no bundler, no build step, no
+  transpilation. The file you write is the file the browser downloads and
+  runs, which is also why it stays cross-browser: write for the browsers
+  you serve, feature-detect capabilities, never sniff user agents.
+- **Small, DRY, KISS.** No duplicated logic, no cleverness: one concern per
+  script, a shared helper instead of a copy, boring code a reviewer can
+  hold in their head.
+
+Your app may set its own rules; these bind the framework, the skeleton,
+the examples, and the docs.
 
 ## Reserved data keys
 

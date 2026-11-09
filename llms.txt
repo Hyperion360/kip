@@ -1,7 +1,7 @@
 # Kip
 
 > Kip is a plain-PHP, batteries-included framework for server-rendered apps:
-> zero runtime dependencies, zero JavaScript, SQLite by default, PHP 8.3+.
+> zero runtime dependencies, no JavaScript required, SQLite by default, PHP 8.3+.
 > Routing, sessions, auth, migrations, caching, uploads, email, the audit
 > log, and a schema-driven admin panel are included and tested. Kip runs
 > unchanged on ordinary shared hosting and on the cheapest VPS tier, with no
@@ -11,7 +11,7 @@
 
 - [README](README.md): what Kip is, the deployment contract, install paths.
 - [Tutorial](docs/tutorial.md): build a working blog in about an hour.
-- [User guide](docs/guide/README.md): the reference manual, sixteen
+- [User guide](docs/guide/README.md): the reference manual, seventeen
   example-first chapters.
 
 ## Reference

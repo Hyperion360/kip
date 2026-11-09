@@ -7,10 +7,10 @@ with any capable coding assistant.
 
 ## Why agents do well with Kip
 
-Zero JavaScript means zero toolchain. There is no bundler to configure
-wrong, no build step to forget, no framework magic between the file an
-agent edits and the behavior it tests. Every page is a PHP file that
-renders HTML.
+The JavaScript policy is enhancement-only with no build step, so the
+toolchain is zero: no bundler to configure wrong, no build step to forget,
+no framework magic between the file an agent edits and the behavior it
+tests. Every page is a PHP file that renders HTML.
 
 Zero runtime dependencies means the whole system fits in a context window:
 the framework source is small, plain, and final classes all the way down.
@@ -64,9 +64,11 @@ misses.
 Write your constraints down where the agent reads them every session: a
 project instructions file (AGENTS.md is the common convention) stating the
 stack, the commands, the port rules, the commit identity, the writing
-style, and the hard invariants (zero JavaScript, the performance contract
-from [chapter 15](15-performance-contract.md), no dependencies). Rules in a
-file the agent re-reads beat rules you repeat in chat.
+style, and the hard invariants (every feature works with scripting
+disabled, enhancement scripts are vanilla and dependency-free, the
+performance contract from [chapter 15](15-performance-contract.md), no
+dependencies). Rules in a file the agent re-reads beat rules you repeat in
+chat.
 
 Track phases in a file the agent updates: a table of phases, plan
 documents, commits, and QA verdicts. Agents drift less when the state of
@@ -324,8 +326,8 @@ for ($step = 0; $step < 4; $step++) {
 reads around it (tenant key lookup, tool queries), so keep it off the
 normal page-render path: trigger it from a POST action or a queued job,
 write a pending row, and render the result when it is ready, as plain HTML.
-No streaming, no JavaScript, and the zero-JS contract holds. The rate
-limiter counts only non-GET requests to a configured prefix (`Kip\RateLimit`,
+No streaming, no JavaScript, and the works-without-scripting guarantee
+holds. The rate limiter counts only non-GET requests to a configured prefix (`Kip\RateLimit`,
 [chapter 6](06-security.md)), which is one more reason the trigger is a
 POST. Set `max_tokens` and a timeout on every call, and cache results that
 only depend on their input.

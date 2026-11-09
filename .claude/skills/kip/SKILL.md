@@ -14,8 +14,8 @@ allowed-tools:
 # Kip
 
 Kip (~/Sites/MVC-Lite) is a plain-PHP, batteries-included, server-rendered
-framework: PHP 8.3+, zero runtime dependencies, zero JavaScript, SQLite by
-default. KipSaaS (~/Sites/kipsaas) is its SaaS starter kit: multi-tenant
+framework: PHP 8.3+, zero runtime dependencies, no JavaScript required,
+SQLite by default. KipSaaS (~/Sites/kipsaas) is its SaaS starter kit: multi-tenant
 subscriptions with production-hardened Stripe billing.
 
 ## Read the committed contracts first
@@ -23,6 +23,8 @@ subscriptions with production-hardened Stripe billing.
 - ~/Sites/MVC-Lite/AGENTS.md is committed product: hard constraints, the
   gate command, the writing style, the one-query budget. Read it before
   touching anything in that repo.
+- ~/Sites/MVC-Lite/docs/guide/17-usability.md is the usability contract for any
+  interface work: read it before changing a page.
 - ~/Sites/kipsaas/AGENTS.md likewise, including the engine-vs-demo boundary
   (src/ is generic machinery; the demo app binds config) and the porting
   leak-guard grep.
@@ -35,9 +37,10 @@ subscriptions with production-hardened Stripe billing.
   directory to PATH).
   In KipSaaS the suite alone is
   `PATH="/opt/homebrew/bin:$PATH" vendor/bin/phpunit`.
-- Zero runtime dependencies (Kip: php + ext-pdo only), zero JavaScript, no
-  build step, every framework class final (the abstract Migration base
-  excepted).
+- Zero runtime dependencies (Kip: php + ext-pdo only), JavaScript is
+  enhancement only (works with scripting disabled; hand-written vanilla,
+  no libraries, no build step), every framework class final (the abstract
+  Migration base excepted).
 - No em dashes in any committed file. Operator voice, real numbers, no
   banned words (leverage, synergy, empower, revolutionize, supercharge,
   delve, unlock, elevate, seamless, robust).

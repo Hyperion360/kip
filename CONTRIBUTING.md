@@ -11,7 +11,7 @@ suite, stopping at the first failure. A pull request that does not pass it
 does not get reviewed; run it before every commit you send.
 
 Setup: clone, `composer install`, run the gate. The suite needs only
-SQLite and runs in seconds; there is no JavaScript, no build step, and no
+SQLite and runs in seconds; no JavaScript is required, no build step, and no
 other tooling to install.
 
 What the gate enforces beyond the tests:

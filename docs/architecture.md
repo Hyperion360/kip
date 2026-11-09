@@ -1,7 +1,7 @@
 # Architecture
 
 Kip is a batteries-included, server-rendered framework for PHP 8.3+ with
-zero JavaScript and zero runtime dependencies. `composer.json` requires
+zero runtime dependencies; no JavaScript is required. `composer.json` requires
 exactly `php >= 8.3` and `ext-pdo`. The whole core is 35 PHP files under
 `src/`, roughly 2,050 lines, and every class in it is `final` except
 `Kip\Migrations\Migration`, the abstract base your own migrations extend.
@@ -272,7 +272,7 @@ lets PDO throw. At the `App::process()` boundary they all become
 - **No inheritance seams.** Every class is `final` (the abstract
   `Migration` base excepted), so internals can be refactored freely
 . Nothing outside can grow a dependency on them.
-- **No runtime dependencies, no JavaScript, no build step.**
+- **No runtime dependencies, no required JavaScript, no build step.**
 
 Each of these was chosen, not overlooked. The reasoning, and the
 alternatives that were rejected, are written up in

@@ -1,0 +1,1 @@
+Added: guide chapter 17, the usability contract: pages answer the reader's questions by eye, context is inferred before it is asked for, interaction is a cost paid only when it buys something, and state is always visible.
