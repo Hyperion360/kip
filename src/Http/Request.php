@@ -101,10 +101,11 @@ final class Request
         return $this->post[$key] ?? $this->get[$key] ?? $default;
     }
 
-    /** Form-field convenience: fetch, cast, trim (review 3A). */
+    /** Form-field convenience: fetch, cast, trim (review 3A). A non-scalar value (`?k[]=x`) reads as ''. */
     public function str(string $key): string
     {
-        return trim((string) $this->input($key));
+        $v = $this->input($key);
+        return is_scalar($v) ? trim((string) $v) : '';
     }
 
     /** POST-only variant of str(), for credentials and CSRF tokens (QA T6). */

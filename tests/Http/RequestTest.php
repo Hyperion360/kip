@@ -45,6 +45,20 @@ final class RequestTest extends TestCase
         $this->assertSame('', $r->str('missing'));
     }
 
+    public function test_str_treats_an_array_value_as_empty_without_a_warning(): void // ?oauth[]=x used to raise "Array to string conversion"
+    {
+        $r = new Request('GET', '/x', ['oauth' => ['x']], ['title' => ['a']], []);
+        $warnings = [];
+        set_error_handler(function (int $no, string $msg) use (&$warnings): bool { $warnings[] = $msg; return true; });
+        try {
+            $this->assertSame('', $r->str('oauth'));
+            $this->assertSame('', $r->str('title'));
+        } finally {
+            restore_error_handler();
+        }
+        $this->assertSame([], $warnings);
+    }
+
     public function test_from_globals_uses_remote_addr_by_default(): void // v0.1.1 T5 (also closes the fromGlobals coverage gap)
     {
         $r = Request::fromGlobals(server: [
