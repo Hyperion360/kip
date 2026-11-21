@@ -149,9 +149,25 @@ denylist (execution and script-family types: `php`, `html`, `svg`,
 `pdf` is default-allowed and served from your origin, where some
 viewers execute embedded script, strip it from the list (or serve
 `/uploads` with `Content-Disposition: attachment`) if your threat model
-cares; and no thumbnails, no S3 or any object
-store, and images are never re-encoded. Finfo reads the magic bytes
+cares; and no thumbnails and no S3 or any object
+store. `Storage` itself never re-encodes: Finfo reads the magic bytes
 at the head of the file, so a real PNG with junk appended passes and
 keeps its junk. If that matters for your app, re-encode user images
-yourself. These are boundary decisions, not TODOs, see
+with `Kip\Image` (below). These are boundary decisions, not TODOs, see
 [design decisions](../design-decisions.md).
+
+## Re-encoding images
+
+`Kip\Image::toWebp($src, $dest)` decodes an untrusted raster with GD and
+writes a fresh WebP, so the stored bytes and their metadata (EXIF
+location, embedded payloads) are never the sender's. It rejects an image
+over `maxPixels` (default 16 million) before decoding, caps the longest
+edge at `maxEdge` (default 2000 pixels, never enlarges), applies JPEG
+orientation, keeps PNG transparency, and returns
+`['width' => int, 'height' => int, 'bytes' => int]`. A file GD cannot
+decode throws `Kip\ImageException`.
+
+ext-gd stays optional. Call `Image::available()` first and store the
+original when it is false. `Image::isAnimated($file)` flags a multi-frame
+GIF or an animated WebP, which GD would flatten to one frame, so keep
+those as uploaded.
