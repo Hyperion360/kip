@@ -193,6 +193,20 @@ final class ImageTest extends TestCase
         $this->assertTrue(Image::isAnimated($this->dir . '/split.gif'));
     }
 
+    public function test_it_refuses_stream_wrappers_and_missing_paths_as_a_source(): void
+    {
+        $this->needGd();
+        foreach (['data://image/png;base64,iVBORw0KGgo=', 'phar://' . $this->dir . '/x.phar/a.png', $this->dir . '/missing.png'] as $src) {
+            try {
+                Image::toWebp($src, $this->dir . '/w.webp');
+                $this->fail("expected ImageException for $src");
+            } catch (ImageException) {
+                $this->assertFileDoesNotExist($this->dir . '/w.webp');
+            }
+        }
+        $this->assertFalse(Image::isAnimated('data://text/plain;base64,R0lGODlh'));
+    }
+
     public function test_it_reports_a_clear_error_when_gd_is_missing(): void
     {
         if (Image::available()) $this->markTestSkipped('GD is loaded; the fallback path cannot be reached');

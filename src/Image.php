@@ -20,6 +20,7 @@ final class Image
     /** A GIF with more than one frame, or a WebP whose VP8X header sets the animation flag. GD would flatten these. */
     public static function isAnimated(string $file): bool
     {
+        if (!self::isLocalFile($file)) return false;
         $head = (string) @file_get_contents($file, false, null, 0, 32);
         if (str_starts_with($head, 'GIF8')) {
             // More than one graphic control extension means more than one frame. A false positive only keeps the original.
@@ -30,6 +31,12 @@ final class Image
             return substr($head, 12, 4) === 'VP8X' && (ord($head[20]) & 0x02) !== 0;
         }
         return false;
+    }
+
+    /** Stream wrappers (http://, phar://, data:) are never a valid source: callers pass a local upload path. */
+    private static function isLocalFile(string $path): bool
+    {
+        return !str_contains($path, '://') && !str_starts_with($path, 'data:') && is_file($path);
     }
 
     /** Count $needle in a file read in 64 KB chunks (never the whole file), stopping at $stopAt matches. */
@@ -57,6 +64,7 @@ final class Image
     public static function toWebp(string $src, string $dest, int $maxEdge = 2000, int $quality = 82, int $maxPixels = 16_000_000): array
     {
         if (!self::available()) throw new ImageException('GD with WebP support is not available');
+        if (!self::isLocalFile($src)) throw new ImageException('not a local file');
         $info = @getimagesize($src);
         if ($info === false) throw new ImageException('not a readable image');
         [$w, $h, $type] = $info;
