@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-24
+
+### Added
+- `Kip\Image` re-encodes untrusted rasters to WebP (pixel cap checked before decoding, longest-edge resize, JPEG orientation, PNG transparency), with `Image::available()` and `Image::isAnimated()`. ext-gd stays optional; `Kip\ImageException` reports undecodable images.
+- guide chapter 17, the usability contract: pages answer the reader's questions by eye, context is inferred before it is asked for, interaction is a cost paid only when it buys something, and state is always visible.
+
+### Changed
+- the zero-JavaScript contract is now a progressive-enhancement policy: every framework feature still works with scripting disabled, and enhancement scripts are hand-written vanilla JavaScript with no libraries, no build step, no bundler, and no npm.
+
+### Fixed
+- Request::str() returns an empty string for an array value such as ?name[]=x instead of raising an "Array to string conversion" warning.
+
 ## [0.6.0] - 2026-10-26
 
 ### Added
