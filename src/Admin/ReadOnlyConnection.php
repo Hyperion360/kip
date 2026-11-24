@@ -35,7 +35,9 @@ final class ReadOnlyConnection
         $this->pdo = new \PDO('sqlite:file:' . self::uriPath($path) . '?mode=ro', null, null, [
             \PDO::ATTR_ERRMODE            => \PDO::ERRMODE_EXCEPTION,
             \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
-            \PDO::SQLITE_ATTR_OPEN_FLAGS  => \PDO::SQLITE_OPEN_READONLY,
+            // PHP 8.5 deprecates the PDO:: spelling; Pdo\Sqlite arrived in 8.4, so 8.3 still needs the old one.
+            (\defined('Pdo\Sqlite::ATTR_OPEN_FLAGS') ? \constant('Pdo\Sqlite::ATTR_OPEN_FLAGS') : \constant('PDO::SQLITE_ATTR_OPEN_FLAGS'))
+                => (\defined('Pdo\Sqlite::OPEN_READONLY') ? \constant('Pdo\Sqlite::OPEN_READONLY') : \constant('PDO::SQLITE_OPEN_READONLY')),
         ]);
         // A checkpoint-time BUSY on a RO handle is rare, but the pragma is one
         // line: this raw open stays aligned with Database's bounded wait
