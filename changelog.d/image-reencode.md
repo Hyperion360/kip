@@ -1,0 +1,1 @@
+Added: `Kip\Image` re-encodes untrusted rasters to WebP (pixel cap checked before decoding, longest-edge resize, JPEG orientation, PNG transparency), with `Image::available()` and `Image::isAnimated()`. ext-gd stays optional; `Kip\ImageException` reports undecodable images.
